@@ -1,0 +1,21 @@
+{
+  "name": "pkgl",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "pkgl": "./src/index.ts"
+  },
+  "dependencies": {
+    "citty": "^0.1",
+    "picocolors": "^1.1",
+    "yaml": "^2.7",
+    "@manypkg/get-packages": "^2.2",
+    "dependency-graph": "^1.0",
+    "verdaccio": "^6",
+    "libnpmpublish": "^10"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7"
+  }
+}
