@@ -78,7 +78,7 @@ async function publishSinglePackage(
         if (entry.rewrittenDeps[name]) {
           pkgJson[field][name] = entry.rewrittenDeps[name];
         } else if (typeof version === "string" && version.startsWith("workspace:")) {
-          pkgJson[field][name] = (version as string).replace("workspace:", "");
+          pkgJson[field][name] = resolveWorkspaceProtocol(version as string);
         }
       }
     }
@@ -87,7 +87,7 @@ async function publishSinglePackage(
     if (pkgJson.devDependencies) {
       for (const [name, version] of Object.entries(pkgJson.devDependencies)) {
         if (typeof version === "string" && version.startsWith("workspace:")) {
-          pkgJson.devDependencies[name] = (version as string).replace("workspace:", "");
+          pkgJson.devDependencies[name] = resolveWorkspaceProtocol(version as string);
         }
       }
     }
@@ -127,4 +127,15 @@ async function rollbackPackage(spec: string, registryUrl: string): Promise<boole
     log.warn(`Failed to rollback ${spec}`);
     return false;
   }
+}
+
+function resolveWorkspaceProtocol(spec: string): string {
+  const value = spec.slice("workspace:".length);
+  // Shorthand forms (workspace:^, workspace:~, workspace:*) are only valid between
+  // workspace siblings. Those siblings should be in rewrittenDeps and never reach here.
+  // If they do (edge case), strip to a permissive range that Verdaccio can proxy-resolve.
+  if (value === "*") return "*";
+  if (value === "^" || value === "~") return "*";
+  // Full form: workspace:^1.0.0 -> ^1.0.0, workspace:~2.3.0 -> ~2.3.0
+  return value;
 }
