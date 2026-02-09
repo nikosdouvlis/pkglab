@@ -71,6 +71,34 @@ export default defineCommand({
       for (const entry of plan.packages) {
         log.line(`  ${entry.name}@${entry.version}`);
       }
+
+      // Auto-update active consumer repos
+      const { getActiveRepos, saveRepoState: saveRepo } = await import("../lib/repo-state");
+      const { detectPackageManager } = await import("../lib/pm-detect");
+      const { updatePackageJsonVersion, scopedInstall } = await import("../lib/consumer");
+
+      const activeRepos = await getActiveRepos();
+      if (activeRepos.length > 0) {
+        log.info("\nUpdating active repos:");
+        for (const { name, state } of activeRepos) {
+          const pm = await detectPackageManager(state.path);
+          const updated: string[] = [];
+
+          for (const entry of plan.packages) {
+            if (state.packages[entry.name]) {
+              await updatePackageJsonVersion(state.path, entry.name, entry.version);
+              await scopedInstall(state.path, entry.name, entry.version, pm);
+              state.packages[entry.name].current = entry.version;
+              updated.push(entry.name);
+            }
+          }
+
+          if (updated.length > 0) {
+            await saveRepo(name, state);
+            log.success(`  ${name}: updated ${updated.join(", ")}`);
+          }
+        }
+      }
     } finally {
       await releaseLock();
     }
