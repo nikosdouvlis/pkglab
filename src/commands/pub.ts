@@ -49,6 +49,14 @@ export default defineCommand({
       publishSet = computeCascade(graph, targets);
     }
 
+    // Seed version monotonicity from registry
+    const { seedTimestamp } = await import("../lib/version");
+    const { getPackageVersions } = await import("../lib/registry");
+    for (const pkg of publishSet) {
+      const versions = await getPackageVersions(config, pkg.name);
+      seedTimestamp(versions);
+    }
+
     const version = generateVersion();
     const plan = buildPublishPlan(publishSet, version);
 
@@ -89,12 +97,12 @@ export default defineCommand({
               await updatePackageJsonVersion(state.path, entry.name, entry.version);
               await scopedInstall(state.path, entry.name, entry.version, pm);
               state.packages[entry.name].current = entry.version;
+              await saveRepo(name, state);
               updated.push(entry.name);
             }
           }
 
           if (updated.length > 0) {
-            await saveRepo(name, state);
             log.success(`  ${name}: updated ${updated.join(", ")}`);
           }
         }

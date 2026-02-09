@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { loadRepoState } from "../../lib/repo-state";
+import { loadRepoState, validateRepoName } from "../../lib/repo-state";
 import { paths } from "../../lib/paths";
 import { join } from "node:path";
 import { rename } from "node:fs/promises";
@@ -15,9 +15,18 @@ export default defineCommand({
     const oldName = args.old as string;
     const newName = args.new_name as string;
 
+    validateRepoName(oldName);
+    validateRepoName(newName);
+
     const state = await loadRepoState(oldName);
     if (!state) {
       log.error(`Repo not found: ${oldName}`);
+      process.exit(1);
+    }
+
+    const existing = await loadRepoState(newName);
+    if (existing) {
+      log.error(`Repo already exists: ${newName}`);
       process.exit(1);
     }
 

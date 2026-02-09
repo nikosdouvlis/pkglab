@@ -15,3 +15,12 @@ export function isPkglVersion(version: string): boolean {
 export function extractTimestamp(version: string): number {
   return parseInt(version.slice(VERSION_PREFIX.length), 10);
 }
+
+export function seedTimestamp(existingVersions: string[]): void {
+  for (const v of existingVersions) {
+    if (isPkglVersion(v)) {
+      const ts = extractTimestamp(v);
+      if (ts > lastTimestamp) lastTimestamp = ts;
+    }
+  }
+}

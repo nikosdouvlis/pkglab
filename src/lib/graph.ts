@@ -65,7 +65,58 @@ export function computeCascade(
     }
   }
 
-  const fullOrder = graph.overallOrder();
-  const ordered = fullOrder.filter((name) => expanded.has(name));
+  // Deterministic toposort with lexical tie-breaking
+  const ordered = deterministicToposort(graph, expanded);
   return ordered.map((name) => graph.getNodeData(name));
+}
+
+function deterministicToposort(
+  graph: DepGraph<WorkspacePackage>,
+  subset: Set<string>
+): string[] {
+  // Build in-degree map for the subset
+  const inDegree = new Map<string, number>();
+  const adjList = new Map<string, string[]>();
+
+  for (const name of subset) {
+    inDegree.set(name, 0);
+    adjList.set(name, []);
+  }
+
+  for (const name of subset) {
+    try {
+      for (const dep of graph.directDependenciesOf(name)) {
+        if (subset.has(dep)) {
+          adjList.get(dep)!.push(name);
+          inDegree.set(name, (inDegree.get(name) || 0) + 1);
+        }
+      }
+    } catch {
+      // Skip nodes not in graph
+    }
+  }
+
+  // Kahn's algorithm with lexical tie-breaking
+  const queue = [...subset]
+    .filter((n) => inDegree.get(n) === 0)
+    .sort();
+  const result: string[] = [];
+
+  while (queue.length > 0) {
+    const node = queue.shift()!;
+    result.push(node);
+
+    for (const dependent of (adjList.get(node) || []).sort()) {
+      const newDeg = (inDegree.get(dependent) || 1) - 1;
+      inDegree.set(dependent, newDeg);
+      if (newDeg === 0) {
+        // Insert in sorted position
+        const idx = queue.findIndex((n) => n > dependent);
+        if (idx === -1) queue.push(dependent);
+        else queue.splice(idx, 0, dependent);
+      }
+    }
+  }
+
+  return result;
 }

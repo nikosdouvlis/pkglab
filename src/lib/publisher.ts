@@ -13,7 +13,7 @@ export function buildPublishPlan(
   const entries: PublishEntry[] = packages.map((pkg) => {
     const rewrittenDeps: Record<string, string> = {};
 
-    for (const field of ["dependencies", "peerDependencies"]) {
+    for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
       const deps = pkg.packageJson[field];
       if (!deps) continue;
       for (const depName of Object.keys(deps)) {
@@ -44,8 +44,13 @@ export async function executePublish(
     }
   } catch (err) {
     log.error("Publish failed, rolling back...");
+    const rollbackFailures: string[] = [];
     for (const spec of published) {
-      await rollbackPackage(spec, registryUrl);
+      const ok = await rollbackPackage(spec, registryUrl);
+      if (!ok) rollbackFailures.push(spec);
+    }
+    if (rollbackFailures.length > 0) {
+      log.error(`Rollback incomplete — these packages may still exist in registry: ${rollbackFailures.join(", ")}`);
     }
     throw err;
   }
@@ -106,14 +111,20 @@ async function publishSinglePackage(
   }
 }
 
-async function rollbackPackage(spec: string, registryUrl: string): Promise<void> {
+async function rollbackPackage(spec: string, registryUrl: string): Promise<boolean> {
   try {
     const proc = Bun.spawn(
       ["npm", "unpublish", spec, "--registry", registryUrl, "--force"],
       { stdout: "pipe", stderr: "pipe" }
     );
-    await proc.exited;
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      log.warn(`Failed to rollback ${spec}`);
+      return false;
+    }
+    return true;
   } catch {
     log.warn(`Failed to rollback ${spec}`);
+    return false;
   }
 }

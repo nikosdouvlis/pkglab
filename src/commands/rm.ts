@@ -1,4 +1,5 @@
 import { defineCommand } from "citty";
+import { join } from "node:path";
 import {
   removeRegistryFromNpmrc,
   removeSkipWorktree,
@@ -10,6 +11,17 @@ import {
   saveRepoState,
 } from "../lib/repo-state";
 import { log } from "../lib/log";
+
+async function removeDependency(repoPath: string, pkgName: string): Promise<void> {
+  const pkgJsonPath = join(repoPath, "package.json");
+  const pkgJson = await Bun.file(pkgJsonPath).json();
+  for (const field of ["dependencies", "devDependencies"]) {
+    if (pkgJson[field]?.[pkgName]) {
+      delete pkgJson[field][pkgName];
+    }
+  }
+  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+}
 
 export default defineCommand({
   meta: { name: "rm", description: "Remove a pkgl package, restore original" },
@@ -31,6 +43,10 @@ export default defineCommand({
     if (original) {
       await updatePackageJsonVersion(repoPath, pkgName, original);
       log.info(`Restored ${pkgName} to ${original}`);
+    } else {
+      // No original version — remove the dependency entirely
+      await removeDependency(repoPath, pkgName);
+      log.info(`Removed ${pkgName} (was added by pkgl, no original version)`);
     }
 
     delete repo.state.packages[pkgName];

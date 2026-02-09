@@ -37,6 +37,18 @@ export default defineCommand({
         if (link.original) {
           await updatePackageJsonVersion(state.path, pkgName, link.original);
           log.dim(`  ${pkgName} -> ${link.original}`);
+        } else {
+          // No original — remove the dependency
+          const { join: pathJoin } = await import("node:path");
+          const pkgJsonPath = pathJoin(state.path, "package.json");
+          const pkgJson = await Bun.file(pkgJsonPath).json();
+          for (const field of ["dependencies", "devDependencies"]) {
+            if (pkgJson[field]?.[pkgName]) {
+              delete pkgJson[field][pkgName];
+            }
+          }
+          await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+          log.dim(`  ${pkgName} removed (no original version)`);
         }
       }
 

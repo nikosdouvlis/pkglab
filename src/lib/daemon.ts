@@ -26,32 +26,24 @@ export async function startDaemon(): Promise<DaemonInfo> {
     stderr: "pipe",
   });
 
-  // Wait for READY signal
-  const reader = proc.stdout.getReader();
-  const decoder = new TextDecoder();
-  let ready = false;
-  const timeout = setTimeout(() => {
-    if (!ready) {
-      proc.kill();
+  // Wait for READY signal, process exit, or timeout
+  const result = await Promise.race([
+    waitForReady(proc),
+    waitForExit(proc),
+    timeout(10000),
+  ]);
+
+  if (result !== "ready") {
+    proc.kill();
+    if (result === "timeout") {
       throw new Error("Verdaccio failed to start within 10 seconds");
     }
-  }, 10000);
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const text = decoder.decode(value);
-    if (text.includes("READY")) {
-      ready = true;
-      clearTimeout(timeout);
-      break;
-    }
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(`Verdaccio process exited unexpectedly: ${stderr}`);
   }
 
-  // Write PID
+  // Write PID only after confirmed READY
   await Bun.write(paths.pid, String(proc.pid));
-
-  // Unref so parent can exit
   proc.unref();
 
   return { pid: proc.pid, port: config.port, running: true };
@@ -117,8 +109,36 @@ async function validatePid(pid: number): Promise<boolean> {
       stderr: "pipe",
     });
     const output = await new Response(proc.stdout).text();
-    return output.includes("verdaccio-worker") || output.includes("verdaccio");
+    // Must match our specific worker script pattern
+    return output.includes("verdaccio-worker.ts") || output.includes("bun") && output.includes("verdaccio");
   } catch {
     return false;
   }
+}
+
+async function waitForReady(proc: ReturnType<typeof Bun.spawn>): Promise<"ready"> {
+  const stdout = proc.stdout;
+  if (!stdout || typeof stdout === "number") {
+    throw new Error("stdout is not a readable stream");
+  }
+  const reader = (stdout as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) throw new Error("stdout closed before READY");
+      if (decoder.decode(value).includes("READY")) return "ready";
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function waitForExit(proc: ReturnType<typeof Bun.spawn>): Promise<"exited"> {
+  await proc.exited;
+  return "exited";
+}
+
+function timeout(ms: number): Promise<"timeout"> {
+  return new Promise((resolve) => setTimeout(() => resolve("timeout"), ms));
 }

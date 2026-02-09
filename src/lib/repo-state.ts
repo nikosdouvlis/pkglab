@@ -4,6 +4,14 @@ import { parse, stringify } from "yaml";
 import { paths } from "./paths";
 import type { RepoState } from "../types";
 
+const VALID_REPO_NAME = /^[a-zA-Z0-9._~-]+$/;
+
+export function validateRepoName(name: string): void {
+  if (!VALID_REPO_NAME.test(name) || name.includes("..")) {
+    throw new Error(`Invalid repo name: ${name}. Only alphanumeric, dots, underscores, tildes, and hyphens allowed.`);
+  }
+}
+
 export async function canonicalRepoPath(dir: string): Promise<string> {
   return realpath(dir);
 }
@@ -28,16 +36,19 @@ export async function repoFileName(repoPath: string): Promise<string> {
   }
 
   const name = await deriveRepoName(repoPath);
-  let candidate = name;
+  // Sanitize derived name
+  const safeName = name.replace(/[^a-zA-Z0-9._~-]/g, "-");
+  let candidate = safeName;
   let suffix = 2;
   while (all[candidate]) {
-    candidate = `${name}~${suffix}`;
+    candidate = `${safeName}~${suffix}`;
     suffix++;
   }
   return candidate;
 }
 
 export async function loadRepoState(name: string): Promise<RepoState | null> {
+  validateRepoName(name);
   const file = Bun.file(join(paths.reposDir, `${name}.yaml`));
   if (!(await file.exists())) return null;
   const text = await file.text();
@@ -48,6 +59,7 @@ export async function saveRepoState(
   name: string,
   state: RepoState
 ): Promise<void> {
+  validateRepoName(name);
   const filePath = join(paths.reposDir, `${name}.yaml`);
   await Bun.write(filePath, stringify(state));
 }

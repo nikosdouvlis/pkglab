@@ -70,7 +70,11 @@ export async function applySkipWorktree(repoPath: string): Promise<void> {
     ["git", "update-index", "--skip-worktree", ".npmrc"],
     { cwd: repoPath, stdout: "pipe", stderr: "pipe" }
   );
-  await proc.exited;
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    log.warn(`Failed to set skip-worktree on .npmrc: ${stderr.trim()}`);
+  }
 }
 
 export async function removeSkipWorktree(repoPath: string): Promise<void> {
@@ -78,7 +82,11 @@ export async function removeSkipWorktree(repoPath: string): Promise<void> {
     ["git", "update-index", "--no-skip-worktree", ".npmrc"],
     { cwd: repoPath, stdout: "pipe", stderr: "pipe" }
   );
-  await proc.exited;
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    log.warn(`Failed to clear skip-worktree on .npmrc: ${stderr.trim()}`);
+  }
 }
 
 export async function isSkipWorktreeSet(repoPath: string): Promise<boolean> {

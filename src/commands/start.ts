@@ -27,5 +27,17 @@ export default defineCommand({
       }
       log.dim("\nActivate repos: pkgl repos activate <name>");
     }
+
+    // Propagate port to .npmrc in linked repos
+    const { addRegistryToNpmrc } = await import("../lib/consumer");
+    for (const [name, state] of entries) {
+      if (Object.keys(state.packages).length > 0) {
+        try {
+          await addRegistryToNpmrc(state.path, info.port);
+        } catch {
+          log.warn(`Could not update .npmrc for ${name}`);
+        }
+      }
+    }
   },
 });
