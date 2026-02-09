@@ -99,6 +99,15 @@ export default defineCommand({
           }
         }
       }
+
+      // Auto-prune old versions
+      try {
+        const { pruneAll } = await import("../lib/prune");
+        const pruned = await pruneAll(config);
+        if (pruned > 0) log.dim(`Pruned ${pruned} old versions`);
+      } catch {
+        // Non-fatal
+      }
     } finally {
       await releaseLock();
     }
