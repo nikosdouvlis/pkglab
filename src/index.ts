@@ -1,3 +1,31 @@
 #!/usr/bin/env bun
 
-console.log("pkgl: not implemented yet");
+import { defineCommand, runMain } from "citty";
+import { ensurePkglDirs } from "./lib/config";
+
+const main = defineCommand({
+  meta: {
+    name: "pkgl",
+    version: "0.0.1",
+    description: "Local package development with Verdaccio",
+  },
+  subCommands: {
+    start: () => import("./commands/start").then((m) => m.default),
+    stop: () => import("./commands/stop").then((m) => m.default),
+    status: () => import("./commands/status").then((m) => m.default),
+    logs: () => import("./commands/logs").then((m) => m.default),
+    pub: () => import("./commands/pub").then((m) => m.default),
+    add: () => import("./commands/add").then((m) => m.default),
+    rm: () => import("./commands/rm").then((m) => m.default),
+    repos: () => import("./commands/repos/index").then((m) => m.default),
+    pkgs: () => import("./commands/pkgs/index").then((m) => m.default),
+    doctor: () => import("./commands/doctor").then((m) => m.default),
+    prune: () => import("./commands/prune").then((m) => m.default),
+    check: () => import("./commands/check").then((m) => m.default),
+  },
+  async setup() {
+    await ensurePkglDirs();
+  },
+});
+
+runMain(main);
