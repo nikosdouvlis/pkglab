@@ -11,7 +11,7 @@ async function main() {
   await mkdir(paths.verdaccioStorage, { recursive: true });
 
   const config = await loadConfig();
-  const verdaccioConfig = buildVerdaccioConfig(config);
+  const verdaccioConfig = buildVerdaccioConfig();
 
   const app = await runServer(verdaccioConfig);
 

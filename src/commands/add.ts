@@ -17,7 +17,6 @@ import { getPackageVersions } from "../lib/registry";
 import { isPkglVersion, extractTimestamp } from "../lib/version";
 import { log } from "../lib/log";
 import { DaemonNotRunningError } from "../lib/errors";
-import type { RepoState } from "../types";
 
 export default defineCommand({
   meta: { name: "add", description: "Add a pkgl package to this repo" },

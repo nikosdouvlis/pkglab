@@ -1,7 +1,6 @@
 import { paths } from "./paths";
-import type { PkglConfig } from "../types";
 
-export function buildVerdaccioConfig(config: PkglConfig) {
+export function buildVerdaccioConfig() {
   return {
     self_path: paths.verdaccioDir,
     storage: paths.verdaccioStorage,
