@@ -27,16 +27,37 @@ export function buildDependencyGraph(
   return graph;
 }
 
+export interface CascadeResult {
+  packages: WorkspacePackage[];
+  // Per-target: direct workspace dependencies
+  dependencies: Record<string, string[]>;
+  // Per-target: transitive dependents (packages that depend on the target)
+  dependents: Record<string, string[]>;
+}
+
 export function computeCascade(
   graph: DepGraph<WorkspacePackage>,
   changedPackages: string[]
-): WorkspacePackage[] {
+): CascadeResult {
+  const dependencies: Record<string, string[]> = {};
+  const dependents: Record<string, string[]> = {};
   const closure = new Set<string>();
 
   for (const name of changedPackages) {
     closure.add(name);
+
     try {
-      for (const dep of graph.dependantsOf(name)) {
+      dependencies[name] = graph.directDependenciesOf(name).filter(
+        (dep) => dep !== name
+      );
+    } catch {
+      dependencies[name] = [];
+    }
+
+    try {
+      const transitiveDependents = graph.dependantsOf(name);
+      dependents[name] = transitiveDependents;
+      for (const dep of transitiveDependents) {
         closure.add(dep);
       }
     } catch (err: any) {
@@ -67,7 +88,11 @@ export function computeCascade(
 
   // Deterministic toposort with lexical tie-breaking
   const ordered = deterministicToposort(graph, expanded);
-  return ordered.map((name) => graph.getNodeData(name));
+  return {
+    packages: ordered.map((name) => graph.getNodeData(name)),
+    dependencies,
+    dependents,
+  };
 }
 
 function deterministicToposort(

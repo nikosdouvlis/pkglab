@@ -1,53 +1,53 @@
-export class PkglError extends Error {
+export class pkglabError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "PkglError";
+    this.name = "pkglabError";
   }
 }
 
-export class DaemonNotRunningError extends PkglError {
-  constructor(msg = "Verdaccio is not running. Run: pkgl up") {
+export class DaemonNotRunningError extends pkglabError {
+  constructor(msg = "Verdaccio is not running. Run: pkglab up") {
     super(msg);
     this.name = "DaemonNotRunningError";
   }
 }
 
-export class DaemonAlreadyRunningError extends PkglError {
+export class DaemonAlreadyRunningError extends pkglabError {
   constructor(msg: string) {
     super(msg);
     this.name = "DaemonAlreadyRunningError";
   }
 }
 
-export class PortInUseError extends PkglError {
+export class PortInUseError extends pkglabError {
   constructor(port: number) {
     super(`Port ${port} is already in use`);
     this.name = "PortInUseError";
   }
 }
 
-export class LockAcquisitionError extends PkglError {
+export class LockAcquisitionError extends pkglabError {
   constructor(msg: string) {
     super(msg);
     this.name = "LockAcquisitionError";
   }
 }
 
-export class CycleDetectedError extends PkglError {
+export class CycleDetectedError extends pkglabError {
   constructor(msg: string) {
     super(msg);
     this.name = "CycleDetectedError";
   }
 }
 
-export class NpmrcConflictError extends PkglError {
+export class NpmrcConflictError extends pkglabError {
   constructor(msg: string) {
     super(msg);
     this.name = "NpmrcConflictError";
   }
 }
 
-export class PackageManagerAmbiguousError extends PkglError {
+export class PackageManagerAmbiguousError extends pkglabError {
   constructor(msg: string) {
     super(msg);
     this.name = "PackageManagerAmbiguousError";

@@ -1,12 +1,13 @@
-import type { PkglConfig } from "../types";
+import type { pkglabConfig } from "../types";
+import { npmEnvWithAuth } from "./publisher";
 
-function registryUrl(config: PkglConfig): string {
+function registryUrl(config: pkglabConfig): string {
   return `http://127.0.0.1:${config.port}`;
 }
 
 export async function getPackageVersions(
-  config: PkglConfig,
-  name: string
+  config: pkglabConfig,
+  name: string,
 ): Promise<string[]> {
   try {
     const url = `${registryUrl(config)}/${encodeURIComponent(name)}`;
@@ -20,29 +21,38 @@ export async function getPackageVersions(
 }
 
 export async function listAllPackages(
-  config: PkglConfig
+  config: pkglabConfig,
 ): Promise<Array<{ name: string; versions: string[] }>> {
   try {
-    const resp = await fetch(`${registryUrl(config)}/-/verdaccio/packages`);
+    const resp = await fetch(
+      `${registryUrl(config)}/-/verdaccio/data/packages`,
+    );
     if (!resp.ok) return [];
     const data = (await resp.json()) as any[];
-    return data.map((pkg: any) => ({
-      name: pkg.name,
-      versions: Object.keys(pkg.versions || {}),
-    }));
+    const names = data.map((pkg: any) => pkg.name as string);
+
+    // Fetch full version lists in parallel
+    const results = await Promise.all(
+      names.map(async (name) => ({
+        name,
+        versions: await getPackageVersions(config, name),
+      })),
+    );
+    return results;
   } catch {
     return [];
   }
 }
 
 export async function unpublishVersion(
-  config: PkglConfig,
+  config: pkglabConfig,
   name: string,
-  version: string
+  version: string,
 ): Promise<void> {
+  const url = registryUrl(config);
   const proc = Bun.spawn(
-    ["npm", "unpublish", `${name}@${version}`, "--registry", registryUrl(config), "--force"],
-    { stdout: "pipe", stderr: "pipe" }
+    ["npm", "unpublish", `${name}@${version}`, "--registry", url, "--force"],
+    { stdout: "pipe", stderr: "pipe", env: npmEnvWithAuth(url) },
   );
   const exitCode = await proc.exited;
   if (exitCode !== 0) {

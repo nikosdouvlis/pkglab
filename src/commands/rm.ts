@@ -12,7 +12,10 @@ import {
 } from "../lib/repo-state";
 import { log } from "../lib/log";
 
-async function removeDependency(repoPath: string, pkgName: string): Promise<void> {
+async function removeDependency(
+  repoPath: string,
+  pkgName: string,
+): Promise<void> {
   const pkgJsonPath = join(repoPath, "package.json");
   const pkgJson = await Bun.file(pkgJsonPath).json();
   for (const field of ["dependencies", "devDependencies"]) {
@@ -24,7 +27,10 @@ async function removeDependency(repoPath: string, pkgName: string): Promise<void
 }
 
 export default defineCommand({
-  meta: { name: "rm", description: "Remove a pkgl package, restore original" },
+  meta: {
+    name: "rm",
+    description: "Remove a pkglab package, restore original",
+  },
   args: {
     name: { type: "positional", description: "Package name", required: true },
   },
@@ -34,7 +40,7 @@ export default defineCommand({
 
     const repo = await findRepoByPath(repoPath);
     if (!repo || !repo.state.packages[pkgName]) {
-      log.warn(`${pkgName} is not linked via pkgl in this repo`);
+      log.warn(`${pkgName} is not linked via pkglab in this repo`);
       return;
     }
 
@@ -46,7 +52,7 @@ export default defineCommand({
     } else {
       // No original version — remove the dependency entirely
       await removeDependency(repoPath, pkgName);
-      log.info(`Removed ${pkgName} (was added by pkgl, no original version)`);
+      log.info(`Removed ${pkgName} (was added by pkglab, no original version)`);
     }
 
     delete repo.state.packages[pkgName];
@@ -55,9 +61,9 @@ export default defineCommand({
     if (Object.keys(repo.state.packages).length === 0) {
       await removeRegistryFromNpmrc(repoPath);
       await removeSkipWorktree(repoPath);
-      log.info("All pkgl packages removed, .npmrc restored");
+      log.info("All pkglab packages removed, .npmrc restored");
     }
 
-    log.success(`Removed ${pkgName} from pkgl`);
+    log.success(`Removed ${pkgName} from pkglab`);
   },
 });

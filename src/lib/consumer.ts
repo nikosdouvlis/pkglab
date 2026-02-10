@@ -4,12 +4,12 @@ import { NpmrcConflictError } from "./errors";
 import { detectPackageManager, installCommand } from "./pm-detect";
 import type { PackageManager } from "./pm-detect";
 
-const MARKER_START = "# pkgl-start";
-const MARKER_END = "# pkgl-end";
+const MARKER_START = "# pkglab-start";
+const MARKER_END = "# pkglab-end";
 
 export async function addRegistryToNpmrc(
   repoPath: string,
-  port: number
+  port: number,
 ): Promise<{ isFirstTime: boolean }> {
   const npmrcPath = join(repoPath, ".npmrc");
   const file = Bun.file(npmrcPath);
@@ -21,7 +21,7 @@ export async function addRegistryToNpmrc(
 
     if (content.includes(MARKER_START)) {
       isFirstTime = false;
-      content = removePkglBlock(content);
+      content = removepkglabBlock(content);
     }
 
     for (const line of content.split("\n")) {
@@ -32,7 +32,7 @@ export async function addRegistryToNpmrc(
         !trimmed.includes("127.0.0.1")
       ) {
         throw new NpmrcConflictError(
-          `Existing registry in .npmrc: ${trimmed}\npkgl cannot override this.`
+          `Existing registry in .npmrc: ${trimmed}\npkglab cannot override this.`,
         );
       }
     }
@@ -51,11 +51,11 @@ export async function removeRegistryFromNpmrc(repoPath: string): Promise<void> {
   if (!(await file.exists())) return;
 
   let content = await file.text();
-  content = removePkglBlock(content);
+  content = removepkglabBlock(content);
   await Bun.write(npmrcPath, content);
 }
 
-function removePkglBlock(content: string): string {
+function removepkglabBlock(content: string): string {
   const startIdx = content.indexOf(MARKER_START);
   const endIdx = content.indexOf(MARKER_END);
   if (startIdx === -1 || endIdx === -1) return content;
@@ -66,10 +66,14 @@ function removePkglBlock(content: string): string {
 }
 
 export async function applySkipWorktree(repoPath: string): Promise<void> {
-  const proc = Bun.spawn(
-    ["git", "update-index", "--skip-worktree", ".npmrc"],
-    { cwd: repoPath, stdout: "pipe", stderr: "pipe" }
-  );
+  // skip-worktree only works on tracked files
+  if (!(await isTrackedByGit(repoPath, ".npmrc"))) return;
+
+  const proc = Bun.spawn(["git", "update-index", "--skip-worktree", ".npmrc"], {
+    cwd: repoPath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
     const stderr = await new Response(proc.stderr).text();
@@ -78,9 +82,11 @@ export async function applySkipWorktree(repoPath: string): Promise<void> {
 }
 
 export async function removeSkipWorktree(repoPath: string): Promise<void> {
+  if (!(await isTrackedByGit(repoPath, ".npmrc"))) return;
+
   const proc = Bun.spawn(
     ["git", "update-index", "--no-skip-worktree", ".npmrc"],
-    { cwd: repoPath, stdout: "pipe", stderr: "pipe" }
+    { cwd: repoPath, stdout: "pipe", stderr: "pipe" },
   );
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
@@ -89,11 +95,22 @@ export async function removeSkipWorktree(repoPath: string): Promise<void> {
   }
 }
 
+async function isTrackedByGit(repoPath: string, file: string): Promise<boolean> {
+  const proc = Bun.spawn(["git", "ls-files", file], {
+    cwd: repoPath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const output = await new Response(proc.stdout).text();
+  return output.trim().length > 0;
+}
+
 export async function isSkipWorktreeSet(repoPath: string): Promise<boolean> {
-  const proc = Bun.spawn(
-    ["git", "ls-files", "-v", ".npmrc"],
-    { cwd: repoPath, stdout: "pipe", stderr: "pipe" }
-  );
+  const proc = Bun.spawn(["git", "ls-files", "-v", ".npmrc"], {
+    cwd: repoPath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const output = await new Response(proc.stdout).text();
   return output.startsWith("S ");
 }
@@ -102,24 +119,33 @@ export async function scopedInstall(
   repoPath: string,
   pkgName: string,
   version: string,
-  pm?: PackageManager
+  pm?: PackageManager,
 ): Promise<void> {
   const detectedPm = pm || (await detectPackageManager(repoPath));
   const cmd = installCommand(detectedPm, pkgName, version);
 
   log.dim(`  ${cmd.join(" ")}`);
-  const proc = Bun.spawn(cmd, { cwd: repoPath, stdout: "pipe", stderr: "pipe" });
-  const exitCode = await proc.exited;
+  const proc = Bun.spawn(cmd, {
+    cwd: repoPath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  // Read streams concurrently with waiting for exit to avoid data loss
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
   if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`Install failed: ${stderr}`);
+    const output = (stderr || stdout).trim();
+    throw new Error(`Install failed (${detectedPm}): ${output}`);
   }
 }
 
 export async function updatePackageJsonVersion(
   repoPath: string,
   pkgName: string,
-  version: string
+  version: string,
 ): Promise<{ previousVersion: string }> {
   const pkgJsonPath = join(repoPath, "package.json");
   const pkgJson = await Bun.file(pkgJsonPath).json();

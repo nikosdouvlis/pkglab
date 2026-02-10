@@ -1,4 +1,4 @@
-const VERSION_PREFIX = "0.0.0-pkgl.";
+const VERSION_PREFIX = "0.0.0-pkglab.";
 let lastTimestamp = 0;
 
 export function generateVersion(): string {
@@ -8,7 +8,7 @@ export function generateVersion(): string {
   return `${VERSION_PREFIX}${ts}`;
 }
 
-export function isPkglVersion(version: string): boolean {
+export function ispkglabVersion(version: string): boolean {
   return version.startsWith(VERSION_PREFIX);
 }
 
@@ -18,7 +18,7 @@ export function extractTimestamp(version: string): number {
 
 export function seedTimestamp(existingVersions: string[]): void {
   for (const v of existingVersions) {
-    if (isPkglVersion(v)) {
+    if (ispkglabVersion(v)) {
       const ts = extractTimestamp(v);
       if (ts > lastTimestamp) lastTimestamp = ts;
     }

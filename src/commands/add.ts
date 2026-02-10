@@ -14,12 +14,12 @@ import {
   saveRepoState,
 } from "../lib/repo-state";
 import { getPackageVersions } from "../lib/registry";
-import { isPkglVersion, extractTimestamp } from "../lib/version";
+import { ispkglabVersion, extractTimestamp } from "../lib/version";
 import { log } from "../lib/log";
 import { DaemonNotRunningError } from "../lib/errors";
 
 export default defineCommand({
-  meta: { name: "add", description: "Add a pkgl package to this repo" },
+  meta: { name: "add", description: "Add a pkglab package to this repo" },
   args: {
     name: { type: "positional", description: "Package name", required: true },
   },
@@ -32,32 +32,34 @@ export default defineCommand({
     const pkgName = args.name as string;
 
     const versions = await getPackageVersions(config, pkgName);
-    const pkglVersions = versions
-      .filter(isPkglVersion)
+    const pkglabVersions = versions
+      .filter(ispkglabVersion)
       .sort((a, b) => extractTimestamp(b) - extractTimestamp(a));
 
-    if (pkglVersions.length === 0) {
-      log.error(`No pkgl versions for ${pkgName}. Publish first: pkgl pub ${pkgName}`);
+    if (pkglabVersions.length === 0) {
+      log.error(
+        `No pkglab versions for ${pkgName}. Publish first: pkglab pub ${pkgName}`,
+      );
       process.exit(1);
     }
 
-    const latestVersion = pkglVersions[0];
+    const latestVersion = pkglabVersions[0];
 
     const { isFirstTime } = await addRegistryToNpmrc(repoPath, config.port);
     if (isFirstTime) {
       await applySkipWorktree(repoPath);
       log.info(
-        "notice: pkgl added registry entries to .npmrc\n" +
-        "These entries point to localhost and will break CI if committed.\n" +
-        "pkgl has applied --skip-worktree to prevent accidental commits.\n" +
-        "Run pkgl rm to restore your .npmrc."
+        "notice: pkglab added registry entries to .npmrc\n" +
+          "These entries point to localhost and will break CI if committed.\n" +
+          "pkglab has applied --skip-worktree to prevent accidental commits.\n" +
+          "Run pkglab rm to restore your .npmrc.",
       );
     }
 
     const { previousVersion } = await updatePackageJsonVersion(
       repoPath,
       pkgName,
-      latestVersion
+      latestVersion,
     );
     await scopedInstall(repoPath, pkgName, latestVersion);
 

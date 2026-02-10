@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { getDaemonStatus } from "../lib/daemon";
 import { loadConfig } from "../lib/config";
-import { discoverWorkspace, findPackage } from "../lib/workspace";
+import { discoverWorkspace, findPackage, loadCatalogs } from "../lib/workspace";
 import { buildDependencyGraph, computeCascade } from "../lib/graph";
 import { buildPublishPlan, executePublish } from "../lib/publisher";
 import { generateVersion } from "../lib/version";
@@ -37,16 +37,44 @@ export default defineCommand({
       }
       targets = [pkg.name];
     } else {
-      targets = workspace.packages.map((p) => p.name);
+      const cwd = process.cwd();
+      const currentPkg = workspace.packages.find((p) => p.dir === cwd);
+      if (currentPkg) {
+        targets = [currentPkg.name];
+        log.info(`Publishing from package dir: ${currentPkg.name}`);
+      } else {
+        targets = workspace.packages.map((p) => p.name);
+      }
     }
 
-    let publishSet;
+    let publishSet: typeof workspace.packages;
     if (args.fast) {
       publishSet = targets
         .map((name) => findPackage(workspace.packages, name))
         .filter(Boolean) as typeof workspace.packages;
     } else {
-      publishSet = computeCascade(graph, targets);
+      const cascade = computeCascade(graph, targets);
+      publishSet = cascade.packages;
+
+      // Log cascade breakdown per target
+      for (const target of targets) {
+        const deps = cascade.dependencies[target] || [];
+        const depts = cascade.dependents[target] || [];
+
+        if (deps.length > 0) {
+          log.info(`${target} dependencies:`);
+          for (const d of deps) log.line(`  - ${d}`);
+        }
+
+        if (depts.length > 0) {
+          log.info(`${target} cascading up:`);
+          for (const d of depts) {
+            const dDeps = graph.directDependenciesOf(d)
+              .filter((dep) => cascade.packages.some((p) => p.name === dep));
+            log.line(`  - ${d} -> ${dDeps.join(", ")}`);
+          }
+        }
+      }
     }
 
     // Seed version monotonicity from registry
@@ -58,16 +86,15 @@ export default defineCommand({
     }
 
     const version = generateVersion();
-    const plan = buildPublishPlan(publishSet, version);
+    const catalogs = await loadCatalogs(workspace.root);
+    const plan = buildPublishPlan(publishSet, version, catalogs);
+
+    log.info(`Will publish ${plan.packages.length} packages:`);
+    for (const entry of plan.packages) {
+      log.line(`  - ${entry.name}@${entry.version}`);
+    }
 
     if (args["dry-run"]) {
-      log.info("Dry run - would publish:");
-      for (const entry of plan.packages) {
-        log.line(`  ${entry.name}@${entry.version}`);
-        for (const [dep, ver] of Object.entries(entry.rewrittenDeps)) {
-          log.dim(`    ${dep} -> ${ver}`);
-        }
-      }
       return;
     }
 
@@ -88,6 +115,7 @@ export default defineCommand({
       const activeRepos = await getActiveRepos();
       if (activeRepos.length > 0) {
         log.info("\nUpdating active repos:");
+
         for (const { name, state } of activeRepos) {
           const pm = await detectPackageManager(state.path);
           const updated: string[] = [];
@@ -108,14 +136,12 @@ export default defineCommand({
         }
       }
 
-      // Auto-prune old versions
-      try {
-        const { pruneAll } = await import("../lib/prune");
-        const pruned = await pruneAll(config);
-        if (pruned > 0) log.dim(`Pruned ${pruned} old versions`);
-      } catch {
-        // Non-fatal
-      }
+      // Auto-prune old versions in background (non-blocking)
+      import("../lib/prune").then(({ pruneAll }) =>
+        pruneAll(config).then((pruned) => {
+          if (pruned > 0) log.dim(`Pruned ${pruned} old versions`);
+        }).catch(() => {})
+      );
     } finally {
       await releaseLock();
     }

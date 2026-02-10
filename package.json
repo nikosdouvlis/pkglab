@@ -1,8 +1,9 @@
 {
-  "name": "pkgl",
+  "name": "pkglab",
   "version": "0.0.1",
   "type": "module",
   "bin": {
+    "pkglab": "./src/index.ts",
     "pkgl": "./src/index.ts"
   },
   "dependencies": {

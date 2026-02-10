@@ -1,4 +1,4 @@
-export interface PkglConfig {
+export interface pkglabConfig {
   port: number;
   prune_keep: number;
 }
@@ -23,6 +23,7 @@ export interface WorkspacePackage {
 export interface PublishPlan {
   timestamp: number;
   packages: PublishEntry[];
+  catalogs: Record<string, Record<string, string>>;
 }
 
 export interface PublishEntry {

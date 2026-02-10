@@ -1,10 +1,10 @@
-# pkgl implementation plan
+# pkglab implementation plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build a Bun CLI that uses Verdaccio as a local npm registry to replace yalc for local package development.
 
-**Architecture:** pkgl manages a local Verdaccio instance. Publisher repos publish packages to it with synthetic versions (0.0.0-pkgl.{timestamp}). Consumer repos install from it using their native PM. The cascade algorithm walks the workspace dep graph to ensure all affected packages are published atomically. State is stored in ~/.pkgl/ (YAML). No config files in repos.
+**Architecture:** pkglab manages a local Verdaccio instance. Publisher repos publish packages to it with synthetic versions (0.0.0-pkglab.{timestamp}). Consumer repos install from it using their native PM. The cascade algorithm walks the workspace dep graph to ensure all affected packages are published atomically. State is stored in ~/.pkglab/ (YAML). No config files in repos.
 
 **Tech Stack:** Bun, citty (CLI), picocolors (colors), yaml (parsing), @manypkg/get-packages (workspace discovery), dependency-graph (graph ops), verdaccio (registry), npm CLI (publish/unpublish)
 
@@ -15,6 +15,7 @@
 ## Task 1: project scaffolding
 
 **Files:**
+
 - Create: `package.json`
 - Create: `tsconfig.json`
 - Create: `src/types.ts`
@@ -28,11 +29,11 @@
 
 ```json
 {
-  "name": "pkgl",
+  "name": "pkglab",
   "version": "0.0.1",
   "type": "module",
   "bin": {
-    "pkgl": "./src/index.ts"
+    "pkglab": "./src/index.ts"
   },
   "dependencies": {
     "citty": "^0.1",
@@ -76,7 +77,7 @@
 **Step 3: Create src/types.ts**
 
 ```typescript
-export interface PkglConfig {
+export interface pkglabConfig {
   port: number;
   prune_keep: number;
 }
@@ -123,19 +124,19 @@ export interface DaemonInfo {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const PKGL_HOME = join(homedir(), ".pkgl");
+const pkglab_HOME = join(homedir(), ".pkglab");
 
 export const paths = {
-  home: PKGL_HOME,
-  config: join(PKGL_HOME, "config.yaml"),
-  pid: join(PKGL_HOME, "pid"),
-  publishLock: join(PKGL_HOME, "publish.lock"),
-  reposDir: join(PKGL_HOME, "repos"),
-  verdaccioDir: join(PKGL_HOME, "verdaccio"),
-  verdaccioConfig: join(PKGL_HOME, "verdaccio", "config.yaml"),
-  verdaccioStorage: join(PKGL_HOME, "verdaccio", "storage"),
-  logFile: "/tmp/pkgl/verdaccio.log",
-  logDir: "/tmp/pkgl",
+  home: pkglab_HOME,
+  config: join(pkglab_HOME, "config.yaml"),
+  pid: join(pkglab_HOME, "pid"),
+  publishLock: join(pkglab_HOME, "publish.lock"),
+  reposDir: join(pkglab_HOME, "repos"),
+  verdaccioDir: join(pkglab_HOME, "verdaccio"),
+  verdaccioConfig: join(pkglab_HOME, "verdaccio", "config.yaml"),
+  verdaccioStorage: join(pkglab_HOME, "verdaccio", "storage"),
+  logFile: "/tmp/pkglab/verdaccio.log",
+  logDir: "/tmp/pkglab",
 } as const;
 ```
 
@@ -157,56 +158,56 @@ export const log = {
 **Step 6: Create src/lib/errors.ts**
 
 ```typescript
-export class PkglError extends Error {
+export class pkglabError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "PkglError";
+    this.name = "pkglabError";
   }
 }
 
-export class DaemonNotRunningError extends PkglError {
-  constructor(msg = "Verdaccio is not running. Run: pkgl start") {
+export class DaemonNotRunningError extends pkglabError {
+  constructor(msg = "Verdaccio is not running. Run: pkglab start") {
     super(msg);
     this.name = "DaemonNotRunningError";
   }
 }
 
-export class DaemonAlreadyRunningError extends PkglError {
+export class DaemonAlreadyRunningError extends pkglabError {
   constructor(msg: string) {
     super(msg);
     this.name = "DaemonAlreadyRunningError";
   }
 }
 
-export class PortInUseError extends PkglError {
+export class PortInUseError extends pkglabError {
   constructor(port: number) {
     super(`Port ${port} is already in use`);
     this.name = "PortInUseError";
   }
 }
 
-export class LockAcquisitionError extends PkglError {
+export class LockAcquisitionError extends pkglabError {
   constructor(msg: string) {
     super(msg);
     this.name = "LockAcquisitionError";
   }
 }
 
-export class CycleDetectedError extends PkglError {
+export class CycleDetectedError extends pkglabError {
   constructor(msg: string) {
     super(msg);
     this.name = "CycleDetectedError";
   }
 }
 
-export class NpmrcConflictError extends PkglError {
+export class NpmrcConflictError extends pkglabError {
   constructor(msg: string) {
     super(msg);
     this.name = "NpmrcConflictError";
   }
 }
 
-export class PackageManagerAmbiguousError extends PkglError {
+export class PackageManagerAmbiguousError extends pkglabError {
   constructor(msg: string) {
     super(msg);
     this.name = "PackageManagerAmbiguousError";
@@ -220,38 +221,38 @@ export class PackageManagerAmbiguousError extends PkglError {
 import { mkdir } from "node:fs/promises";
 import { parse, stringify } from "yaml";
 import { paths } from "./paths";
-import type { PkglConfig } from "../types";
+import type { pkglabConfig } from "../types";
 
-const DEFAULT_CONFIG: PkglConfig = {
+const DEFAULT_CONFIG: pkglabConfig = {
   port: 4873,
   prune_keep: 3,
 };
 
-export async function ensurePkglDirs(): Promise<void> {
+export async function ensurepkglabDirs(): Promise<void> {
   await mkdir(paths.home, { recursive: true });
   await mkdir(paths.reposDir, { recursive: true });
   await mkdir(paths.verdaccioDir, { recursive: true });
   await mkdir(paths.logDir, { recursive: true });
 }
 
-export async function loadConfig(): Promise<PkglConfig> {
+export async function loadConfig(): Promise<pkglabConfig> {
   const file = Bun.file(paths.config);
   if (!(await file.exists())) {
     return { ...DEFAULT_CONFIG };
   }
   const text = await file.text();
-  const parsed = parse(text) as Partial<PkglConfig>;
+  const parsed = parse(text) as Partial<pkglabConfig>;
   return { ...DEFAULT_CONFIG, ...parsed };
 }
 
-export async function saveConfig(config: PkglConfig): Promise<void> {
+export async function saveConfig(config: pkglabConfig): Promise<void> {
   await Bun.write(paths.config, stringify(config));
 }
 ```
 
 **Step 8: Install dependencies**
 
-Run: `cd /Users/nikos/Projects/pkgl && bun install`
+Run: `cd /Users/nikos/Projects/pkglab && bun install`
 Expected: lockfile created, node_modules populated
 
 **Step 9: Commit**
@@ -267,6 +268,7 @@ git commit -m "feat: project scaffolding with core lib modules"
 ## Task 2: CLI skeleton with all command stubs
 
 **Files:**
+
 - Create: `src/commands/start.ts`
 - Create: `src/commands/stop.ts`
 - Create: `src/commands/status.ts`
@@ -298,7 +300,7 @@ import { defineCommand } from "citty";
 export default defineCommand({
   meta: { name: "start", description: "Start Verdaccio daemon" },
   run() {
-    console.log("pkgl start: not implemented yet");
+    console.log("pkglab start: not implemented yet");
   },
 });
 ```
@@ -315,11 +317,15 @@ export default defineCommand({
   meta: { name: "pub", description: "Publish packages to local Verdaccio" },
   args: {
     name: { type: "positional", description: "Package name", required: false },
-    "dry-run": { type: "boolean", description: "Show what would be published", default: false },
+    "dry-run": {
+      type: "boolean",
+      description: "Show what would be published",
+      default: false,
+    },
     fast: { type: "boolean", description: "Skip dep cascade", default: false },
   },
   run() {
-    console.log("pkgl pub: not implemented yet");
+    console.log("pkglab pub: not implemented yet");
   },
 });
 ```
@@ -331,12 +337,12 @@ For add.ts and rm.ts:
 import { defineCommand } from "citty";
 
 export default defineCommand({
-  meta: { name: "add", description: "Add a pkgl package to this repo" },
+  meta: { name: "add", description: "Add a pkglab package to this repo" },
   args: {
     name: { type: "positional", description: "Package name", required: true },
   },
   run() {
-    console.log("pkgl add: not implemented yet");
+    console.log("pkglab add: not implemented yet");
   },
 });
 ```
@@ -350,10 +356,15 @@ import { defineCommand } from "citty";
 export default defineCommand({
   meta: { name: "logs", description: "Tail Verdaccio logs" },
   args: {
-    follow: { type: "boolean", alias: "f", description: "Stream logs", default: false },
+    follow: {
+      type: "boolean",
+      alias: "f",
+      description: "Stream logs",
+      default: false,
+    },
   },
   run() {
-    console.log("pkgl logs: not implemented yet");
+    console.log("pkglab logs: not implemented yet");
   },
 });
 ```
@@ -371,7 +382,7 @@ export default defineCommand({
     all: { type: "boolean", description: "Reset all repos", default: false },
   },
   run() {
-    console.log("pkgl repos reset: not implemented yet");
+    console.log("pkglab repos reset: not implemented yet");
   },
 });
 ```
@@ -414,11 +425,11 @@ export default defineCommand({
 #!/usr/bin/env bun
 
 import { defineCommand, runMain } from "citty";
-import { ensurePkglDirs } from "./lib/config";
+import { ensurepkglabDirs } from "./lib/config";
 
 const main = defineCommand({
   meta: {
-    name: "pkgl",
+    name: "pkglab",
     version: "0.0.1",
     description: "Local package development with Verdaccio",
   },
@@ -437,7 +448,7 @@ const main = defineCommand({
     check: () => import("./commands/check").then((m) => m.default),
   },
   async setup() {
-    await ensurePkglDirs();
+    await ensurepkglabDirs();
   },
 });
 
@@ -446,19 +457,19 @@ runMain(main);
 
 **Step 5: Verify CLI works**
 
-Run: `cd /Users/nikos/Projects/pkgl && bun link`
-Expected: pkgl command available globally
+Run: `cd /Users/nikos/Projects/pkglab && bun link`
+Expected: pkglab command available globally
 
-Run: `pkgl`
+Run: `pkglab`
 Expected: help output with all commands listed
 
-Run: `pkgl start`
-Expected: "pkgl start: not implemented yet"
+Run: `pkglab start`
+Expected: "pkglab start: not implemented yet"
 
-Run: `pkgl repos ls`
-Expected: "pkgl repos ls: not implemented yet"
+Run: `pkglab repos ls`
+Expected: "pkglab repos ls: not implemented yet"
 
-Run: `ls ~/.pkgl/`
+Run: `ls ~/.pkglab/`
 Expected: repos/ verdaccio/ directories created
 
 **Step 6: Commit**
@@ -473,6 +484,7 @@ git commit -m "feat: CLI skeleton with all command stubs"
 ## Task 3: Verdaccio daemon management
 
 **Files:**
+
 - Create: `src/lib/verdaccio-config.ts`
 - Create: `src/lib/verdaccio-worker.ts`
 - Create: `src/lib/daemon.ts`
@@ -485,9 +497,9 @@ git commit -m "feat: CLI skeleton with all command stubs"
 
 ```typescript
 import { paths } from "./paths";
-import type { PkglConfig } from "../types";
+import type { pkglabConfig } from "../types";
 
-export function buildVerdaccioConfig(config: PkglConfig) {
+export function buildVerdaccioConfig(config: pkglabConfig) {
   return {
     self_path: paths.verdaccioDir,
     storage: paths.verdaccioStorage,
@@ -526,12 +538,12 @@ This is spawned as a detached process. NOT imported by the main CLI.
 
 import { runServer } from "verdaccio";
 import { buildVerdaccioConfig } from "./verdaccio-config";
-import { loadConfig, ensurePkglDirs } from "./config";
+import { loadConfig, ensurepkglabDirs } from "./config";
 import { mkdir } from "node:fs/promises";
 import { paths } from "./paths";
 
 async function main() {
-  await ensurePkglDirs();
+  await ensurepkglabDirs();
   await mkdir(paths.verdaccioStorage, { recursive: true });
 
   const config = await loadConfig();
@@ -562,7 +574,7 @@ export async function startDaemon(): Promise<DaemonInfo> {
   const existing = await getDaemonStatus();
   if (existing?.running) {
     throw new DaemonAlreadyRunningError(
-      `Already running on port ${existing.port} (PID ${existing.pid})`
+      `Already running on port ${existing.port} (PID ${existing.pid})`,
     );
   }
 
@@ -693,13 +705,17 @@ export default defineCommand({
   async run() {
     const existing = await getDaemonStatus();
     if (existing?.running) {
-      log.warn(`Already running on port ${existing.port} (PID ${existing.pid})`);
+      log.warn(
+        `Already running on port ${existing.port} (PID ${existing.pid})`,
+      );
       return;
     }
 
     log.info("Starting Verdaccio...");
     const info = await startDaemon();
-    log.success(`pkgl running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
+    log.success(
+      `pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`,
+    );
   },
 });
 ```
@@ -740,7 +756,9 @@ export default defineCommand({
     const status = await getDaemonStatus();
 
     if (status?.running) {
-      log.success(`Verdaccio running on http://127.0.0.1:${config.port} (PID ${status.pid})`);
+      log.success(
+        `Verdaccio running on http://127.0.0.1:${config.port} (PID ${status.pid})`,
+      );
     } else {
       log.info("Verdaccio is not running");
     }
@@ -758,7 +776,12 @@ import { log } from "../lib/log";
 export default defineCommand({
   meta: { name: "logs", description: "Tail Verdaccio logs" },
   args: {
-    follow: { type: "boolean", alias: "f", description: "Stream logs", default: false },
+    follow: {
+      type: "boolean",
+      alias: "f",
+      description: "Stream logs",
+      default: false,
+    },
   },
   async run({ args }) {
     const file = Bun.file(paths.logFile);
@@ -779,25 +802,25 @@ export default defineCommand({
 
 **Step 8: Verify daemon lifecycle**
 
-Run: `pkgl start`
-Expected: "pkgl running on http://127.0.0.1:4873 (PID XXXX)"
+Run: `pkglab start`
+Expected: "pkglab running on http://127.0.0.1:4873 (PID XXXX)"
 
 Run: `curl -s http://localhost:4873 | head -c 100`
 Expected: Verdaccio HTML or JSON response
 
-Run: `pkgl status`
+Run: `pkglab status`
 Expected: "Verdaccio running on ..."
 
-Run: `pkgl logs`
+Run: `pkglab logs`
 Expected: log output
 
-Run: `pkgl start`
+Run: `pkglab start`
 Expected: "Already running..."
 
-Run: `pkgl stop`
+Run: `pkglab stop`
 Expected: "Verdaccio stopped"
 
-Run: `pkgl status`
+Run: `pkglab status`
 Expected: "Verdaccio is not running"
 
 **Step 9: Commit**
@@ -812,13 +835,14 @@ git commit -m "feat: Verdaccio daemon management (start/stop/status/logs)"
 ## Task 4: version generation and workspace discovery
 
 **Files:**
+
 - Create: `src/lib/version.ts`
 - Create: `src/lib/workspace.ts`
 
 **Step 1: Create src/lib/version.ts**
 
 ```typescript
-const VERSION_PREFIX = "0.0.0-pkgl.";
+const VERSION_PREFIX = "0.0.0-pkglab.";
 let lastTimestamp = 0;
 
 export function generateVersion(): string {
@@ -828,7 +852,7 @@ export function generateVersion(): string {
   return `${VERSION_PREFIX}${ts}`;
 }
 
-export function isPkglVersion(version: string): boolean {
+export function ispkglabVersion(version: string): boolean {
   return version.startsWith(VERSION_PREFIX);
 }
 
@@ -860,7 +884,7 @@ export async function discoverWorkspace(cwd: string): Promise<{
 
 export function findPackage(
   packages: WorkspacePackage[],
-  name: string
+  name: string,
 ): WorkspacePackage | undefined {
   return packages.find((p) => p.name === name);
 }
@@ -878,6 +902,7 @@ git commit -m "feat: version generation and workspace discovery"
 ## Task 5: dependency graph and cascade algorithm
 
 **Files:**
+
 - Create: `src/lib/graph.ts`
 
 **Step 1: Create src/lib/graph.ts**
@@ -888,7 +913,7 @@ import type { WorkspacePackage } from "../types";
 import { CycleDetectedError } from "./errors";
 
 export function buildDependencyGraph(
-  packages: WorkspacePackage[]
+  packages: WorkspacePackage[],
 ): DepGraph<WorkspacePackage> {
   const graph = new DepGraph<WorkspacePackage>();
   const names = new Set(packages.map((p) => p.name));
@@ -914,7 +939,7 @@ export function buildDependencyGraph(
 
 export function computeCascade(
   graph: DepGraph<WorkspacePackage>,
-  changedPackages: string[]
+  changedPackages: string[],
 ): WorkspacePackage[] {
   const closure = new Set<string>();
 
@@ -927,7 +952,7 @@ export function computeCascade(
     } catch (err: any) {
       if (err.cyclePath) {
         throw new CycleDetectedError(
-          `Dependency cycle detected: ${err.cyclePath.join(" -> ")}`
+          `Dependency cycle detected: ${err.cyclePath.join(" -> ")}`,
         );
       }
       throw err;
@@ -943,7 +968,7 @@ export function computeCascade(
     } catch (err: any) {
       if (err.cyclePath) {
         throw new CycleDetectedError(
-          `Dependency cycle detected: ${err.cyclePath.join(" -> ")}`
+          `Dependency cycle detected: ${err.cyclePath.join(" -> ")}`,
         );
       }
       throw err;
@@ -968,6 +993,7 @@ git commit -m "feat: dependency graph with cascade algorithm"
 ## Task 6: publish mutex and publisher core
 
 **Files:**
+
 - Create: `src/lib/lock.ts`
 - Create: `src/lib/publisher.ts`
 - Create: `src/lib/registry.ts`
@@ -988,7 +1014,7 @@ export async function acquirePublishLock(): Promise<() => Promise<void>> {
     const holderPid = parseInt(content.trim(), 10);
     if (!isNaN(holderPid) && isProcessAlive(holderPid)) {
       throw new LockAcquisitionError(
-        `Another pkgl pub is running (PID ${holderPid})`
+        `Another pkglab pub is running (PID ${holderPid})`,
       );
     }
   }
@@ -1013,15 +1039,15 @@ function isProcessAlive(pid: number): boolean {
 **Step 2: Create src/lib/registry.ts**
 
 ```typescript
-import type { PkglConfig } from "../types";
+import type { pkglabConfig } from "../types";
 
-function registryUrl(config: PkglConfig): string {
+function registryUrl(config: pkglabConfig): string {
   return `http://127.0.0.1:${config.port}`;
 }
 
 export async function getPackageVersions(
-  config: PkglConfig,
-  name: string
+  config: pkglabConfig,
+  name: string,
 ): Promise<string[]> {
   try {
     const url = `${registryUrl(config)}/${encodeURIComponent(name)}`;
@@ -1035,7 +1061,7 @@ export async function getPackageVersions(
 }
 
 export async function listAllPackages(
-  config: PkglConfig
+  config: pkglabConfig,
 ): Promise<Array<{ name: string; versions: string[] }>> {
   try {
     const url = `${registryUrl(config)}/-/verdaccio/data/sidebar/@*/*`;
@@ -1052,13 +1078,20 @@ export async function listAllPackages(
 }
 
 export async function unpublishVersion(
-  config: PkglConfig,
+  config: pkglabConfig,
   name: string,
-  version: string
+  version: string,
 ): Promise<void> {
   const proc = Bun.spawn(
-    ["npm", "unpublish", `${name}@${version}`, "--registry", registryUrl(config), "--force"],
-    { stdout: "pipe", stderr: "pipe" }
+    [
+      "npm",
+      "unpublish",
+      `${name}@${version}`,
+      "--registry",
+      registryUrl(config),
+      "--force",
+    ],
+    { stdout: "pipe", stderr: "pipe" },
   );
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
@@ -1074,13 +1107,18 @@ export async function unpublishVersion(
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { cp, rm, mkdir } from "node:fs/promises";
-import type { PublishPlan, PublishEntry, WorkspacePackage, PkglConfig } from "../types";
+import type {
+  PublishPlan,
+  PublishEntry,
+  WorkspacePackage,
+  pkglabConfig,
+} from "../types";
 import { log } from "./log";
 import { DepGraph } from "dependency-graph";
 
 export function buildPublishPlan(
   packages: WorkspacePackage[],
-  version: string
+  version: string,
 ): PublishPlan {
   const publishNames = new Set(packages.map((p) => p.name));
 
@@ -1105,7 +1143,7 @@ export function buildPublishPlan(
 
 export async function executePublish(
   plan: PublishPlan,
-  config: PkglConfig
+  config: pkglabConfig,
 ): Promise<void> {
   const registryUrl = `http://127.0.0.1:${config.port}`;
   const published: string[] = [];
@@ -1127,10 +1165,10 @@ export async function executePublish(
 
 async function publishSinglePackage(
   entry: PublishEntry,
-  registryUrl: string
+  registryUrl: string,
 ): Promise<void> {
   const safeName = entry.name.replace("/", "-").replace("@", "");
-  const tempDir = join(tmpdir(), `pkgl-${safeName}-${Date.now()}`);
+  const tempDir = join(tmpdir(), `pkglab-${safeName}-${Date.now()}`);
   await mkdir(tempDir, { recursive: true });
 
   try {
@@ -1141,12 +1179,19 @@ async function publishSinglePackage(
 
     pkgJson.version = entry.version;
 
-    for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+    for (const field of [
+      "dependencies",
+      "peerDependencies",
+      "optionalDependencies",
+    ]) {
       if (!pkgJson[field]) continue;
       for (const [name, version] of Object.entries(pkgJson[field])) {
         if (entry.rewrittenDeps[name]) {
           pkgJson[field][name] = entry.rewrittenDeps[name];
-        } else if (typeof version === "string" && version.startsWith("workspace:")) {
+        } else if (
+          typeof version === "string" &&
+          version.startsWith("workspace:")
+        ) {
           pkgJson[field][name] = (version as string).replace("workspace:", "");
         }
       }
@@ -1156,7 +1201,10 @@ async function publishSinglePackage(
     if (pkgJson.devDependencies) {
       for (const [name, version] of Object.entries(pkgJson.devDependencies)) {
         if (typeof version === "string" && version.startsWith("workspace:")) {
-          pkgJson.devDependencies[name] = (version as string).replace("workspace:", "");
+          pkgJson.devDependencies[name] = (version as string).replace(
+            "workspace:",
+            "",
+          );
         }
       }
     }
@@ -1167,8 +1215,16 @@ async function publishSinglePackage(
     await rm(join(tempDir, "node_modules"), { recursive: true, force: true });
 
     const proc = Bun.spawn(
-      ["npm", "publish", "--registry", registryUrl, "--no-git-checks", "--access", "public"],
-      { cwd: tempDir, stdout: "pipe", stderr: "pipe" }
+      [
+        "npm",
+        "publish",
+        "--registry",
+        registryUrl,
+        "--no-git-checks",
+        "--access",
+        "public",
+      ],
+      { cwd: tempDir, stdout: "pipe", stderr: "pipe" },
     );
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
@@ -1180,11 +1236,14 @@ async function publishSinglePackage(
   }
 }
 
-async function rollbackPackage(spec: string, registryUrl: string): Promise<void> {
+async function rollbackPackage(
+  spec: string,
+  registryUrl: string,
+): Promise<void> {
   try {
     const proc = Bun.spawn(
       ["npm", "unpublish", spec, "--registry", registryUrl, "--force"],
-      { stdout: "pipe", stderr: "pipe" }
+      { stdout: "pipe", stderr: "pipe" },
     );
     await proc.exited;
   } catch {
@@ -1205,6 +1264,7 @@ git commit -m "feat: publish mutex, registry client, and publisher core"
 ## Task 7: pub command implementation
 
 **Files:**
+
 - Modify: `src/commands/pub.ts`
 
 **Step 1: Implement pub command**
@@ -1225,7 +1285,11 @@ export default defineCommand({
   meta: { name: "pub", description: "Publish packages to local Verdaccio" },
   args: {
     name: { type: "positional", description: "Package name", required: false },
-    "dry-run": { type: "boolean", description: "Show what would be published", default: false },
+    "dry-run": {
+      type: "boolean",
+      description: "Show what would be published",
+      default: false,
+    },
     fast: { type: "boolean", description: "Skip dep cascade", default: false },
   },
   async run({ args }) {
@@ -1292,16 +1356,16 @@ export default defineCommand({
 
 **Step 2: Verify publishing**
 
-Run: `pkgl start`
+Run: `pkglab start`
 
-Run: `cd /path/to/a/monorepo && pkgl pub --dry-run`
+Run: `cd /path/to/a/monorepo && pkglab pub --dry-run`
 Expected: list of packages that would be published with cascade
 
-Run: `pkgl pub @scope/pkg`
+Run: `pkglab pub @scope/pkg`
 Expected: packages published successfully
 
 Run: `curl -s http://localhost:4873/@scope/pkg | python3 -m json.tool | grep version`
-Expected: shows "0.0.0-pkgl.XXXX"
+Expected: shows "0.0.0-pkglab.XXXX"
 
 **Step 3: Commit**
 
@@ -1315,6 +1379,7 @@ git commit -m "feat: pub command with cascade, dry-run, and rollback"
 ## Task 8: consumer core (add/rm commands)
 
 **Files:**
+
 - Create: `src/lib/pm-detect.ts`
 - Create: `src/lib/repo-state.ts`
 - Create: `src/lib/consumer.ts`
@@ -1337,7 +1402,7 @@ const LOCKFILES: Record<string, PackageManager> = {
 };
 
 export async function detectPackageManager(
-  repoPath: string
+  repoPath: string,
 ): Promise<PackageManager> {
   const found: PackageManager[] = [];
 
@@ -1351,7 +1416,7 @@ export async function detectPackageManager(
   if (found.length === 0) return "npm";
   if (found.length > 1) {
     throw new PackageManagerAmbiguousError(
-      `Multiple PMs detected: ${found.join(", ")}. Remove extra lockfiles.`
+      `Multiple PMs detected: ${found.join(", ")}. Remove extra lockfiles.`,
     );
   }
   return found[0];
@@ -1360,13 +1425,16 @@ export async function detectPackageManager(
 export function installCommand(
   pm: PackageManager,
   pkg: string,
-  version: string
+  version: string,
 ): string[] {
   const spec = `${pkg}@${version}`;
   switch (pm) {
-    case "npm": return ["npm", "install", spec];
-    case "pnpm": return ["pnpm", "add", spec];
-    case "bun": return ["bun", "add", spec];
+    case "npm":
+      return ["npm", "install", spec];
+    case "pnpm":
+      return ["pnpm", "add", spec];
+    case "bun":
+      return ["bun", "add", spec];
   }
 }
 ```
@@ -1422,7 +1490,7 @@ export async function loadRepoState(name: string): Promise<RepoState | null> {
 
 export async function saveRepoState(
   name: string,
-  state: RepoState
+  state: RepoState,
 ): Promise<void> {
   const filePath = join(paths.reposDir, `${name}.yaml`);
   await Bun.write(filePath, stringify(state));
@@ -1443,7 +1511,7 @@ export async function loadAllRepos(): Promise<Record<string, RepoState>> {
 }
 
 export async function findRepoByPath(
-  repoPath: string
+  repoPath: string,
 ): Promise<{ name: string; state: RepoState } | null> {
   const canonical = await canonicalRepoPath(repoPath);
   const all = await loadAllRepos();
@@ -1482,12 +1550,12 @@ import { NpmrcConflictError } from "./errors";
 import { detectPackageManager, installCommand } from "./pm-detect";
 import type { PackageManager } from "./pm-detect";
 
-const MARKER_START = "# pkgl-start";
-const MARKER_END = "# pkgl-end";
+const MARKER_START = "# pkglab-start";
+const MARKER_END = "# pkglab-end";
 
 export async function addRegistryToNpmrc(
   repoPath: string,
-  port: number
+  port: number,
 ): Promise<{ isFirstTime: boolean }> {
   const npmrcPath = join(repoPath, ".npmrc");
   const file = Bun.file(npmrcPath);
@@ -1499,7 +1567,7 @@ export async function addRegistryToNpmrc(
 
     if (content.includes(MARKER_START)) {
       isFirstTime = false;
-      content = removePkglBlock(content);
+      content = removepkglabBlock(content);
     }
 
     for (const line of content.split("\n")) {
@@ -1510,7 +1578,7 @@ export async function addRegistryToNpmrc(
         !trimmed.includes("127.0.0.1")
       ) {
         throw new NpmrcConflictError(
-          `Existing registry in .npmrc: ${trimmed}\npkgl cannot override this.`
+          `Existing registry in .npmrc: ${trimmed}\npkglab cannot override this.`,
         );
       }
     }
@@ -1529,11 +1597,11 @@ export async function removeRegistryFromNpmrc(repoPath: string): Promise<void> {
   if (!(await file.exists())) return;
 
   let content = await file.text();
-  content = removePkglBlock(content);
+  content = removepkglabBlock(content);
   await Bun.write(npmrcPath, content);
 }
 
-function removePkglBlock(content: string): string {
+function removepkglabBlock(content: string): string {
   const startIdx = content.indexOf(MARKER_START);
   const endIdx = content.indexOf(MARKER_END);
   if (startIdx === -1 || endIdx === -1) return content;
@@ -1544,26 +1612,28 @@ function removePkglBlock(content: string): string {
 }
 
 export async function applySkipWorktree(repoPath: string): Promise<void> {
-  const proc = Bun.spawn(
-    ["git", "update-index", "--skip-worktree", ".npmrc"],
-    { cwd: repoPath, stdout: "pipe", stderr: "pipe" }
-  );
+  const proc = Bun.spawn(["git", "update-index", "--skip-worktree", ".npmrc"], {
+    cwd: repoPath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   await proc.exited;
 }
 
 export async function removeSkipWorktree(repoPath: string): Promise<void> {
   const proc = Bun.spawn(
     ["git", "update-index", "--no-skip-worktree", ".npmrc"],
-    { cwd: repoPath, stdout: "pipe", stderr: "pipe" }
+    { cwd: repoPath, stdout: "pipe", stderr: "pipe" },
   );
   await proc.exited;
 }
 
 export async function isSkipWorktreeSet(repoPath: string): Promise<boolean> {
-  const proc = Bun.spawn(
-    ["git", "ls-files", "-v", ".npmrc"],
-    { cwd: repoPath, stdout: "pipe", stderr: "pipe" }
-  );
+  const proc = Bun.spawn(["git", "ls-files", "-v", ".npmrc"], {
+    cwd: repoPath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const output = await new Response(proc.stdout).text();
   return output.startsWith("S ");
 }
@@ -1572,13 +1642,17 @@ export async function scopedInstall(
   repoPath: string,
   pkgName: string,
   version: string,
-  pm?: PackageManager
+  pm?: PackageManager,
 ): Promise<void> {
   const detectedPm = pm || (await detectPackageManager(repoPath));
   const cmd = installCommand(detectedPm, pkgName, version);
 
   log.dim(`  ${cmd.join(" ")}`);
-  const proc = Bun.spawn(cmd, { cwd: repoPath, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(cmd, {
+    cwd: repoPath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
     const stderr = await new Response(proc.stderr).text();
@@ -1589,7 +1663,7 @@ export async function scopedInstall(
 export async function updatePackageJsonVersion(
   repoPath: string,
   pkgName: string,
-  version: string
+  version: string,
 ): Promise<{ previousVersion: string }> {
   const pkgJsonPath = join(repoPath, "package.json");
   const pkgJson = await Bun.file(pkgJsonPath).json();
@@ -1626,13 +1700,13 @@ import {
   saveRepoState,
 } from "../lib/repo-state";
 import { getPackageVersions } from "../lib/registry";
-import { isPkglVersion, extractTimestamp } from "../lib/version";
+import { ispkglabVersion, extractTimestamp } from "../lib/version";
 import { log } from "../lib/log";
 import { DaemonNotRunningError } from "../lib/errors";
 import type { RepoState } from "../types";
 
 export default defineCommand({
-  meta: { name: "add", description: "Add a pkgl package to this repo" },
+  meta: { name: "add", description: "Add a pkglab package to this repo" },
   args: {
     name: { type: "positional", description: "Package name", required: true },
   },
@@ -1645,32 +1719,34 @@ export default defineCommand({
     const pkgName = args.name as string;
 
     const versions = await getPackageVersions(config, pkgName);
-    const pkglVersions = versions
-      .filter(isPkglVersion)
+    const pkglabVersions = versions
+      .filter(ispkglabVersion)
       .sort((a, b) => extractTimestamp(b) - extractTimestamp(a));
 
-    if (pkglVersions.length === 0) {
-      log.error(`No pkgl versions for ${pkgName}. Publish first: pkgl pub ${pkgName}`);
+    if (pkglabVersions.length === 0) {
+      log.error(
+        `No pkglab versions for ${pkgName}. Publish first: pkglab pub ${pkgName}`,
+      );
       process.exit(1);
     }
 
-    const latestVersion = pkglVersions[0];
+    const latestVersion = pkglabVersions[0];
 
     const { isFirstTime } = await addRegistryToNpmrc(repoPath, config.port);
     if (isFirstTime) {
       await applySkipWorktree(repoPath);
       log.info(
-        "notice: pkgl added registry entries to .npmrc\n" +
-        "These entries point to localhost and will break CI if committed.\n" +
-        "pkgl has applied --skip-worktree to prevent accidental commits.\n" +
-        "Run pkgl rm to restore your .npmrc."
+        "notice: pkglab added registry entries to .npmrc\n" +
+          "These entries point to localhost and will break CI if committed.\n" +
+          "pkglab has applied --skip-worktree to prevent accidental commits.\n" +
+          "Run pkglab rm to restore your .npmrc.",
       );
     }
 
     const { previousVersion } = await updatePackageJsonVersion(
       repoPath,
       pkgName,
-      latestVersion
+      latestVersion,
     );
     await scopedInstall(repoPath, pkgName, latestVersion);
 
@@ -1713,7 +1789,10 @@ import {
 import { log } from "../lib/log";
 
 export default defineCommand({
-  meta: { name: "rm", description: "Remove a pkgl package, restore original" },
+  meta: {
+    name: "rm",
+    description: "Remove a pkglab package, restore original",
+  },
   args: {
     name: { type: "positional", description: "Package name", required: true },
   },
@@ -1723,7 +1802,7 @@ export default defineCommand({
 
     const repo = await findRepoByPath(repoPath);
     if (!repo || !repo.state.packages[pkgName]) {
-      log.warn(`${pkgName} is not linked via pkgl in this repo`);
+      log.warn(`${pkgName} is not linked via pkglab in this repo`);
       return;
     }
 
@@ -1740,10 +1819,10 @@ export default defineCommand({
     if (Object.keys(repo.state.packages).length === 0) {
       await removeRegistryFromNpmrc(repoPath);
       await removeSkipWorktree(repoPath);
-      log.info("All pkgl packages removed, .npmrc restored");
+      log.info("All pkglab packages removed, .npmrc restored");
     }
 
-    log.success(`Removed ${pkgName} from pkgl`);
+    log.success(`Removed ${pkgName} from pkglab`);
   },
 });
 ```
@@ -1760,6 +1839,7 @@ git commit -m "feat: consumer core (add/rm with .npmrc, skip-worktree, scoped in
 ## Task 9: repo management commands
 
 **Files:**
+
 - Modify: `src/commands/repos/ls.ts`
 - Modify: `src/commands/repos/activate.ts`
 - Modify: `src/commands/repos/deactivate.ts`
@@ -1783,7 +1863,7 @@ export default defineCommand({
     const entries = Object.entries(repos);
 
     if (entries.length === 0) {
-      log.info("No linked repos. Use pkgl add in a consumer repo.");
+      log.info("No linked repos. Use pkglab add in a consumer repo.");
       return;
     }
 
@@ -1792,7 +1872,7 @@ export default defineCommand({
       const pkgCount = Object.keys(state.packages).length;
       log.line(
         `  ${name.padEnd(20)} ${status.padEnd(18)} ` +
-        `${pkgCount} pkg${pkgCount !== 1 ? "s" : ""}  ${pc.dim(state.path)}`
+          `${pkgCount} pkg${pkgCount !== 1 ? "s" : ""}  ${pc.dim(state.path)}`,
       );
     }
   },
@@ -1863,7 +1943,11 @@ export default defineCommand({
 
 ```typescript
 import { defineCommand } from "citty";
-import { loadRepoState, saveRepoState, loadAllRepos } from "../../lib/repo-state";
+import {
+  loadRepoState,
+  saveRepoState,
+  loadAllRepos,
+} from "../../lib/repo-state";
 import {
   removeRegistryFromNpmrc,
   removeSkipWorktree,
@@ -1943,7 +2027,7 @@ export default defineCommand({
 
     await rename(
       join(paths.reposDir, `${oldName}.yaml`),
-      join(paths.reposDir, `${newName}.yaml`)
+      join(paths.reposDir, `${newName}.yaml`),
     );
     log.success(`Renamed ${oldName} -> ${newName}`);
   },
@@ -1956,9 +2040,11 @@ After the existing publish success output in `src/commands/pub.ts`, add:
 
 ```typescript
 // Auto-update active consumer repos
-const { getActiveRepos, saveRepoState: saveRepo } = await import("../lib/repo-state");
+const { getActiveRepos, saveRepoState: saveRepo } =
+  await import("../lib/repo-state");
 const { detectPackageManager } = await import("../lib/pm-detect");
-const { updatePackageJsonVersion, scopedInstall } = await import("../lib/consumer");
+const { updatePackageJsonVersion, scopedInstall } =
+  await import("../lib/consumer");
 
 const activeRepos = await getActiveRepos();
 if (activeRepos.length > 0) {
@@ -1999,7 +2085,7 @@ if (entries.length > 0) {
   for (const [name, state] of entries) {
     log.line(`  ${name.padEnd(20)} ${state.path}`);
   }
-  log.dim("\nActivate repos: pkgl repos activate <name>");
+  log.dim("\nActivate repos: pkglab repos activate <name>");
 }
 ```
 
@@ -2015,6 +2101,7 @@ git commit -m "feat: repo management (ls/activate/deactivate/reset/rename) + aut
 ## Task 10: operational commands (prune, pkgs ls, doctor, check)
 
 **Files:**
+
 - Create: `src/lib/prune.ts`
 - Modify: `src/commands/prune.ts`
 - Modify: `src/commands/pkgs/ls.ts`
@@ -2025,22 +2112,26 @@ git commit -m "feat: repo management (ls/activate/deactivate/reset/rename) + aut
 **Step 1: Create src/lib/prune.ts**
 
 ```typescript
-import type { PkglConfig } from "../types";
-import { getPackageVersions, listAllPackages, unpublishVersion } from "./registry";
+import type { pkglabConfig } from "../types";
+import {
+  getPackageVersions,
+  listAllPackages,
+  unpublishVersion,
+} from "./registry";
 import { getActiveRepos } from "./repo-state";
-import { isPkglVersion, extractTimestamp } from "./version";
+import { ispkglabVersion, extractTimestamp } from "./version";
 import { log } from "./log";
 
 export async function prunePackage(
-  config: PkglConfig,
-  pkgName: string
+  config: pkglabConfig,
+  pkgName: string,
 ): Promise<number> {
   const versions = await getPackageVersions(config, pkgName);
-  const pkglVersions = versions
-    .filter(isPkglVersion)
+  const pkglabVersions = versions
+    .filter(ispkglabVersion)
     .sort((a, b) => extractTimestamp(b) - extractTimestamp(a));
 
-  if (pkglVersions.length <= config.prune_keep) return 0;
+  if (pkglabVersions.length <= config.prune_keep) return 0;
 
   const activeRepos = await getActiveRepos();
   const referenced = new Set<string>();
@@ -2050,7 +2141,7 @@ export async function prunePackage(
     }
   }
 
-  const toRemove = pkglVersions
+  const toRemove = pkglabVersions
     .slice(config.prune_keep)
     .filter((v) => !referenced.has(v));
 
@@ -2062,12 +2153,12 @@ export async function prunePackage(
   return toRemove.length;
 }
 
-export async function pruneAll(config: PkglConfig): Promise<number> {
+export async function pruneAll(config: pkglabConfig): Promise<number> {
   const packages = await listAllPackages(config);
   let total = 0;
   for (const pkg of packages) {
-    const pkglVersions = pkg.versions.filter(isPkglVersion);
-    if (pkglVersions.length > 0) {
+    const pkglabVersions = pkg.versions.filter(ispkglabVersion);
+    if (pkglabVersions.length > 0) {
       total += await prunePackage(config, pkg.name);
     }
   }
@@ -2080,9 +2171,9 @@ export async function pruneAll(config: PkglConfig): Promise<number> {
 These follow the same pattern as earlier commands. See the agent plan research output for full implementations of each. Key points:
 
 - `prune.ts`: verify daemon running, call pruneAll, report count
-- `pkgs/ls.ts`: fetch from Verdaccio API, show latest pkgl version per package
-- `doctor.ts`: run checks (Bun version, pkgl dirs, daemon, registry ping, skip-worktree state), auto-fix broken skip-worktree
-- `check.ts`: scan package.json for pkgl versions, scan .npmrc for markers, scan git staged files, exit 1 if issues
+- `pkgs/ls.ts`: fetch from Verdaccio API, show latest pkglab version per package
+- `doctor.ts`: run checks (Bun version, pkglab dirs, daemon, registry ping, skip-worktree state), auto-fix broken skip-worktree
+- `check.ts`: scan package.json for pkglab versions, scan .npmrc for markers, scan git staged files, exit 1 if issues
 
 **Step 3: Add auto-prune to pub.ts**
 
@@ -2113,42 +2204,42 @@ git commit -m "feat: operational commands (prune, pkgs ls, doctor, check)"
 
 ```bash
 # Start daemon
-pkgl start
+pkglab start
 
 # In a monorepo publisher:
 cd /path/to/monorepo
-pkgl pub --dry-run
-pkgl pub @scope/pkg
+pkglab pub --dry-run
+pkglab pub @scope/pkg
 
 # In a consumer repo:
 cd /path/to/consumer
-pkgl add @scope/pkg
-# Verify: package.json has 0.0.0-pkgl.* version
-# Verify: .npmrc has pkgl markers
+pkglab add @scope/pkg
+# Verify: package.json has 0.0.0-pkglab.* version
+# Verify: .npmrc has pkglab markers
 # Verify: node_modules/@scope/pkg exists
 
 # Activate for auto-updates
-pkgl repos activate consumer-name
+pkglab repos activate consumer-name
 
 # Re-publish from publisher
 cd /path/to/monorepo
-pkgl pub @scope/pkg
+pkglab pub @scope/pkg
 # Verify: consumer auto-updated
 
 # Check commands
-pkgl status
-pkgl repos ls
-pkgl pkgs ls
-pkgl doctor
-pkgl logs
+pkglab status
+pkglab repos ls
+pkglab pkgs ls
+pkglab doctor
+pkglab logs
 
 # Cleanup
 cd /path/to/consumer
-pkgl rm @scope/pkg
+pkglab rm @scope/pkg
 # Verify: original version restored
 
-pkgl repos reset --all
-pkgl stop
+pkglab repos reset --all
+pkglab stop
 ```
 
 **Step 2: Create .gitignore and commit**

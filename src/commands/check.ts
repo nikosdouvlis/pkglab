@@ -1,16 +1,19 @@
 import { defineCommand } from "citty";
 import { log } from "../lib/log";
-import { isPkglVersion } from "../lib/version";
+import { ispkglabVersion } from "../lib/version";
 import pc from "picocolors";
 import { join } from "node:path";
 
 export default defineCommand({
-  meta: { name: "check", description: "Pre-commit safety check for pkgl artifacts" },
+  meta: {
+    name: "check",
+    description: "Pre-commit safety check for pkglab artifacts",
+  },
   async run() {
     const cwd = process.cwd();
     let issues = 0;
 
-    // Check package.json for pkgl versions
+    // Check package.json for pkglab versions
     const pkgJsonPath = join(cwd, "package.json");
     const pkgFile = Bun.file(pkgJsonPath);
     if (await pkgFile.exists()) {
@@ -18,7 +21,7 @@ export default defineCommand({
       for (const field of ["dependencies", "devDependencies"]) {
         if (!pkgJson[field]) continue;
         for (const [name, version] of Object.entries(pkgJson[field])) {
-          if (typeof version === "string" && isPkglVersion(version)) {
+          if (typeof version === "string" && ispkglabVersion(version)) {
             log.line(`  ${pc.red("✗")} ${field}.${name}: ${version}`);
             issues++;
           }
@@ -26,23 +29,24 @@ export default defineCommand({
       }
     }
 
-    // Check .npmrc for pkgl markers
+    // Check .npmrc for pkglab markers
     const npmrcPath = join(cwd, ".npmrc");
     const npmrcFile = Bun.file(npmrcPath);
     if (await npmrcFile.exists()) {
       const content = await npmrcFile.text();
-      if (content.includes("# pkgl-start")) {
-        log.line(`  ${pc.red("✗")} .npmrc contains pkgl registry markers`);
+      if (content.includes("# pkglab-start")) {
+        log.line(`  ${pc.red("✗")} .npmrc contains pkglab registry markers`);
         issues++;
       }
     }
 
     // Check git staged files
     try {
-      const proc = Bun.spawn(
-        ["git", "diff", "--cached", "--name-only"],
-        { cwd, stdout: "pipe", stderr: "pipe" }
-      );
+      const proc = Bun.spawn(["git", "diff", "--cached", "--name-only"], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
       const output = await new Response(proc.stdout).text();
       const staged = output.trim().split("\n").filter(Boolean);
 
@@ -51,15 +55,18 @@ export default defineCommand({
         issues++;
       }
 
-      // Check staged package.json for pkgl versions
+      // Check staged package.json for pkglab versions
       if (staged.includes("package.json")) {
-        const showProc = Bun.spawn(
-          ["git", "show", ":package.json"],
-          { cwd, stdout: "pipe", stderr: "pipe" }
-        );
+        const showProc = Bun.spawn(["git", "show", ":package.json"], {
+          cwd,
+          stdout: "pipe",
+          stderr: "pipe",
+        });
         const stagedContent = await new Response(showProc.stdout).text();
-        if (stagedContent.includes("0.0.0-pkgl.")) {
-          log.line(`  ${pc.red("✗")} Staged package.json contains pkgl versions`);
+        if (stagedContent.includes("0.0.0-pkglab.")) {
+          log.line(
+            `  ${pc.red("✗")} Staged package.json contains pkglab versions`,
+          );
           issues++;
         }
       }
@@ -68,9 +75,11 @@ export default defineCommand({
     }
 
     if (issues === 0) {
-      log.success("No pkgl artifacts found");
+      log.success("No pkglab artifacts found");
     } else {
-      log.error(`Found ${issues} pkgl artifact${issues !== 1 ? "s" : ""} that should not be committed`);
+      log.error(
+        `Found ${issues} pkglab artifact${issues !== 1 ? "s" : ""} that should not be committed`,
+      );
       process.exit(1);
     }
   },

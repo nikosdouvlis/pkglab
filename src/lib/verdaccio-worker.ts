@@ -2,12 +2,12 @@
 
 import { runServer } from "verdaccio";
 import { buildVerdaccioConfig } from "./verdaccio-config";
-import { loadConfig, ensurePkglDirs } from "./config";
+import { loadConfig, ensurepkglabDirs } from "./config";
 import { mkdir } from "node:fs/promises";
 import { paths } from "./paths";
 
 async function main() {
-  await ensurePkglDirs();
+  await ensurepkglabDirs();
   await mkdir(paths.verdaccioStorage, { recursive: true });
 
   const config = await loadConfig();

@@ -10,7 +10,7 @@ export default defineCommand({
     const entries = Object.entries(repos);
 
     if (entries.length === 0) {
-      log.info("No linked repos. Use pkgl add in a consumer repo.");
+      log.info("No linked repos. Use pkglab add in a consumer repo.");
       return;
     }
 
@@ -19,7 +19,7 @@ export default defineCommand({
       const pkgCount = Object.keys(state.packages).length;
       log.line(
         `  ${name.padEnd(20)} ${status.padEnd(18)} ` +
-        `${pkgCount} pkg${pkgCount !== 1 ? "s" : ""}  ${pc.dim(state.path)}`
+          `${pkgCount} pkg${pkgCount !== 1 ? "s" : ""}  ${pc.dim(state.path)}`,
       );
     }
   },

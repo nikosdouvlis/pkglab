@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 
 import { defineCommand, runMain } from "citty";
-import { ensurePkglDirs } from "./lib/config";
+import { ensurepkglabDirs } from "./lib/config";
 
 const main = defineCommand({
   meta: {
-    name: "pkgl",
+    name: "pkglab",
     version: "0.0.1",
     description: "Local package development with Verdaccio",
   },
@@ -24,7 +24,7 @@ const main = defineCommand({
     check: () => import("./commands/check").then((m) => m.default),
   },
   async setup() {
-    await ensurePkglDirs();
+    await ensurepkglabDirs();
   },
 });
 

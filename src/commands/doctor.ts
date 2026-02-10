@@ -9,7 +9,7 @@ import pc from "picocolors";
 import { stat } from "node:fs/promises";
 
 export default defineCommand({
-  meta: { name: "doctor", description: "Health check for pkgl environment" },
+  meta: { name: "doctor", description: "Health check for pkglab environment" },
   async run() {
     let issues = 0;
 
@@ -17,7 +17,7 @@ export default defineCommand({
     const bunVersion = Bun.version;
     log.line(`  ${pc.green("✓")} Bun ${bunVersion}`);
 
-    // Check pkgl dirs
+    // Check pkglab dirs
     for (const dir of [paths.home, paths.reposDir, paths.verdaccioDir]) {
       try {
         await stat(dir);
@@ -38,9 +38,13 @@ export default defineCommand({
       try {
         const resp = await fetch(`http://127.0.0.1:${config.port}/-/ping`);
         if (resp.ok) {
-          log.line(`  ${pc.green("✓")} Registry responding on port ${config.port}`);
+          log.line(
+            `  ${pc.green("✓")} Registry responding on port ${config.port}`,
+          );
         } else {
-          log.line(`  ${pc.red("✗")} Registry not responding (HTTP ${resp.status})`);
+          log.line(
+            `  ${pc.red("✗")} Registry not responding (HTTP ${resp.status})`,
+          );
           issues++;
         }
       } catch {
@@ -60,7 +64,9 @@ export default defineCommand({
         if (hasFlag) {
           log.line(`  ${pc.green("✓")} ${name}: skip-worktree OK`);
         } else {
-          log.line(`  ${pc.yellow("!")} ${name}: skip-worktree missing, repairing...`);
+          log.line(
+            `  ${pc.yellow("!")} ${name}: skip-worktree missing, repairing...`,
+          );
           await applySkipWorktree(state.path);
           log.line(`  ${pc.green("✓")} ${name}: skip-worktree repaired`);
         }
