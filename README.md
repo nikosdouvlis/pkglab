@@ -1,4 +1,6 @@
-# pkglab
+<p align="center">
+  <img src="docs/img/banner.png" alt="pkglab" />
+</p>
 
 Local package development CLI for monorepos. Publish workspace packages to an embedded registry, iterate, and auto-update consumer repos without the headaches of `npm link`, yalc, or manual overrides.
 
