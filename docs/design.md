@@ -152,10 +152,10 @@ packages:
 
 The `original` field stores the pre-pkgl version for each package. `pkgl rm @clerk/backend` reads this value and restores it in `package.json`.
 
-On `pkgl start`, all linked repos reset to inactive. Developer activates specific repos for the session:
+On `pkgl up`, all linked repos reset to inactive. Developer activates specific repos for the session:
 
 ```
-$ pkgl start
+$ pkgl up
 pkgl running on http://localhost:4873
 
 Linked repos (all inactive):
@@ -181,7 +181,7 @@ Updated active repos:
 
 ## Daemon management
 
-`pkgl start` spawns Verdaccio as a detached background process:
+`pkgl up` spawns Verdaccio as a detached background process:
 
 - Binds to `127.0.0.1` only (security: not accessible from network)
 - PID written to `~/.pkgl/pid`
@@ -189,11 +189,11 @@ Updated active repos:
 - Logs written to `/tmp/pkgl/verdaccio.log`
 - Verdaccio config and storage under `~/.pkgl/verdaccio/`
 
-`pkgl stop` reads the PID, validates identity, and kills the process. `pkgl logs` tails the log file. `pkgl logs -f` for live streaming.
+`pkgl down` reads the PID, validates identity, and kills the process. `pkgl logs` tails the log file. `pkgl logs -f` for live streaming.
 
-Port defaults to 4873, configurable in `~/.pkgl/config.yaml`. If the port changes, `pkgl start` updates the `.npmrc` in all linked repos.
+Port defaults to 4873, configurable in `~/.pkgl/config.yaml`. If the port changes, `pkgl up` updates the `.npmrc` in all linked repos.
 
-Crash recovery: `pkgl start` checks for stale PID files on startup. If the PID file exists but the process is dead, pkgl cleans up and starts fresh. `pkgl doctor` detects and repairs orphaned state.
+Crash recovery: `pkgl up` checks for stale PID files on startup. If the PID file exists but the process is dead, pkgl cleans up and starts fresh. `pkgl doctor` detects and repairs orphaned state.
 
 ## Pruning
 
@@ -230,11 +230,13 @@ No config files in publisher or consumer repos. All repo-level state lives in `.
 ## CLI commands
 
 ```
-pkgl start                     start Verdaccio daemon
-pkgl stop                      stop Verdaccio
+pkgl up                        start Verdaccio daemon
+pkgl down                      stop Verdaccio
 pkgl status                    server info, active repos, published packages
 
 pkgl pub [@scope/name]         publish package + cascade chain
+                               no arg from workspace root: publish all
+                               no arg from package dir: publish that package + cascade
 pkgl pub --fast                publish current dist, skip dep checks
 pkgl pub --dry-run             show what would be published
 

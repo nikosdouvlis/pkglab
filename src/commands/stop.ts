@@ -3,7 +3,7 @@ import { stopDaemon, getDaemonStatus } from "../lib/daemon";
 import { log } from "../lib/log";
 
 export default defineCommand({
-  meta: { name: "stop", description: "Stop Verdaccio daemon" },
+  meta: { name: "down", description: "Stop Verdaccio daemon" },
   async run() {
     const status = await getDaemonStatus();
     if (!status?.running) {

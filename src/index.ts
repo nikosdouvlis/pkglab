@@ -10,8 +10,8 @@ const main = defineCommand({
     description: "Local package development with Verdaccio",
   },
   subCommands: {
-    start: () => import("./commands/start").then((m) => m.default),
-    stop: () => import("./commands/stop").then((m) => m.default),
+    up: () => import("./commands/start").then((m) => m.default),
+    down: () => import("./commands/stop").then((m) => m.default),
     status: () => import("./commands/status").then((m) => m.default),
     logs: () => import("./commands/logs").then((m) => m.default),
     pub: () => import("./commands/pub").then((m) => m.default),

@@ -6,7 +6,7 @@ export class PkglError extends Error {
 }
 
 export class DaemonNotRunningError extends PkglError {
-  constructor(msg = "Verdaccio is not running. Run: pkgl start") {
+  constructor(msg = "Verdaccio is not running. Run: pkgl up") {
     super(msg);
     this.name = "DaemonNotRunningError";
   }
