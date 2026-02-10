@@ -137,6 +137,25 @@ export async function updatePackageJsonVersion(
   return { previousVersion };
 }
 
+export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
+  const activeRepos = await getActiveRepos();
+  for (const { name, state } of activeRepos) {
+    if (Object.keys(state.packages).length === 0) continue;
+    const npmrcFile = Bun.file(join(state.path, ".npmrc"));
+    const exists = await npmrcFile.exists();
+    const hasBlock = exists && (await npmrcFile.text()).includes(MARKER_START);
+    if (!hasBlock) {
+      try {
+        await addRegistryToNpmrc(state.path, port);
+        await applySkipWorktree(state.path);
+        log.dim(`  Repaired .npmrc for ${name}`);
+      } catch {
+        log.warn(`Could not repair .npmrc for ${name}`);
+      }
+    }
+  }
+}
+
 export async function updateActiveRepos(
   plan: PublishPlan,
   verbose: boolean,

@@ -4,6 +4,7 @@ import { loadConfig } from "../lib/config";
 import {
   addRegistryToNpmrc,
   applySkipWorktree,
+  ensureNpmrcForActiveRepos,
   scopedInstall,
   updatePackageJsonVersion,
 } from "../lib/consumer";
@@ -83,5 +84,7 @@ export default defineCommand({
     repoState.lastUsed = Date.now();
     await saveRepoState(repoFile, repoState);
     log.success(`Installed ${pkgName}@${latestVersion}`);
+
+    await ensureNpmrcForActiveRepos(config.port);
   },
 });

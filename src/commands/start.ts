@@ -11,6 +11,8 @@ export default defineCommand({
       log.warn(
         `Already running on port ${existing.port} (PID ${existing.pid})`,
       );
+      const { ensureNpmrcForActiveRepos } = await import("../lib/consumer");
+      await ensureNpmrcForActiveRepos(existing.port);
       return;
     }
 
