@@ -50,6 +50,14 @@ node -e "
   fs.writeFileSync('$file', JSON.stringify(p, null, 2) + '\n');
 "
 
+# Build binaries with new version baked in
+echo "Building binaries..."
+for platform in "${PLATFORMS[@]}"; do
+  echo "Building pkglab-${platform}..."
+  mkdir -p "npm/${platform}/bin"
+  bun build --compile --target="bun-${platform}" --define "__PKGLAB_VERSION__=\"${VERSION}\"" --outfile "npm/${platform}/bin/pkglab" src/index.ts
+done
+
 # Commit version bump
 git add package.json npm/*/package.json
 git commit -m "chore(release): ${VERSION}"
