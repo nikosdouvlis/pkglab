@@ -1,5 +1,4 @@
 import type { pkglabConfig } from "../types";
-import { run, npmEnvWithAuth } from "./proc";
 
 function registryUrl(config: pkglabConfig): string {
   return `http://127.0.0.1:${config.port}`;
@@ -44,17 +43,52 @@ export async function listAllPackages(
   }
 }
 
-export async function unpublishVersion(
+export async function unpublishVersions(
   config: pkglabConfig,
   name: string,
-  version: string,
-): Promise<void> {
+  versions: string[],
+): Promise<{ removed: string[]; failed: string[] }> {
+  if (versions.length === 0) return { removed: [], failed: [] };
+
   const url = registryUrl(config);
-  const result = await run(
-    ["npm", "unpublish", `${name}@${version}`, "--registry", url, "--force"],
-    { env: npmEnvWithAuth(url) },
-  );
-  if (result.exitCode !== 0) {
-    throw new Error(`Unpublish failed for ${name}@${version}: ${result.stderr}`);
+  const pkgUrl = `${url}/${encodeURIComponent(name)}`;
+  const headers = { Authorization: "Bearer pkglab-local" };
+
+  const resp = await fetch(pkgUrl, { headers });
+  if (!resp.ok) throw new Error(`Failed to fetch ${name}: ${resp.status}`);
+
+  const doc = (await resp.json()) as any;
+  const removeSet = new Set(versions);
+  const removed: string[] = [];
+
+  for (const v of versions) {
+    if (!doc.versions?.[v]) continue;
+    delete doc.versions[v];
+    if (doc.time) delete doc.time[v];
+    removed.push(v);
   }
+
+  // Clean up dist-tags pointing to removed versions
+  if (doc["dist-tags"]) {
+    for (const [tag, v] of Object.entries(doc["dist-tags"])) {
+      if (removeSet.has(v as string)) {
+        delete doc["dist-tags"][tag];
+      }
+    }
+  }
+
+  if (removed.length === 0) return { removed: [], failed: [] };
+
+  const rev = doc._rev || "0-0";
+  const putResp = await fetch(`${pkgUrl}/-rev/${rev}`, {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(doc),
+  });
+
+  if (!putResp.ok) {
+    return { removed: [], failed: versions };
+  }
+
+  return { removed, failed: versions.filter((v) => !removed.includes(v)) };
 }

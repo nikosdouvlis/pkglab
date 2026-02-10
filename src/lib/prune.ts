@@ -1,8 +1,7 @@
 import type { pkglabConfig } from "../types";
 import {
-  getPackageVersions,
   listAllPackages,
-  unpublishVersion,
+  unpublishVersions,
 } from "./registry";
 import { getActiveRepos } from "./repo-state";
 import { ispkglabVersion, extractTimestamp } from "./version";
@@ -11,9 +10,9 @@ import { log } from "./log";
 export async function prunePackage(
   config: pkglabConfig,
   pkgName: string,
+  versions: string[],
   referenced: Set<string>,
 ): Promise<number> {
-  const versions = await getPackageVersions(config, pkgName);
   const pkglabVersions = versions
     .filter(ispkglabVersion)
     .sort((a, b) => extractTimestamp(b) - extractTimestamp(a));
@@ -24,20 +23,13 @@ export async function prunePackage(
     .slice(config.prune_keep)
     .filter((v) => !referenced.has(v));
 
-  let pruned = 0;
-  await Promise.all(
-    toRemove.map(async (version) => {
-      try {
-        await unpublishVersion(config, pkgName, version);
-        pruned++;
-        log.dim(`  Pruned ${pkgName}@${version}`);
-      } catch {
-        log.warn(`  Failed to prune ${pkgName}@${version}`);
-      }
-    }),
-  );
+  if (toRemove.length === 0) return 0;
 
-  return pruned;
+  const { removed, failed } = await unpublishVersions(config, pkgName, toRemove);
+  for (const v of removed) log.dim(`  Pruned ${pkgName}@${v}`);
+  for (const v of failed) log.warn(`  Failed to prune ${pkgName}@${v}`);
+
+  return removed.length;
 }
 
 export async function pruneAll(config: pkglabConfig): Promise<number> {
@@ -55,7 +47,7 @@ export async function pruneAll(config: pkglabConfig): Promise<number> {
   );
 
   const results = await Promise.all(
-    toPrune.map((pkg) => prunePackage(config, pkg.name, referenced)),
+    toPrune.map((pkg) => prunePackage(config, pkg.name, pkg.versions, referenced)),
   );
 
   return results.reduce((sum, n) => sum + n, 0);
