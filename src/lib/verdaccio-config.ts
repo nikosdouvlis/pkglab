@@ -8,8 +8,13 @@ export function buildVerdaccioConfig() {
       npmjs: {
         url: "https://registry.npmjs.org/",
         cache: true,
+        timeout: "60s",
+        max_fails: 10,
+        fail_timeout: "10s",
+        strict_ssl: false,
       },
     },
+    publish: { allow_offline: true },
     packages: {
       "**": {
         access: "$all",
@@ -19,7 +24,7 @@ export function buildVerdaccioConfig() {
       },
     },
     server: { keepAliveTimeout: 60 },
-    logs: { type: "file", path: paths.logFile, level: "info" },
+    log: { type: "file", path: paths.logFile, level: "info" },
     auth: {
       htpasswd: {
         file: paths.verdaccioDir + "/htpasswd",
