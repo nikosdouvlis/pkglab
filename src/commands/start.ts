@@ -26,21 +26,32 @@ export default defineCommand({
     const repos = await loadAllRepos();
     const entries = Object.entries(repos);
     if (entries.length > 0) {
-      log.info("\nLinked repos (all inactive):");
+      // Propagate port to .npmrc in linked repos
+      const { addRegistryToNpmrc, applySkipWorktree } = await import("../lib/consumer");
       for (const [name, state] of entries) {
-        log.line(`  ${name.padEnd(20)} ${state.path}`);
+        if (Object.keys(state.packages).length > 0) {
+          try {
+            await addRegistryToNpmrc(state.path, info.port);
+          } catch {
+            log.warn(`Could not update .npmrc for ${name}`);
+          }
+        }
       }
-      log.dim("\nActivate repos: pkglab repos activate <name>");
-    }
 
-    // Propagate port to .npmrc in linked repos
-    const { addRegistryToNpmrc } = await import("../lib/consumer");
-    for (const [name, state] of entries) {
-      if (Object.keys(state.packages).length > 0) {
-        try {
+      const { selectRepos } = await import("../lib/prompt");
+      const selected = await selectRepos({
+        message: "Select repos to activate",
+      });
+
+      if (selected.length > 0) {
+        const { saveRepoState } = await import("../lib/repo-state");
+        for (const { name, state } of selected) {
           await addRegistryToNpmrc(state.path, info.port);
-        } catch {
-          log.warn(`Could not update .npmrc for ${name}`);
+          await applySkipWorktree(state.path);
+          state.active = true;
+          state.lastUsed = Date.now();
+          await saveRepoState(name, state);
+          log.success(`Activated ${name}`);
         }
       }
     }

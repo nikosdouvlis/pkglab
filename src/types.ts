@@ -6,6 +6,7 @@ export interface pkglabConfig {
 export interface RepoState {
   path: string;
   active: boolean;
+  lastUsed?: number;
   packages: Record<string, PackageLink>;
 }
 

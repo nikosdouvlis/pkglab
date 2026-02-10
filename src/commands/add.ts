@@ -79,6 +79,8 @@ export default defineCommand({
       repoState.packages[pkgName].current = latestVersion;
     }
 
+    repoState.active = true;
+    repoState.lastUsed = Date.now();
     await saveRepoState(repoFile, repoState);
     log.success(`Installed ${pkgName}@${latestVersion}`);
   },

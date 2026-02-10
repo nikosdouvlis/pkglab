@@ -23,6 +23,7 @@ export function buildVerdaccioConfig() {
         proxy: "npmjs",
       },
     },
+    max_body_size: "100mb",
     server: { keepAliveTimeout: 60 },
     log: { type: "file", path: paths.logFile, level: "info" },
     auth: {

@@ -24,14 +24,20 @@ export async function prunePackage(
     .slice(config.prune_keep)
     .filter((v) => !referenced.has(v));
 
+  let pruned = 0;
   await Promise.all(
     toRemove.map(async (version) => {
-      await unpublishVersion(config, pkgName, version);
-      log.dim(`  Pruned ${pkgName}@${version}`);
+      try {
+        await unpublishVersion(config, pkgName, version);
+        pruned++;
+        log.dim(`  Pruned ${pkgName}@${version}`);
+      } catch {
+        log.warn(`  Failed to prune ${pkgName}@${version}`);
+      }
     }),
   );
 
-  return toRemove.length;
+  return pruned;
 }
 
 export async function pruneAll(config: pkglabConfig): Promise<number> {
