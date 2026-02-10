@@ -1,0 +1,26 @@
+{
+  "name": "pkglab-darwin-arm64",
+  "version": "0.0.1",
+  "description": "pkglab macOS ARM64 binary",
+  "license": "MIT",
+  "author": "Nikos Douvlis <nikosdouvlis@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nikosdouvlis/pkglab.git"
+  },
+  "homepage": "https://github.com/nikosdouvlis/pkglab",
+  "bugs": "https://github.com/nikosdouvlis/pkglab/issues",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "preferUnplugged": true,
+  "files": [
+    "bin"
+  ]
+}

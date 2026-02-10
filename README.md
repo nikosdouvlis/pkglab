@@ -33,13 +33,25 @@ On top of that, **`pkglab`** handles:
 
 ## Install
 
+Prebuilt binaries (no runtime needed):
+
+```
+npm install -g pkglab
+```
+
+This installs a native binary for your platform. No Bun or Node.js runtime required to run pkglab itself. npm is only used here as a distribution channel.
+
+Under the hood, the `pkglab` npm package contains a tiny Node.js wrapper. It declares platform-specific packages (`pkglab-darwin-arm64`, `pkglab-linux-x64`, etc.) as optional dependencies with `os` and `cpu` constraints, so npm only downloads the one matching your machine. When you run `pkglab`, the wrapper resolves the platform binary and execs it. The compiled binary has the Bun runtime embedded, so nothing else needs to be installed.
+
+From source (requires Bun):
+
 ```
 bun install -g pkglab
 ```
 
-Requires [Bun](https://bun.sh) and Node.js (**`pkglab`** shells out to `npm` for publishing). Your consumer repos can use any package manager: npm, pnpm, yarn, or bun.
+Your consumer repos can use any package manager: npm, pnpm, yarn, or bun. pkglab shells out to `npm` for publishing, so Node.js needs to be available on your machine.
 
-Supported on macOS and Linux.
+Supported on macOS (ARM64, x64) and Linux (x64, ARM64).
 
 ## Quick start
 
