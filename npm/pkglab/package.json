@@ -1,6 +1,6 @@
 {
   "name": "pkglab",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "description": "Local package development CLI with an embedded Verdaccio registry",
   "license": "MIT",
   "author": "Nikos Douvlis <nikosdouvlis@gmail.com>",
@@ -21,10 +21,10 @@
     "bin"
   ],
   "optionalDependencies": {
-    "pkglab-darwin-arm64": "0.0.14",
-    "pkglab-darwin-x64": "0.0.14",
-    "pkglab-linux-x64": "0.0.14",
-    "pkglab-linux-arm64": "0.0.14"
+    "pkglab-darwin-arm64": "0.0.15",
+    "pkglab-darwin-x64": "0.0.15",
+    "pkglab-linux-x64": "0.0.15",
+    "pkglab-linux-arm64": "0.0.15"
   },
   "keywords": [
     "verdaccio",

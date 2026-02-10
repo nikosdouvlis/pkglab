@@ -8,6 +8,7 @@ import {
 import { log } from "../../lib/log";
 import type { RepoState } from "../../types";
 import { exists } from "node:fs/promises";
+import { join } from "node:path";
 
 export default defineCommand({
   meta: { name: "reset", description: "Reset repo to original versions" },
@@ -21,7 +22,7 @@ export default defineCommand({
       const allRepos = await loadAllRepos();
       let removed = 0;
       for (const [name, state] of Object.entries(allRepos)) {
-        if (!(await exists(state.path))) {
+        if (!(await exists(join(state.path, "package.json")))) {
           await deleteRepoState(name);
           log.success(`Removed stale repo: ${name} (${state.path})`);
           removed++;
@@ -50,8 +51,9 @@ export default defineCommand({
     }
 
     for (const [name, state] of targets) {
-      if (!(await exists(state.path))) {
-        log.warn(`Skipping ${name}: directory no longer exists (${state.path})`);
+      const pkgJsonExists = await exists(join(state.path, "package.json"));
+      if (!pkgJsonExists) {
+        log.warn(`Skipping ${name}: directory or package.json no longer exists (${state.path})`);
         log.dim(`  Run --stale to remove it`);
         continue;
       }
@@ -63,8 +65,7 @@ export default defineCommand({
           log.dim(`  ${pkgName} -> ${link.original}`);
         } else {
           // No original — remove the dependency
-          const { join: pathJoin } = await import("node:path");
-          const pkgJsonPath = pathJoin(state.path, "package.json");
+          const pkgJsonPath = join(state.path, "package.json");
           const pkgJson = await Bun.file(pkgJsonPath).json();
           for (const field of ["dependencies", "devDependencies"]) {
             if (pkgJson[field]?.[pkgName]) {
