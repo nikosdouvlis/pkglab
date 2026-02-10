@@ -40,15 +40,23 @@ export default defineCommand({
         log.error(`Package not found in workspace: ${args.name}`);
         process.exit(1);
       }
+      if (!pkg.publishable) {
+        log.error(`Package ${args.name} is private and cannot be published`);
+        process.exit(1);
+      }
       targets = [pkg.name];
     } else {
       const cwd = process.cwd();
       const currentPkg = workspace.packages.find((p) => p.dir === cwd);
       if (currentPkg) {
+        if (!currentPkg.publishable) {
+          log.error("Current package is private and cannot be published");
+          process.exit(1);
+        }
         targets = [currentPkg.name];
         log.info(`Publishing from package dir: ${currentPkg.name}`);
       } else {
-        targets = workspace.packages.map((p) => p.name);
+        targets = workspace.packages.filter((p) => p.publishable).map((p) => p.name);
       }
     }
 
@@ -82,6 +90,21 @@ export default defineCommand({
       }
     }
 
+    // Validate no non-publishable dependencies in the publish set
+    for (const pkg of publishSet) {
+      for (const field of ["dependencies", "peerDependencies", "optionalDependencies"] as const) {
+        const deps = pkg.packageJson[field];
+        if (!deps) continue;
+        for (const depName of Object.keys(deps)) {
+          const depPkg = workspace.packages.find((p) => p.name === depName);
+          if (depPkg && !depPkg.publishable) {
+            log.error(`Cannot publish ${pkg.name}: depends on private package ${depName}`);
+            process.exit(1);
+          }
+        }
+      }
+    }
+
     if (args["dry-run"]) {
       const version = generateVersion();
       const catalogs = await loadCatalogs(workspace.root);
@@ -93,14 +116,15 @@ export default defineCommand({
       return;
     }
 
-    // Seed version monotonicity from registry
-    const { seedTimestamp } = await import("../lib/version");
+    // Seed version monotonicity from registry + disk
+    const { seedTimestamp, loadSeed } = await import("../lib/version");
     const { getPackageVersions } = await import("../lib/registry");
+    await loadSeed();
     const allVersions = await Promise.all(
       publishSet.map((pkg) => getPackageVersions(config, pkg.name)),
     );
     for (const versions of allVersions) {
-      seedTimestamp(versions);
+      await seedTimestamp(versions);
     }
 
     const version = generateVersion();
@@ -136,69 +160,8 @@ export default defineCommand({
       }
 
       // Auto-update active consumer repos
-      const { getActiveRepos, saveRepoState: saveRepo } = await import("../lib/repo-state");
-      const { detectPackageManager, installCommand } = await import("../lib/pm-detect");
-      const { updatePackageJsonVersion, scopedInstall } = await import("../lib/consumer");
-
-      const activeRepos = await getActiveRepos();
-      if (activeRepos.length > 0) {
-        // Build per-repo work items: which packages to update and the install command
-        const repoWork = await Promise.all(
-          activeRepos.map(async ({ name, state }) => {
-            const pm = await detectPackageManager(state.path);
-            const packages = plan.packages.filter((e) => state.packages[e.name]);
-            return { name, state, pm, packages };
-          }),
-        );
-        const work = repoWork.filter((r) => r.packages.length > 0);
-
-        if (work.length > 0 && !verbose) {
-          // Build grouped spinner lines with task index tracking
-          const spinnerLines: import("../lib/spinner").SpinnerLine[] = [];
-          const tasks: { repoIdx: number; spinnerIdx: number }[] = [];
-
-          for (let r = 0; r < work.length; r++) {
-            const { name, pm, packages } = work[r];
-            spinnerLines.push({ text: `${name}:`, header: true });
-            for (const entry of packages) {
-              tasks.push({ repoIdx: r, spinnerIdx: spinnerLines.length });
-              spinnerLines.push(installCommand(pm, entry.name, entry.version).join(" "));
-            }
-          }
-
-          const repoSpinner = createMultiSpinner(spinnerLines);
-          repoSpinner.start();
-
-          try {
-            await Promise.all(
-              work.map(async (repo, r) => {
-                const repoTasks = tasks.filter((t) => t.repoIdx === r);
-                for (let i = 0; i < repo.packages.length; i++) {
-                  const entry = repo.packages[i];
-                  await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
-                  await scopedInstall(repo.state.path, entry.name, entry.version, repo.pm, true);
-                  repo.state.packages[entry.name].current = entry.version;
-                  await saveRepo(repo.name, repo.state);
-                  repoSpinner.complete(repoTasks[i].spinnerIdx);
-                }
-              }),
-            );
-          } finally {
-            repoSpinner.stop();
-          }
-        } else if (work.length > 0) {
-          log.info("\nUpdating active repos:");
-          for (const repo of work) {
-            for (const entry of repo.packages) {
-              await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
-              await scopedInstall(repo.state.path, entry.name, entry.version, repo.pm);
-              repo.state.packages[entry.name].current = entry.version;
-              await saveRepo(repo.name, repo.state);
-            }
-            log.success(`  ${repo.name}: updated ${repo.packages.map((e) => e.name).join(", ")}`);
-          }
-        }
-      }
+      const { updateActiveRepos } = await import("../lib/consumer");
+      await updateActiveRepos(plan, verbose);
 
       // Auto-prune old versions in detached subprocess
       const pruneEntry = new URL("../lib/prune-worker.ts", import.meta.url).pathname;

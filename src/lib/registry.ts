@@ -1,5 +1,5 @@
 import type { pkglabConfig } from "../types";
-import { npmEnvWithAuth } from "./publisher";
+import { run, npmEnvWithAuth } from "./proc";
 
 function registryUrl(config: pkglabConfig): string {
   return `http://127.0.0.1:${config.port}`;
@@ -50,13 +50,11 @@ export async function unpublishVersion(
   version: string,
 ): Promise<void> {
   const url = registryUrl(config);
-  const proc = Bun.spawn(
+  const result = await run(
     ["npm", "unpublish", `${name}@${version}`, "--registry", url, "--force"],
-    { stdout: "pipe", stderr: "pipe", env: npmEnvWithAuth(url) },
+    { env: npmEnvWithAuth(url) },
   );
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`Unpublish failed for ${name}@${version}: ${stderr}`);
+  if (result.exitCode !== 0) {
+    throw new Error(`Unpublish failed for ${name}@${version}: ${result.stderr}`);
   }
 }

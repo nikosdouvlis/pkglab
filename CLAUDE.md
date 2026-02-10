@@ -6,6 +6,37 @@ Runtime: Bun
 CLI framework: citty
 Colors: `Bun.color()` via `src/lib/color.ts` (no picocolors)
 
+## CLI commands
+
+Top-level:
+- `pkglab up` — start the local Verdaccio registry
+- `pkglab down` — stop the registry
+- `pkglab status` — show registry status
+- `pkglab logs` — show registry logs
+- `pkglab pub [name]` — publish workspace packages to local registry, auto-updates active consumer repos
+- `pkglab add <name>` — add a pkglab package to the current repo (run from consumer repo)
+- `pkglab rm <name>` — remove a pkglab package, restore original version
+- `pkglab doctor` — diagnose issues
+- `pkglab prune` — clean up old versions from storage
+- `pkglab check` — check package status
+
+Subcommands:
+- `pkglab repos ls` — list consumer repos
+- `pkglab repos on` — activate a repo
+- `pkglab repos off` — deactivate a repo
+- `pkglab repos reset` — reset repo state
+- `pkglab repos rename` — rename a repo
+- `pkglab pkgs ls` — list published packages
+
+## Workflow
+
+1. `pkglab up` — start the local registry
+2. `pkglab pub` — publish workspace packages (from the library repo)
+3. `pkglab add <pkg>` — install a pkglab package in a consumer repo (run from consumer repo dir)
+4. Iterate: make changes to the library, run `pkglab pub` again — active consumer repos are auto-updated
+5. `pkglab rm <pkg>` — restore original version when done
+6. `pkglab down` — stop the registry
+
 ## Project layout
 
 - `src/index.ts` — entry point, registers all commands via lazy imports

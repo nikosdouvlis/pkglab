@@ -2,6 +2,7 @@ import { join, basename } from "node:path";
 import { realpath, readdir } from "node:fs/promises";
 import { parse, stringify } from "yaml";
 import { paths } from "./paths";
+import { log } from "./log";
 import type { RepoState } from "../types";
 
 const VALID_REPO_NAME = /^[a-zA-Z0-9._~-]+$/;
@@ -68,10 +69,20 @@ export async function loadAllRepos(): Promise<Record<string, RepoState>> {
   const result: Record<string, RepoState> = {};
   try {
     const files = await readdir(paths.reposDir);
-    for (const file of files) {
-      if (!file.endsWith(".yaml")) continue;
-      const name = file.replace(".yaml", "");
-      const state = await loadRepoState(name);
+    const yamlFiles = files.filter((f) => f.endsWith(".yaml"));
+    const entries = await Promise.all(
+      yamlFiles.map(async (file) => {
+        const name = file.replace(".yaml", "");
+        try {
+          const state = await loadRepoState(name);
+          return [name, state] as const;
+        } catch {
+          log.warn(`Failed to load repo state: ${file}`);
+          return [name, null] as const;
+        }
+      })
+    );
+    for (const [name, state] of entries) {
       if (state) result[name] = state;
     }
   } catch {}

@@ -2,6 +2,7 @@ import { paths } from "./paths";
 import { loadConfig } from "./config";
 import { DaemonAlreadyRunningError } from "./errors";
 import type { DaemonInfo } from "../types";
+import { isProcessAlive, run } from "./proc";
 
 export async function startDaemon(): Promise<DaemonInfo> {
   const existing = await getDaemonStatus();
@@ -43,7 +44,7 @@ export async function startDaemon(): Promise<DaemonInfo> {
   }
 
   // Write PID only after confirmed READY
-  await Bun.write(paths.pid, String(proc.pid));
+  await Bun.write(paths.pid, JSON.stringify({ pid: proc.pid, port: config.port, startedAt: Date.now() }));
   proc.unref();
 
   return { pid: proc.pid, port: config.port, running: true };
@@ -74,43 +75,58 @@ export async function getDaemonStatus(): Promise<DaemonInfo | null> {
   const pidFile = Bun.file(paths.pid);
   if (!(await pidFile.exists())) return null;
 
-  const pidStr = await pidFile.text();
-  const pid = parseInt(pidStr.trim(), 10);
-  if (isNaN(pid)) return null;
+  const content = await pidFile.text();
+  let pid: number;
+  let port: number | undefined;
+  let startedAt: number | undefined;
+
+  try {
+    const data = JSON.parse(content.trim());
+    pid = data.pid;
+    port = data.port;
+    startedAt = data.startedAt;
+  } catch {
+    // Legacy plain-number format
+    pid = parseInt(content.trim(), 10);
+  }
+
+  if (typeof pid !== "number" || !Number.isFinite(pid) || pid <= 0) return null;
 
   if (!isProcessAlive(pid)) {
-    // Stale PID, clean up
     const { unlink } = await import("node:fs/promises");
     await unlink(paths.pid).catch(() => {});
     return null;
   }
 
-  if (!(await validatePid(pid))) {
+  if (!(await validatePid(pid, startedAt))) {
+    const { unlink } = await import("node:fs/promises");
+    await unlink(paths.pid).catch(() => {});
     return null;
   }
 
   const config = await loadConfig();
-  return { pid, port: config.port, running: true };
+  return { pid, port: port ?? config.port, running: true };
 }
 
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
+async function validatePid(pid: number, startedAt?: number): Promise<boolean> {
+  if (startedAt) {
+    // Use process start time comparison: if the process was started
+    // within a reasonable window of our recorded time, it's likely ours
+    try {
+      const result = await run(["ps", "-p", String(pid), "-o", "lstart="], {});
+      if (result.exitCode !== 0) return false;
+      const psTime = new Date(result.stdout.trim()).getTime();
+      // Allow 5 second tolerance for start time difference
+      return Math.abs(psTime - startedAt) < 5000;
+    } catch {
+      return false;
+    }
   }
-}
-
-async function validatePid(pid: number): Promise<boolean> {
+  // Fallback: check command string (legacy pidfiles without startedAt)
   try {
-    const proc = Bun.spawn(["ps", "-p", String(pid), "-o", "command="], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const output = await new Response(proc.stdout).text();
-    // Must match our specific worker script pattern
-    return output.includes("verdaccio-worker.ts") || output.includes("bun") && output.includes("verdaccio");
+    const result = await run(["ps", "-p", String(pid), "-o", "command="], {});
+    if (result.exitCode !== 0) return false;
+    return result.stdout.includes("verdaccio-worker") || (result.stdout.includes("bun") && result.stdout.includes("verdaccio"));
   } catch {
     return false;
   }
@@ -123,11 +139,13 @@ async function waitForReady(proc: ReturnType<typeof Bun.spawn>): Promise<"ready"
   }
   const reader = (stdout as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
+  let buffer = "";
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) throw new Error("stdout closed before READY");
-      if (decoder.decode(value).includes("READY")) return "ready";
+      buffer += decoder.decode(value, { stream: true });
+      if (buffer.includes("READY")) return "ready";
     }
   } finally {
     reader.releaseLock();

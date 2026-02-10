@@ -16,6 +16,7 @@ export function buildDependencyGraph(
     const allDeps: Record<string, string> = {
       ...pkg.packageJson.dependencies,
       ...pkg.packageJson.peerDependencies,
+      ...pkg.packageJson.optionalDependencies,
     };
     for (const depName of Object.keys(allDeps)) {
       if (names.has(depName)) {
@@ -47,9 +48,10 @@ export function computeCascade(
     closure.add(name);
 
     try {
-      dependencies[name] = graph.directDependenciesOf(name).filter(
+      const directDeps = graph.directDependenciesOf(name).filter(
         (dep) => dep !== name
       );
+      dependencies[name] = directDeps;
     } catch {
       dependencies[name] = [];
     }
@@ -70,24 +72,13 @@ export function computeCascade(
     }
   }
 
-  const expanded = new Set(closure);
-  for (const name of closure) {
-    try {
-      for (const dep of graph.dependenciesOf(name)) {
-        expanded.add(dep);
-      }
-    } catch (err: any) {
-      if (err.cyclePath) {
-        throw new CycleDetectedError(
-          `Dependency cycle detected: ${err.cyclePath.join(" -> ")}`
-        );
-      }
-      throw err;
-    }
-  }
-
   // Deterministic toposort with lexical tie-breaking
-  const ordered = deterministicToposort(graph, expanded);
+  const ordered = deterministicToposort(graph, closure);
+  if (ordered.length !== closure.size) {
+    throw new CycleDetectedError(
+      `Dependency cycle detected: toposort returned ${ordered.length} nodes but expected ${closure.size}`
+    );
+  }
   return {
     packages: ordered.map((name) => graph.getNodeData(name)),
     dependencies,

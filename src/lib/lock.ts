@@ -2,6 +2,7 @@ import { paths } from "./paths";
 import { LockAcquisitionError } from "./errors";
 import { unlink } from "node:fs/promises";
 import { open } from "node:fs/promises";
+import { isProcessAlive } from "./proc";
 
 export async function acquirePublishLock(): Promise<() => Promise<void>> {
   const lockPath = paths.publishLock;
@@ -35,15 +36,6 @@ export async function acquirePublishLock(): Promise<() => Promise<void>> {
   return async () => {
     await unlink(lockPath).catch(() => {});
   };
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function openExclusive(

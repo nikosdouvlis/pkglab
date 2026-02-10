@@ -14,11 +14,15 @@ const LOCKFILES: Record<string, PackageManager> = {
 export async function detectPackageManager(
   repoPath: string
 ): Promise<PackageManager> {
-  const found: PackageManager[] = [];
+  const entries = Object.entries(LOCKFILES);
+  const results = await Promise.all(
+    entries.map(([lockfile]) => Bun.file(join(repoPath, lockfile)).exists())
+  );
 
-  for (const [lockfile, pm] of Object.entries(LOCKFILES)) {
-    const file = Bun.file(join(repoPath, lockfile));
-    if (await file.exists()) {
+  const found: PackageManager[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    if (results[i]) {
+      const pm = entries[i][1];
       if (!found.includes(pm)) found.push(pm);
     }
   }

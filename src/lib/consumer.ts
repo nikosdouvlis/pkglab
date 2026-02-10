@@ -3,6 +3,11 @@ import { log } from "./log";
 import { NpmrcConflictError } from "./errors";
 import { detectPackageManager, installCommand } from "./pm-detect";
 import type { PackageManager } from "./pm-detect";
+import { run } from "./proc";
+import { getActiveRepos, saveRepoState } from "./repo-state";
+import { createMultiSpinner } from "./spinner";
+import type { SpinnerLine } from "./spinner";
+import type { PublishPlan } from "../types";
 
 const MARKER_START = "# pkglab-start";
 const MARKER_END = "# pkglab-end";
@@ -69,50 +74,29 @@ export async function applySkipWorktree(repoPath: string): Promise<void> {
   // skip-worktree only works on tracked files
   if (!(await isTrackedByGit(repoPath, ".npmrc"))) return;
 
-  const proc = Bun.spawn(["git", "update-index", "--skip-worktree", ".npmrc"], {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    log.warn(`Failed to set skip-worktree on .npmrc: ${stderr.trim()}`);
+  const result = await run(["git", "update-index", "--skip-worktree", ".npmrc"], { cwd: repoPath });
+  if (result.exitCode !== 0) {
+    log.warn(`Failed to set skip-worktree on .npmrc: ${result.stderr.trim()}`);
   }
 }
 
 export async function removeSkipWorktree(repoPath: string): Promise<void> {
   if (!(await isTrackedByGit(repoPath, ".npmrc"))) return;
 
-  const proc = Bun.spawn(
-    ["git", "update-index", "--no-skip-worktree", ".npmrc"],
-    { cwd: repoPath, stdout: "pipe", stderr: "pipe" },
-  );
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    log.warn(`Failed to clear skip-worktree on .npmrc: ${stderr.trim()}`);
+  const result = await run(["git", "update-index", "--no-skip-worktree", ".npmrc"], { cwd: repoPath });
+  if (result.exitCode !== 0) {
+    log.warn(`Failed to clear skip-worktree on .npmrc: ${result.stderr.trim()}`);
   }
 }
 
 async function isTrackedByGit(repoPath: string, file: string): Promise<boolean> {
-  const proc = Bun.spawn(["git", "ls-files", file], {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const output = await new Response(proc.stdout).text();
-  return output.trim().length > 0;
+  const result = await run(["git", "ls-files", file], { cwd: repoPath });
+  return result.stdout.trim().length > 0;
 }
 
 export async function isSkipWorktreeSet(repoPath: string): Promise<boolean> {
-  const proc = Bun.spawn(["git", "ls-files", "-v", ".npmrc"], {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const output = await new Response(proc.stdout).text();
-  return output.startsWith("S ");
+  const result = await run(["git", "ls-files", "-v", ".npmrc"], { cwd: repoPath });
+  return result.stdout.startsWith("S ");
 }
 
 export async function scopedInstall(
@@ -126,19 +110,9 @@ export async function scopedInstall(
   const cmd = installCommand(detectedPm, pkgName, version);
 
   if (!quiet) log.dim(`  ${cmd.join(" ")}`);
-  const proc = Bun.spawn(cmd, {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  // Read streams concurrently with waiting for exit to avoid data loss
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  if (exitCode !== 0) {
-    const output = (stderr || stdout).trim();
+  const result = await run(cmd, { cwd: repoPath });
+  if (result.exitCode !== 0) {
+    const output = (result.stderr || result.stdout).trim();
     throw new Error(`Install failed (${detectedPm}): ${output}`);
   }
 }
@@ -161,4 +135,71 @@ export async function updatePackageJsonVersion(
 
   await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
   return { previousVersion };
+}
+
+export async function updateActiveRepos(
+  plan: PublishPlan,
+  verbose: boolean,
+): Promise<void> {
+  const activeRepos = await getActiveRepos();
+  if (activeRepos.length === 0) return;
+
+  // Build per-repo work items: which packages to update and the install command
+  const repoWork = await Promise.all(
+    activeRepos.map(async ({ name, state }) => {
+      const pm = await detectPackageManager(state.path);
+      const packages = plan.packages.filter((e) => state.packages[e.name]);
+      return { name, state, pm, packages };
+    }),
+  );
+  const work = repoWork.filter((r) => r.packages.length > 0);
+
+  if (work.length === 0) return;
+
+  if (!verbose) {
+    // Build grouped spinner lines with task index tracking
+    const spinnerLines: SpinnerLine[] = [];
+    const tasks: { repoIdx: number; spinnerIdx: number }[] = [];
+
+    for (let r = 0; r < work.length; r++) {
+      const { name, pm, packages } = work[r];
+      spinnerLines.push({ text: `${name}:`, header: true });
+      for (const entry of packages) {
+        tasks.push({ repoIdx: r, spinnerIdx: spinnerLines.length });
+        spinnerLines.push(installCommand(pm, entry.name, entry.version).join(" "));
+      }
+    }
+
+    const repoSpinner = createMultiSpinner(spinnerLines);
+    repoSpinner.start();
+
+    try {
+      await Promise.all(
+        work.map(async (repo, r) => {
+          const repoTasks = tasks.filter((t) => t.repoIdx === r);
+          for (let i = 0; i < repo.packages.length; i++) {
+            const entry = repo.packages[i];
+            await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
+            await scopedInstall(repo.state.path, entry.name, entry.version, repo.pm, true);
+            repo.state.packages[entry.name].current = entry.version;
+            repoSpinner.complete(repoTasks[i].spinnerIdx);
+          }
+          await saveRepoState(repo.name, repo.state);
+        }),
+      );
+    } finally {
+      repoSpinner.stop();
+    }
+  } else {
+    log.info("\nUpdating active repos:");
+    for (const repo of work) {
+      for (const entry of repo.packages) {
+        await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
+        await scopedInstall(repo.state.path, entry.name, entry.version, repo.pm);
+        repo.state.packages[entry.name].current = entry.version;
+      }
+      await saveRepoState(repo.name, repo.state);
+      log.success(`  ${repo.name}: updated ${repo.packages.map((e) => e.name).join(", ")}`);
+    }
+  }
 }

@@ -8,6 +8,7 @@ import type {
   pkglabConfig,
 } from "../types";
 import { log } from "./log";
+import { run, npmEnvWithAuth } from "./proc";
 
 export function buildPublishPlan(
   packages: WorkspacePackage[],
@@ -117,7 +118,15 @@ async function publishSinglePackage(
   await mkdir(tempDir, { recursive: true });
 
   try {
-    await cp(entry.dir, tempDir, { recursive: true });
+    await cp(entry.dir, tempDir, {
+      recursive: true,
+      filter: (src) => {
+        const base = src.slice(entry.dir.length + 1);
+        if (base === "node_modules" || base === ".git" || base === ".turbo") return false;
+        if (base.startsWith("node_modules/") || base.startsWith(".git/") || base.startsWith(".turbo/")) return false;
+        return true;
+      },
+    });
 
     const pkgJsonPath = join(tempDir, "package.json");
     const pkgJson = await Bun.file(pkgJsonPath).json();
@@ -154,30 +163,17 @@ async function publishSinglePackage(
 
     await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
 
-    // Remove node_modules from temp dir if copied
-    await rm(join(tempDir, "node_modules"), { recursive: true, force: true });
-
     // Write .npmrc with registry + dummy auth so npm doesn't require login
     const registryHost = registryUrl.replace(/^https?:/, "");
     const npmrc = `registry=${registryUrl}\n${registryHost}/:_authToken=pkglab-local\n`;
     await Bun.write(join(tempDir, ".npmrc"), npmrc);
 
-    const proc = Bun.spawn(
-      [
-        "npm",
-        "publish",
-        "--registry",
-        registryUrl,
-        "--no-git-checks",
-        "--access",
-        "public",
-      ],
-      { cwd: tempDir, stdout: "pipe", stderr: "pipe" },
+    const result = await run(
+      ["npm", "publish", "--registry", registryUrl, "--no-git-checks", "--access", "public"],
+      { cwd: tempDir },
     );
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) {
-      const stderr = await new Response(proc.stderr).text();
-      throw new Error(`npm publish failed for ${entry.name}: ${stderr}`);
+    if (result.exitCode !== 0) {
+      throw new Error(`npm publish failed for ${entry.name}: ${result.stderr}`);
     }
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -189,12 +185,11 @@ async function rollbackPackage(
   registryUrl: string,
 ): Promise<boolean> {
   try {
-    const proc = Bun.spawn(
+    const result = await run(
       ["npm", "unpublish", spec, "--registry", registryUrl, "--force"],
-      { stdout: "pipe", stderr: "pipe", env: npmEnvWithAuth(registryUrl) },
+      { env: npmEnvWithAuth(registryUrl) },
     );
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) {
+    if (result.exitCode !== 0) {
       log.warn(`Failed to rollback ${spec}`);
       return false;
     }
@@ -203,16 +198,6 @@ async function rollbackPackage(
     log.warn(`Failed to rollback ${spec}`);
     return false;
   }
-}
-
-export function npmEnvWithAuth(
-  registryUrl: string,
-): Record<string, string | undefined> {
-  const host = registryUrl.replace(/^https?:\/\//, "");
-  return {
-    ...process.env,
-    [`npm_config_//${host}/:_authToken`]: "pkglab-local",
-  };
 }
 
 function resolveCatalogProtocol(

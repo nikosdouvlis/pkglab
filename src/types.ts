@@ -19,6 +19,7 @@ export interface WorkspacePackage {
   name: string;
   dir: string;
   packageJson: Record<string, any>;
+  publishable: boolean;
 }
 
 export interface PublishPlan {
