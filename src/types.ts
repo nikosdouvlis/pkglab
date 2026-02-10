@@ -13,6 +13,7 @@ export interface RepoState {
 export interface PackageLink {
   original: string;
   current: string;
+  tag?: string;
 }
 
 export interface WorkspacePackage {

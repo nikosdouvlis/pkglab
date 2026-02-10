@@ -19,7 +19,8 @@
   ],
   "scripts": {
     "build:npm": "scripts/build-npm.sh",
-    "publish:npm": "scripts/publish-npm.sh"
+    "publish:npm": "scripts/publish-npm.sh",
+    "test:e2e": "bun run test/e2e.ts"
   },
   "bin": {
     "pkglab": "./src/index.ts",

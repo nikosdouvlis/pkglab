@@ -159,15 +159,23 @@ export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
 export async function updateActiveRepos(
   plan: PublishPlan,
   verbose: boolean,
+  tag?: string,
 ): Promise<void> {
   const activeRepos = await getActiveRepos();
   if (activeRepos.length === 0) return;
 
   // Build per-repo work items: which packages to update and the install command
+  const pubTag = tag ?? null;
   const repoWork = await Promise.all(
     activeRepos.map(async ({ name, state }) => {
       const pm = await detectPackageManager(state.path);
-      const packages = plan.packages.filter((e) => state.packages[e.name]);
+      const packages = plan.packages.filter((e) => {
+        const link = state.packages[e.name];
+        if (!link) return false;
+        // Match by tag: untagged pub updates untagged consumers, tagged pub updates matching tag
+        const linkTag = link.tag ?? null;
+        return linkTag === pubTag;
+      });
       return { name, state, pm, packages };
     }),
   );

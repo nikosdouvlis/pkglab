@@ -63,7 +63,10 @@ export default defineCommand({
           stderr: "pipe",
         });
         const stagedContent = await new Response(showProc.stdout).text();
-        if (stagedContent.includes("0.0.0-pkglab.")) {
+        if (
+          stagedContent.includes("0.0.0-pkglab.") ||
+          stagedContent.includes("0.0.0-pkglab-")
+        ) {
           log.line(
             `  ${c.red("✗")} Staged package.json contains pkglab versions`,
           );

@@ -8,6 +8,7 @@ Also available as `pkgl` for short.
 
 ## Table of contents
 
+- [Features](#features)
 - [Quick start](#quick-start)
 - [Install](#install)
 - [Configuration](#configuration)
@@ -16,8 +17,21 @@ Also available as `pkgl` for short.
 - [Commands](#commands)
 - [Why not ...](#why-not-)
 - [How versioning works](#how-versioning-works)
+- [Multi-worktree support](#multi-worktree-support)
 - [Safety](#safety)
 - [Acknowledgments](#acknowledgments)
+
+## Features
+
+- Real `npm publish` to a local Verdaccio registry, so you test the same install your users get
+- Automatic consumer repo updates after every publish
+- Dependency cascade awareness (change a shared util, all dependent packages get republished)
+- Multi-worktree tag support: publish from multiple git worktrees in parallel without version conflicts, each worktree gets its own version channel
+- Interactive package picker with tag selection when running `pkglab add` with no arguments
+- Git skip-worktree protection on `.npmrc` so localhost registry URLs don't leak into commits
+- Pre-commit safety checks (`pkglab check`) to catch local artifacts before they reach your repo
+- Automatic version pruning per tag so the local registry doesn't grow forever
+- Works with any consumer package manager: npm, pnpm, yarn, or bun
 
 ## Quick start
 
@@ -91,14 +105,7 @@ Testing local package changes across repos is painful. The existing tools all ha
 
 **`pkglab`** runs a local [Verdaccio](https://verdaccio.org) registry as a background daemon. When you publish, packages go through a real `npm publish` to this local Verdaccio. Exports maps, bundled dependencies, the `"files"` array, all validated the same way npm would. Consumer repos install from this registry with a standard `npm install` / `pnpm add`, producing the same `node_modules` tree your users will get. One copy of React. Correct peer dependency resolution. Real lock file entries.
 
-On top of that, **`pkglab`** handles:
-
-- Automatic consumer repo updates after every publish
-- Dependency cascade awareness (change a shared util, all dependent packages get republished)
-- Parallel publishes with best-effort rollback on failure
-- Git skip-worktree protection on `.npmrc` so you don't accidentally commit localhost registry URLs (for git-tracked files)
-- Pre-commit safety checks to catch **`pkglab`** artifacts before they reach your repo
-- Automatic version pruning so the local registry doesn't grow forever
+On top of that, **`pkglab`** handles automatic consumer updates, dependency cascading, parallel publishes with rollback, `.npmrc` protection, pre-commit checks, version pruning, and multi-worktree tag isolation. See [Features](#features) for the full list.
 
 ## Commands
 
@@ -106,11 +113,11 @@ On top of that, **`pkglab`** handles:
 
 `pkglab down` - stop the registry.
 
-`pkglab pub [name]` - publish workspace packages to the local registry. If run from a package directory, publishes that package. Otherwise publishes all public packages. Computes transitive dependents and republishes the entire cascade. Auto-updates active consumer repos and prunes old versions in the background.
+`pkglab pub [name]` - publish workspace packages to the local registry. If run from a package directory, publishes that package. Otherwise publishes all public packages. Computes transitive dependents and republishes the entire cascade. Auto-updates active consumer repos (matching the same tag) and prunes old versions in the background.
 
-Flags: `--dry-run` preview without publishing, `--fast` skip dependency cascade, `--verbose` / `-v` show full output instead of spinners.
+Flags: `--dry-run` preview without publishing, `--fast` skip dependency cascade, `--verbose` / `-v` show full output instead of spinners, `--tag <name>` / `-t` publish with a tag for multi-worktree support, `--worktree` / `-w` auto-detect tag from the current git branch name.
 
-`pkglab add <name>` - add a **`pkglab`** package to the current repo. Configures `.npmrc` to point at the local registry, applies git skip-worktree, and installs using your repo's package manager (`npm install`, `pnpm add`, `yarn add`, or `bun add` depending on your lock file).
+`pkglab add [name[@tag]]` - add a **`pkglab`** package to the current repo. Configures `.npmrc` to point at the local registry, applies git skip-worktree, and installs using your repo's package manager (`npm install`, `pnpm add`, `yarn add`, or `bun add` depending on your lock file). Append `@tag` to pin to a specific tag (e.g. `pkglab add @org/pkg@feat1`). Run with no arguments for an interactive picker where you can select packages and tags.
 
 `pkglab rm <name>` - remove a **`pkglab`** package. Restores the original version in `package.json` from before `pkglab add`, cleans `.npmrc` if no packages remain, and removes skip-worktree. Run your package manager's install afterward to sync the lock file.
 
@@ -127,7 +134,7 @@ pkglab check
 
 `pkglab doctor` - diagnose your setup. Checks Bun version, directory structure, daemon health, registry connectivity, and skip-worktree flags on all linked repos. Auto-repairs missing flags.
 
-`pkglab prune` - manually clean old versions from Verdaccio storage. Keeps the 3 most recent versions per package (configurable) and preserves any version currently linked in an active repo.
+`pkglab prune` - manually clean old versions from Verdaccio storage. Keeps the 3 most recent versions per tag per package (configurable) and preserves any version currently linked in an active repo. Use `--all` to remove all pkglab versions.
 
 `pkglab repos ls` - list consumer repos with their active/inactive status and linked packages.
 
@@ -139,7 +146,7 @@ pkglab check
 
 `pkglab repos rename <old> <new>` - rename a repo's display name.
 
-`pkglab pkgs ls` - list **`pkglab`**-published packages in the local registry with version counts.
+`pkglab pkgs ls` - list **`pkglab`**-published packages in the local registry, grouped by tag with the latest version per tag.
 
 ## Why not ...
 
@@ -155,7 +162,33 @@ Standalone Verdaccio - gives you the registry, but you still have to manage the 
 
 ## How versioning works
 
-**`pkglab`** generates versions in the format `0.0.0-pkglab.YY-MM-DD--HH-MM-SS.{timestamp}`. The monotonic timestamp ensures versions always increment, even across rapid publishes. Before each publish, **`pkglab`** seeds from both the registry and a local file to prevent conflicts. The `0.0.0-pkglab.` prefix makes these versions instantly recognizable and ensures they sort below any real release.
+**`pkglab`** generates versions in the format `0.0.0-pkglab.{timestamp}` (untagged) or `0.0.0-pkglab-{tag}.{timestamp}` (tagged). The monotonic timestamp ensures versions always increment, even across rapid publishes. The `0.0.0-pkglab` prefix makes these versions instantly recognizable and ensures they sort below any real release.
+
+When using tags, each tag gets its own version channel. Publishing with `--tag feat1` only updates consumers pinned to `feat1`, leaving other consumers untouched. This lets you work on multiple branches simultaneously from different git worktrees without version conflicts.
+
+## Multi-worktree support
+
+When working on multiple branches simultaneously using git worktrees, you can publish from each worktree with a different tag to avoid version conflicts.
+
+```bash
+# From the main worktree
+pkglab pub
+
+# From a feature worktree
+pkglab pub --tag feat-auth
+# or auto-detect from branch name
+pkglab pub --worktree
+
+# Consumer repos pin to a specific tag
+pkglab add @org/pkg@feat-auth
+
+# Or use the interactive picker to browse packages and tags
+pkglab add
+```
+
+Each tag gets its own version channel. Publishing untagged only auto-updates consumers that are also untagged, and publishing with `--tag feat-auth` only updates consumers pinned to `feat-auth`. Pruning also respects tags, keeping the N most recent versions per tag per package.
+
+Branch names are sanitized for use as tags: `feat/auth-rewrite` becomes `feat-auth-rewrite`. Tags are capped at 50 characters.
 
 ## Safety
 

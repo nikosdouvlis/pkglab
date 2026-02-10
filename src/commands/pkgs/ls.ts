@@ -1,10 +1,8 @@
 import { defineCommand } from "citty";
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
 import { getDaemonStatus } from "../../lib/daemon";
 import { loadConfig } from "../../lib/config";
-import { paths } from "../../lib/paths";
-import { ispkglabVersion } from "../../lib/version";
+import { listAllPackages } from "../../lib/registry";
+import { ispkglabVersion, extractTag, extractTimestamp } from "../../lib/version";
 import { log } from "../../lib/log";
 import { DaemonNotRunningError } from "../../lib/errors";
 import { c } from "../../lib/color";
@@ -16,79 +14,54 @@ export default defineCommand({
     if (!status?.running) throw new DaemonNotRunningError();
 
     const config = await loadConfig();
+    const allPackages = await listAllPackages(config);
 
-    // Read storage and API in parallel
-    const [storageVersions, apiResp] = await Promise.all([
-      readStorageVersionCounts(paths.verdaccioStorage),
-      fetch(`http://127.0.0.1:${config.port}/-/verdaccio/data/packages`),
-    ]);
+    // Filter to packages that have at least one pkglab version
+    const pkglabPackages = allPackages
+      .map((pkg) => ({
+        name: pkg.name,
+        versions: pkg.versions.filter(ispkglabVersion),
+      }))
+      .filter((pkg) => pkg.versions.length > 0);
 
-    if (!apiResp.ok) {
+    if (pkglabPackages.length === 0) {
       log.info("No packages published to Verdaccio");
       return;
     }
 
-    const data = (await apiResp.json()) as { name: string; version: string }[];
-    const pkglab = data.filter((p) => ispkglabVersion(p.version));
+    for (const pkg of pkglabPackages) {
+      // Group versions by tag
+      const tagMap = new Map<string, string[]>();
+      for (const v of pkg.versions) {
+        const tag = extractTag(v) ?? "(untagged)";
+        const existing = tagMap.get(tag);
+        if (existing) {
+          existing.push(v);
+        } else {
+          tagMap.set(tag, [v]);
+        }
+      }
 
-    if (pkglab.length === 0) {
-      log.info("No packages published to Verdaccio");
-      return;
-    }
+      log.line(`  ${pkg.name}`);
 
-    for (const pkg of pkglab) {
-      const count = storageVersions.get(pkg.name) ?? 0;
-      const countStr = count > 0 ? `  ${c.dim(`(${count} version${count !== 1 ? "s" : ""})`)}` : "";
-      log.line(`  ${pkg.name.padEnd(30)} ${c.green(pkg.version)}${countStr}`);
+      // Sort tags: (untagged) first, then alphabetical
+      const tags = [...tagMap.keys()].sort((a, b) => {
+        if (a === "(untagged)") return -1;
+        if (b === "(untagged)") return 1;
+        return a.localeCompare(b);
+      });
+
+      for (const tag of tags) {
+        const versions = tagMap.get(tag)!;
+        // Pick the latest version by timestamp
+        const latest = versions.reduce((best, v) => {
+          const ts = extractTimestamp(v);
+          const bestTs = extractTimestamp(best);
+          return ts > bestTs ? v : best;
+        });
+        const label = tag.padEnd(20);
+        log.line(`    ${c.dim(label)} ${c.green(latest)}`);
+      }
     }
   },
 });
-
-async function readStorageVersionCounts(
-  storageDir: string,
-): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
-
-  let entries: string[];
-  try {
-    entries = await readdir(storageDir);
-  } catch {
-    return counts;
-  }
-
-  await Promise.all(
-    entries.map(async (entry) => {
-      const entryPath = join(storageDir, entry);
-
-      if (entry.startsWith("@")) {
-        // Scoped packages: read one level deeper
-        let scopedPkgs: string[];
-        try {
-          scopedPkgs = await readdir(entryPath);
-        } catch {
-          return;
-        }
-        await Promise.all(
-          scopedPkgs.map(async (pkg) => {
-            const count = await countTgz(join(entryPath, pkg));
-            if (count > 0) counts.set(`${entry}/${pkg}`, count);
-          }),
-        );
-      } else {
-        const count = await countTgz(entryPath);
-        if (count > 0) counts.set(entry, count);
-      }
-    }),
-  );
-
-  return counts;
-}
-
-async function countTgz(dir: string): Promise<number> {
-  try {
-    const files = await readdir(dir);
-    return files.filter((f) => f.endsWith(".tgz")).length;
-  } catch {
-    return 0;
-  }
-}

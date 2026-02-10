@@ -13,8 +13,8 @@ Top-level:
 - `pkglab down` — stop the registry
 - `pkglab status` — show registry status
 - `pkglab logs` — show registry logs
-- `pkglab pub [name]` — publish workspace packages to local registry, auto-updates active consumer repos
-- `pkglab add <name>` — add a pkglab package to the current repo (run from consumer repo)
+- `pkglab pub [name]` — publish workspace packages to local registry, auto-updates active consumer repos. Flags: `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch
+- `pkglab add [name[@tag]]` — add a pkglab package to the current repo. No args for interactive picker
 - `pkglab rm <name>` — remove a pkglab package, restore original version
 - `pkglab doctor` — diagnose issues
 - `pkglab prune` — clean up old versions from storage
@@ -36,6 +36,11 @@ Subcommands:
 4. Iterate: make changes to the library, run `pkglab pub` again — active consumer repos are auto-updated
 5. `pkglab rm <pkg>` — restore original version when done
 6. `pkglab down` — stop the registry
+
+For multi-worktree workflows, use tags to isolate version channels:
+- `pkglab pub -t feat1` or `pkglab pub -w` (auto-detect from branch)
+- `pkglab add pkg@feat1` (consumer pins to that tag)
+- Each tag's publishes only update consumers pinned to the same tag
 
 ## Project layout
 
@@ -70,9 +75,12 @@ Pruning runs in a detached subprocess (`src/lib/prune-worker.ts`) to avoid block
 
 ## Version format
 
-`0.0.0-pkglab.{YY-MM-DD}--{HH-MM-SS}.{timestamp}`
+Untagged: `0.0.0-pkglab.{timestamp}`
+Tagged: `0.0.0-pkglab-{tag}.{timestamp}`
 
-extractTimestamp reads after the last dot, so both old (bare timestamp) and new formats work.
+Old format (`0.0.0-pkglab.{YY-MM-DD}--{HH-MM-SS}.{timestamp}`) treated as untagged for backwards compat.
+
+extractTimestamp reads after the last dot, extractTag reads between `pkglab-` and the last dot.
 
 ## /cmt Skill Config
 

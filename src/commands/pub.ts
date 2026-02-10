@@ -4,11 +4,11 @@ import { loadConfig } from "../lib/config";
 import { discoverWorkspace, findPackage, loadCatalogs } from "../lib/workspace";
 import { buildDependencyGraph, computeCascade } from "../lib/graph";
 import { buildPublishPlan, executePublish } from "../lib/publisher";
-import { generateVersion } from "../lib/version";
+import { generateVersion, sanitizeTag } from "../lib/version";
 import { acquirePublishLock } from "../lib/lock";
 import { log } from "../lib/log";
 import { createMultiSpinner } from "../lib/spinner";
-import { DaemonNotRunningError } from "../lib/errors";
+import { DaemonNotRunningError, pkglabError } from "../lib/errors";
 
 export default defineCommand({
   meta: { name: "pub", description: "Publish packages to local Verdaccio" },
@@ -17,9 +17,37 @@ export default defineCommand({
     "dry-run": { type: "boolean", description: "Show what would be published", default: false },
     fast: { type: "boolean", description: "Skip dep cascade", default: false },
     verbose: { type: "boolean", description: "Show detailed output", default: false, alias: "v" },
+    tag: { type: "string", description: "Publish with a tag", alias: "t" },
+    worktree: { type: "boolean", description: "Auto-detect tag from git branch", default: false, alias: "w" },
   },
   async run({ args }) {
     const verbose = args.verbose as boolean;
+
+    // Resolve tag from --tag or --worktree
+    if (args.tag && args.worktree) {
+      throw new pkglabError("Cannot use --tag and --worktree together");
+    }
+
+    let tag: string | undefined;
+    if (args.worktree) {
+      const proc = Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], {
+        cwd: process.cwd(),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const branch = (await new Response(proc.stdout).text()).trim();
+      if (branch === "HEAD") {
+        throw new pkglabError("Cannot detect branch name, use --tag instead");
+      }
+      tag = sanitizeTag(branch);
+    } else if (args.tag) {
+      tag = sanitizeTag(args.tag as string);
+    }
+
+    if (verbose && tag) {
+      log.info(`Publishing with tag: ${tag}`);
+    }
+
     const status = await getDaemonStatus();
     if (!status?.running) {
       throw new DaemonNotRunningError();
@@ -115,7 +143,7 @@ export default defineCommand({
     }
 
     if (args["dry-run"]) {
-      const version = generateVersion();
+      const version = generateVersion(tag);
       const catalogs = await loadCatalogs(workspace.root);
       const plan = buildPublishPlan(publishSet, version, catalogs);
       log.info(`Will publish ${plan.packages.length} packages:`);
@@ -125,7 +153,7 @@ export default defineCommand({
       return;
     }
 
-    const version = generateVersion();
+    const version = generateVersion(tag);
     const catalogs = await loadCatalogs(workspace.root);
     const plan = buildPublishPlan(publishSet, version, catalogs);
 
@@ -159,11 +187,11 @@ export default defineCommand({
 
       // Auto-update active consumer repos
       const { updateActiveRepos } = await import("../lib/consumer");
-      await updateActiveRepos(plan, verbose);
+      await updateActiveRepos(plan, verbose, tag);
 
       // Auto-prune old versions in detached subprocess
       const pruneEntry = new URL("../lib/prune-worker.ts", import.meta.url).pathname;
-      Bun.spawn(["bun", "run", pruneEntry, String(config.port), String(config.prune_keep)], {
+      Bun.spawn(["bun", "run", pruneEntry, String(config.port), String(config.prune_keep), ...(tag ? [tag] : [])], {
         stdout: "ignore",
         stderr: "ignore",
         stdin: "ignore",
