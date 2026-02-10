@@ -6,6 +6,42 @@ Local package development CLI for monorepos. Publish workspace packages to an em
 
 Also available as `pkgl` for short.
 
+## Table of contents
+
+- [Quick start](#quick-start)
+- [Install](#install)
+- [Configuration](#configuration)
+- [The problem](#the-problem)
+- [How it works](#how-it-works)
+- [Commands](#commands)
+- [Why not ...](#why-not-)
+- [How versioning works](#how-versioning-works)
+- [Safety](#safety)
+- [Acknowledgments](#acknowledgments)
+
+## Quick start
+
+```bash
+# Start the local registry
+pkglab up
+
+# From your library monorepo, publish all public packages
+pkglab pub
+
+# From a consumer repo, install a package from the local registry
+pkglab add @your-org/your-package
+
+# Make changes to the library, then re-publish
+# Active consumer repos update automatically
+pkglab pub
+
+# When done, restore the original version
+pkglab rm @your-org/your-package
+
+# Stop the registry
+pkglab down
+```
+
 ## Install
 
 Prebuilt binaries (no runtime needed):
@@ -27,6 +63,15 @@ bun install -g pkglab
 Your consumer repos can use any package manager: npm, pnpm, yarn, or bun. pkglab shells out to `npm` for publishing, so Node.js needs to be available on your machine.
 
 Supported on macOS (ARM64, x64) and Linux (x64, ARM64).
+
+## Configuration
+
+**`pkglab`** stores its state in `~/.pkglab/`. The config file at `~/.pkglab/config.yaml` supports:
+
+- `port`: Verdaccio port (default: 4873)
+- `prune_keep`: number of old versions to retain per package (default: 3)
+
+Logs are written to `/tmp/pkglab/verdaccio.log`.
 
 ## The problem
 
@@ -54,29 +99,6 @@ On top of that, **`pkglab`** handles:
 - Git skip-worktree protection on `.npmrc` so you don't accidentally commit localhost registry URLs (for git-tracked files)
 - Pre-commit safety checks to catch **`pkglab`** artifacts before they reach your repo
 - Automatic version pruning so the local registry doesn't grow forever
-
-## Quick start
-
-```bash
-# Start the local registry
-pkglab up
-
-# From your library monorepo, publish all public packages
-pkglab pub
-
-# From a consumer repo, install a package from the local registry
-pkglab add @your-org/your-package
-
-# Make changes to the library, then re-publish
-# Active consumer repos update automatically
-pkglab pub
-
-# When done, restore the original version
-pkglab rm @your-org/your-package
-
-# Stop the registry
-pkglab down
-```
 
 ## Commands
 
@@ -135,15 +157,6 @@ Standalone Verdaccio - gives you the registry, but you still have to manage the 
 
 **`pkglab`** generates versions in the format `0.0.0-pkglab.YY-MM-DD--HH-MM-SS.{timestamp}`. The monotonic timestamp ensures versions always increment, even across rapid publishes. Before each publish, **`pkglab`** seeds from both the registry and a local file to prevent conflicts. The `0.0.0-pkglab.` prefix makes these versions instantly recognizable and ensures they sort below any real release.
 
-## Configuration
-
-**`pkglab`** stores its state in `~/.pkglab/`. The config file at `~/.pkglab/config.yaml` supports:
-
-- `port`: Verdaccio port (default: 4873)
-- `prune_keep`: number of old versions to retain per package (default: 3)
-
-Logs are written to `/tmp/pkglab/verdaccio.log`.
-
 ## Safety
 
 **`pkglab`** is designed to prevent local development artifacts from leaking into your codebase:
@@ -155,9 +168,8 @@ Logs are written to `/tmp/pkglab/verdaccio.log`.
 
 ## Acknowledgments
 
-[yalc](https://github.com/wclr/yalc) pioneered the copy-based approach to local package development and showed that symlinks aren't the only way. pkglab takes the idea further by using a real registry, but yalc remains a great lighter-weight option if you don't need registry-level validation. Thank you to the yalc maintainers for paving the way.
-
-Banner style inspired by our friends at [askfeather.ai](https://askfeather.ai).
+- [yalc](https://github.com/wclr/yalc) pioneered the copy-based approach to local package development and showed that symlinks aren't the only way. pkglab takes the idea further by using a real registry, but yalc remains a great lighter-weight option if you don't need registry-level validation. Thank you to the yalc maintainers for paving the way.
+- Banner style inspired by our friends at [askfeather.ai](https://askfeather.ai).
 
 ## License
 
