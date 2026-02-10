@@ -69,6 +69,15 @@ export default defineCommand({
       const cascade = computeCascade(graph, targets);
       publishSet = cascade.packages;
 
+      // Skip private packages pulled in by cascade (they're dependents, not deps)
+      const skippedPrivate = publishSet.filter((p) => !p.publishable);
+      if (skippedPrivate.length > 0) {
+        for (const pkg of skippedPrivate) {
+          log.warn(`Skipping private package ${pkg.name}`);
+        }
+        publishSet = publishSet.filter((p) => p.publishable);
+      }
+
       // Log cascade breakdown per target
       for (const target of targets) {
         const deps = cascade.dependencies[target] || [];
