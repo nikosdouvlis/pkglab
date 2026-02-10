@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { startDaemon, getDaemonStatus } from "../lib/daemon";
 import { log } from "../lib/log";
-import { checkForUpdate } from "../lib/update-check";
+import { prefetchUpdateCheck } from "../lib/update-check";
 
 export default defineCommand({
   meta: { name: "up", description: "Start Verdaccio daemon" },
@@ -15,6 +15,9 @@ export default defineCommand({
       await ensureNpmrcForActiveRepos(existing.port);
       return;
     }
+
+    // Start fetch before interactive prompt so it runs in parallel
+    const showUpdate = await prefetchUpdateCheck();
 
     log.info("Starting Verdaccio...");
     const info = await startDaemon();
@@ -59,6 +62,6 @@ export default defineCommand({
       }
     }
 
-    await checkForUpdate();
+    await showUpdate();
   },
 });

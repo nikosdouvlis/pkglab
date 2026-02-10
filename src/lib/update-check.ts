@@ -50,33 +50,65 @@ async function fetchLatestVersion(): Promise<string | null> {
   }
 }
 
-export async function checkForUpdate(): Promise<void> {
-  try {
-    const current = await getCurrentVersion();
-    if (!current) return;
+function isNewer(latest: string, current: string): boolean {
+  const parse = (v: string) => v.replace(/^v/, "").split(".").map(Number);
+  const [lMaj, lMin, lPat] = parse(latest);
+  const [cMaj, cMin, cPat] = parse(current);
+  if (lMaj !== cMaj) return lMaj > cMaj;
+  if (lMin !== cMin) return lMin > cMin;
+  return lPat > cPat;
+}
 
-    const cache = await readCache();
-    const now = Date.now();
+// Resolve the latest version (from cache or network).
+// Call early so the fetch runs in the background while the user interacts.
+export async function prefetchUpdateCheck(): Promise<() => Promise<void>> {
+  const current = await getCurrentVersion();
+  if (!current) return async () => {};
 
-    let latest: string | null = null;
+  const cache = await readCache();
+  const now = Date.now();
 
-    if (cache && now - cache.lastCheck < CHECK_INTERVAL) {
-      latest = cache.latestVersion;
-    } else {
-      latest = await fetchLatestVersion();
+  // Cache hit: no network needed, return sync display
+  if (cache && now - cache.lastCheck < CHECK_INTERVAL) {
+    return async () => {
+      if (cache.latestVersion && isNewer(cache.latestVersion, current)) {
+        printBanner(current, cache.latestVersion);
+      }
+    };
+  }
+
+  // Cache miss: kick off fetch, return a function that awaits it
+  const fetchPromise = fetchLatestVersion();
+
+  return async () => {
+    try {
+      const latest = await fetchPromise;
       if (latest) {
         await writeCache({ lastCheck: now, latestVersion: latest });
+        if (isNewer(latest, current)) {
+          printBanner(current, latest);
+        }
       }
+    } catch {
+      // never block exit
     }
+  };
+}
 
-    if (!latest || latest === current) return;
+function printBanner(current: string, latest: string): void {
+  log.line("");
+  log.line(
+    `  ${c.yellow("Update available")} ${c.dim(current)} → ${c.green(latest)}`,
+  );
+  log.line(`  Run ${c.cyan("bun install -g pkglab")} to update`);
+  log.line("");
+}
 
-    log.line("");
-    log.line(
-      `  ${c.yellow("Update available")} ${c.dim(current)} → ${c.green(latest)}`,
-    );
-    log.line(`  Run ${c.cyan("bun install -g pkglab")} to update`);
-    log.line("");
+// Legacy one-shot for callers that don't need the prefetch pattern
+export async function checkForUpdate(): Promise<void> {
+  try {
+    const showUpdate = await prefetchUpdateCheck();
+    await showUpdate();
   } catch {
     // never block startup
   }

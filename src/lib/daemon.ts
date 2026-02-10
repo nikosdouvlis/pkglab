@@ -34,11 +34,13 @@ export async function startDaemon(): Promise<DaemonInfo> {
   });
 
   // Wait for READY signal, process exit, or timeout
+  const deadline = timeout(10000);
   const result = await Promise.race([
     waitForReady(proc),
     waitForExit(proc),
-    timeout(10000),
+    deadline.promise,
   ]);
+  deadline.cancel();
 
   if (result !== "ready") {
     proc.kill();
@@ -163,6 +165,10 @@ async function waitForExit(proc: ReturnType<typeof Bun.spawn>): Promise<"exited"
   return "exited";
 }
 
-function timeout(ms: number): Promise<"timeout"> {
-  return new Promise((resolve) => setTimeout(() => resolve("timeout"), ms));
+function timeout(ms: number): { promise: Promise<"timeout">; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout>;
+  const promise = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), ms);
+  });
+  return { promise, cancel: () => clearTimeout(timer!) };
 }
