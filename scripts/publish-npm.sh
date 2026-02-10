@@ -50,6 +50,10 @@ node -e "
   fs.writeFileSync('$file', JSON.stringify(p, null, 2) + '\n');
 "
 
+# Commit version bump
+git add package.json npm/*/package.json
+git commit -m "chore(release): ${VERSION}"
+
 if $PATCH_ONLY; then
   echo "Patched all packages to ${VERSION}"
   exit 0

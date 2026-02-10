@@ -8,13 +8,20 @@ if (process.argv.includes("--__worker")) {
   await new Promise(() => {});
 }
 
+import { join } from "node:path";
 import { defineCommand, runMain } from "citty";
 import { ensurepkglabDirs } from "./lib/config";
+
+const pkg = await Bun.file(join(import.meta.dir, "../package.json")).json();
+
+if (process.argv[2] === "version") {
+  process.argv[2] = "--version";
+}
 
 const cmd = defineCommand({
   meta: {
     name: "pkglab",
-    version: "0.0.1",
+    version: pkg.version,
     description: "Local package development with Verdaccio",
   },
   subCommands: {
@@ -30,7 +37,6 @@ const cmd = defineCommand({
     doctor: () => import("./commands/doctor").then((m) => m.default),
     prune: () => import("./commands/prune").then((m) => m.default),
     check: () => import("./commands/check").then((m) => m.default),
-    version: () => import("./commands/version").then((m) => m.default),
   },
   async setup() {
     await ensurepkglabDirs();
