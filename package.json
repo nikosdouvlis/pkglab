@@ -1,13 +1,22 @@
 {
   "name": "pkglab",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "type": "module",
   "description": "Local package development CLI with an embedded Verdaccio registry",
   "author": "Nikos Douvlis <nikosdouvlis@gmail.com>",
   "license": "MIT",
-  "files": ["src"],
-  "keywords": ["verdaccio", "local", "registry", "monorepo", "workspace", "publish"],
+  "files": [
+    "src"
+  ],
+  "keywords": [
+    "verdaccio",
+    "local",
+    "registry",
+    "monorepo",
+    "workspace",
+    "publish"
+  ],
   "scripts": {
     "build:npm": "scripts/build-npm.sh",
     "publish:npm": "scripts/publish-npm.sh"
