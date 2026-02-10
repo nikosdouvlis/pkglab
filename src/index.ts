@@ -1,9 +1,17 @@
 #!/usr/bin/env bun
 
+// Hidden flag: when the daemon spawns itself as a worker, run verdaccio directly
+if (process.argv.includes("--__worker")) {
+  const { main } = await import("./lib/verdaccio-worker");
+  await main();
+  // Keep process alive (verdaccio server is listening)
+  await new Promise(() => {});
+}
+
 import { defineCommand, runMain } from "citty";
 import { ensurepkglabDirs } from "./lib/config";
 
-const main = defineCommand({
+const cmd = defineCommand({
   meta: {
     name: "pkglab",
     version: "0.0.1",
@@ -28,4 +36,4 @@ const main = defineCommand({
   },
 });
 
-runMain(main);
+runMain(cmd);

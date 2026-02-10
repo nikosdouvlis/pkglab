@@ -20,9 +20,15 @@ export async function startDaemon(): Promise<DaemonInfo> {
   }
 
   const config = await loadConfig();
-  const workerPath = new URL("./verdaccio-worker.ts", import.meta.url).pathname;
 
-  const proc = Bun.spawn(["bun", workerPath], {
+  // In compiled mode, process.argv[1] is a subcommand (e.g. "up").
+  // In source mode, process.argv[1] is the script path (e.g. "src/index.ts").
+  const isSource = process.argv[1]?.match(/\.(ts|js)$/);
+  const cmd = isSource
+    ? [process.execPath, process.argv[1], "--__worker"]
+    : [process.execPath, "--__worker"];
+
+  const proc = Bun.spawn(cmd, {
     stdout: "pipe",
     stderr: "pipe",
   });

@@ -6,7 +6,7 @@ import { loadConfig, ensurepkglabDirs } from "./config";
 import { mkdir } from "node:fs/promises";
 import { paths } from "./paths";
 
-async function main() {
+export async function main() {
   await ensurepkglabDirs();
   await mkdir(paths.verdaccioStorage, { recursive: true });
 
@@ -20,7 +20,10 @@ async function main() {
   });
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Self-execute when run directly (dev mode: bun src/lib/verdaccio-worker.ts)
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -25,7 +25,7 @@ export function buildVerdaccioConfig() {
     },
     max_body_size: "100mb",
     server: { keepAliveTimeout: 60 },
-    log: { type: "file", path: paths.logFile, level: "info" },
+    log: { type: "file", path: paths.logFile, level: "info", format: "json" },
     auth: {
       htpasswd: {
         file: paths.verdaccioDir + "/htpasswd",
