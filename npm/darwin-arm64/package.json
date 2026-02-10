@@ -1,6 +1,6 @@
 {
   "name": "pkglab-darwin-arm64",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "pkglab macOS ARM64 binary",
   "license": "MIT",
   "author": "Nikos Douvlis <nikosdouvlis@gmail.com>",
