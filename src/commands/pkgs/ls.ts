@@ -1,8 +1,7 @@
 import { defineCommand } from "citty";
 import { getDaemonStatus } from "../../lib/daemon";
 import { loadConfig } from "../../lib/config";
-import { listAllPackages } from "../../lib/registry";
-import { ispkglabVersion, extractTimestamp } from "../../lib/version";
+import { ispkglabVersion } from "../../lib/version";
 import { log } from "../../lib/log";
 import { DaemonNotRunningError } from "../../lib/errors";
 import { c } from "../../lib/color";
@@ -14,25 +13,24 @@ export default defineCommand({
     if (!status?.running) throw new DaemonNotRunningError();
 
     const config = await loadConfig();
-    const packages = await listAllPackages(config);
-
-    if (packages.length === 0) {
+    const resp = await fetch(
+      `http://127.0.0.1:${config.port}/-/verdaccio/data/packages`,
+    );
+    if (!resp.ok) {
       log.info("No packages published to Verdaccio");
       return;
     }
 
-    for (const pkg of packages) {
-      const pkglabVersions = pkg.versions
-        .filter(ispkglabVersion)
-        .sort((a, b) => extractTimestamp(b) - extractTimestamp(a));
+    const data = (await resp.json()) as { name: string; version: string }[];
+    const pkglab = data.filter((p) => ispkglabVersion(p.version));
 
-      if (pkglabVersions.length === 0) continue;
+    if (pkglab.length === 0) {
+      log.info("No packages published to Verdaccio");
+      return;
+    }
 
-      const latest = pkglabVersions[0];
-      const count = pkglabVersions.length;
-      log.line(
-        `  ${pkg.name.padEnd(30)} ${c.green(latest)}  ${c.dim(`(${count} version${count !== 1 ? "s" : ""})`)}`,
-      );
+    for (const pkg of pkglab) {
+      log.line(`  ${pkg.name.padEnd(30)} ${c.green(pkg.version)}`);
     }
   },
 });
