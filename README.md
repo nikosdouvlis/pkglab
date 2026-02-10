@@ -157,6 +157,8 @@ Logs are written to `/tmp/pkglab/verdaccio.log`.
 
 [yalc](https://github.com/wclr/yalc) pioneered the copy-based approach to local package development and showed that symlinks aren't the only way. pkglab takes the idea further by using a real registry, but yalc remains a great lighter-weight option if you don't need registry-level validation. Thank you to the yalc maintainers for paving the way.
 
+Banner style inspired by our friends at [askfeather.ai](https://askfeather.ai).
+
 ## License
 
 MIT
