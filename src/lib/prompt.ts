@@ -41,5 +41,10 @@ export async function selectRepos(opts: {
     }),
   });
 
+  // @inquirer/prompts doesn't close its readline interface after the prompt
+  // resolves, so stdin stays open as an active event loop handle. unref lets
+  // the process exit without waiting on it.
+  process.stdin.unref();
+
   return selected.map((name) => ({ name, state: all[name] }));
 }
