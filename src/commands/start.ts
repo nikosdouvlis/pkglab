@@ -25,8 +25,12 @@ export default defineCommand({
       `pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`,
     );
 
-    const { deactivateAllRepos, loadAllRepos } =
+    const { deactivateAllRepos, loadAllRepos, getActiveRepos } =
       await import("../lib/repo-state");
+
+    const previouslyActive = new Set(
+      (await getActiveRepos()).map((r) => r.name),
+    );
     await deactivateAllRepos();
 
     const repos = await loadAllRepos();
@@ -47,6 +51,7 @@ export default defineCommand({
       const { selectRepos } = await import("../lib/prompt");
       const selected = await selectRepos({
         message: "Select repos to activate",
+        preSelect: previouslyActive,
       });
 
       if (selected.length > 0) {

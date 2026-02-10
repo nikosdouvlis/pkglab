@@ -4,25 +4,9 @@ import { log } from "./log";
 import { c } from "./color";
 
 const CHECK_FILE = join(paths.home, "update-check.json");
-const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 1 day
 
-interface CheckCache {
-  lastCheck: number;
-  latestVersion: string;
-}
-
-async function readCache(): Promise<CheckCache | null> {
-  const file = Bun.file(CHECK_FILE);
-  if (!(await file.exists())) return null;
-  try {
-    return (await file.json()) as CheckCache;
-  } catch {
-    return null;
-  }
-}
-
-async function writeCache(cache: CheckCache): Promise<void> {
-  await Bun.write(CHECK_FILE, JSON.stringify(cache));
+async function writeCache(latest: string): Promise<void> {
+  await Bun.write(CHECK_FILE, JSON.stringify({ latestVersion: latest }));
 }
 
 declare const __PKGLAB_VERSION__: string | undefined;
@@ -59,32 +43,19 @@ function isNewer(latest: string, current: string): boolean {
   return lPat > cPat;
 }
 
-// Resolve the latest version (from cache or network).
 // Call early so the fetch runs in the background while the user interacts.
 export async function prefetchUpdateCheck(): Promise<() => Promise<void>> {
   const current = await getCurrentVersion();
   if (!current) return async () => {};
 
-  const cache = await readCache();
-  const now = Date.now();
-
-  // Cache hit: no network needed, return sync display
-  if (cache && now - cache.lastCheck < CHECK_INTERVAL) {
-    return async () => {
-      if (cache.latestVersion && isNewer(cache.latestVersion, current)) {
-        printBanner(current, cache.latestVersion);
-      }
-    };
-  }
-
-  // Cache miss: kick off fetch, return a function that awaits it
+  // Kick off fetch immediately so it runs in the background
   const fetchPromise = fetchLatestVersion();
 
   return async () => {
     try {
       const latest = await fetchPromise;
       if (latest) {
-        await writeCache({ lastCheck: now, latestVersion: latest });
+        await writeCache(latest);
         if (isNewer(latest, current)) {
           printBanner(current, latest);
         }

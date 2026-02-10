@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
-import { checkbox, select } from "@inquirer/prompts";
+import { select } from "@inquirer/prompts";
+import { filterableCheckbox } from "../lib/prompt";
 import { getDaemonStatus } from "../lib/daemon";
 import { loadConfig } from "../lib/config";
 import {
@@ -167,7 +168,7 @@ async function interactiveAdd(
     process.exit(1);
   }
 
-  const selectedNames = await checkbox<string>({
+  const selectedNames = await filterableCheckbox({
     message: "Select packages to add:",
     choices: pkglabPackages.map((pkg) => ({
       name: pkg.name,
