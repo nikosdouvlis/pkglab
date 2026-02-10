@@ -1,5 +1,5 @@
 import { join, basename } from "node:path";
-import { realpath, readdir } from "node:fs/promises";
+import { realpath, readdir, unlink } from "node:fs/promises";
 import { parse, stringify } from "yaml";
 import { paths } from "./paths";
 import { log } from "./log";
@@ -63,6 +63,12 @@ export async function saveRepoState(
   validateRepoName(name);
   const filePath = join(paths.reposDir, `${name}.yaml`);
   await Bun.write(filePath, stringify(state));
+}
+
+export async function deleteRepoState(name: string): Promise<void> {
+  validateRepoName(name);
+  const filePath = join(paths.reposDir, `${name}.yaml`);
+  await unlink(filePath);
 }
 
 export async function loadAllRepos(): Promise<Record<string, RepoState>> {

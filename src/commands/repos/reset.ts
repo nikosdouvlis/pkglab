@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { loadRepoState, saveRepoState, loadAllRepos } from "../../lib/repo-state";
+import { loadRepoState, saveRepoState, deleteRepoState, loadAllRepos } from "../../lib/repo-state";
 import {
   removeRegistryFromNpmrc,
   removeSkipWorktree,
@@ -7,14 +7,32 @@ import {
 } from "../../lib/consumer";
 import { log } from "../../lib/log";
 import type { RepoState } from "../../types";
+import { exists } from "node:fs/promises";
 
 export default defineCommand({
   meta: { name: "reset", description: "Reset repo to original versions" },
   args: {
     name: { type: "positional", description: "Repo name", required: false },
     all: { type: "boolean", description: "Reset all repos", default: false },
+    stale: { type: "boolean", description: "Remove repos whose directories no longer exist", default: false },
   },
   async run({ args }) {
+    if (args.stale) {
+      const allRepos = await loadAllRepos();
+      let removed = 0;
+      for (const [name, state] of Object.entries(allRepos)) {
+        if (!(await exists(state.path))) {
+          await deleteRepoState(name);
+          log.success(`Removed stale repo: ${name} (${state.path})`);
+          removed++;
+        }
+      }
+      if (removed === 0) {
+        log.info("No stale repos found");
+      }
+      return;
+    }
+
     let targets: Array<[string, RepoState]>;
 
     if (args.all) {
@@ -27,11 +45,17 @@ export default defineCommand({
       }
       targets = [[args.name as string, state]];
     } else {
-      log.error("Specify a repo name or --all");
+      log.error("Specify a repo name, --all, or --stale");
       process.exit(1);
     }
 
     for (const [name, state] of targets) {
+      if (!(await exists(state.path))) {
+        log.warn(`Skipping ${name}: directory no longer exists (${state.path})`);
+        log.dim(`  Run --stale to remove it`);
+        continue;
+      }
+
       log.info(`Resetting ${name}...`);
       for (const [pkgName, link] of Object.entries(state.packages)) {
         if (link.original) {

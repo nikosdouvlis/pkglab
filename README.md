@@ -4,7 +4,7 @@
 
 Local package development CLI for monorepos. Publish workspace packages to an embedded registry, iterate, and auto-update consumer repos without the headaches of `npm link`, yalc, or manual overrides.
 
-Also available as `pkgl` for short.
+Also available as `pkgl` for short (so efficient ✨).
 
 ## Table of contents
 
