@@ -13,11 +13,13 @@ export async function discoverWorkspace(cwd: string): Promise<{
   return {
     root: result.rootDir,
     tool: result.tool.type as WorkspaceTool,
-    packages: result.packages.map((pkg) => ({
-      name: pkg.packageJson.name,
-      dir: pkg.dir,
-      packageJson: pkg.packageJson as Record<string, any>,
-    })),
+    packages: result.packages
+      .filter((pkg) => !pkg.packageJson.private)
+      .map((pkg) => ({
+        name: pkg.packageJson.name,
+        dir: pkg.dir,
+        packageJson: pkg.packageJson as Record<string, any>,
+      })),
   };
 }
 
