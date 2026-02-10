@@ -82,6 +82,10 @@ Old format (`0.0.0-pkglab.{YY-MM-DD}--{HH-MM-SS}.{timestamp}`) treated as untagg
 
 extractTimestamp reads after the last dot, extractTag reads between `pkglab-` and the last dot.
 
+## Testing
+
+IMPORTANT: After making changes to commands or core lib code, always run `bun run test:e2e` and verify all tests pass before committing.
+
 ## /cmt Skill Config
 
 Scopes: pub, pkgs, repos, daemon, consumer, registry, version, config

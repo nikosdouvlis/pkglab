@@ -236,6 +236,58 @@ try {
     assert(r.code !== 0, "pkglab check exits non-zero (found artifacts)");
   }
 
+  // 10b. repos reset --all skips missing dirs, reset deletes repo state
+  heading("10b. repos reset (missing dirs + cleanup)");
+  {
+    // consumer-1 was already removed via `pkglab rm`, re-add so we have a repo to reset
+    const addR = await pkglab(["add", "@test/pkg-a"], { cwd: consumer1Dir });
+    assert(addR.code === 0, "re-add @test/pkg-a to consumer-1");
+
+    // Verify both repos show up
+    const lsBefore = await pkglab(["repos", "ls"]);
+    assert(lsBefore.stdout.includes("consumer-1"), "consumer-1 in repos ls");
+    assert(lsBefore.stdout.includes("consumer-2"), "consumer-2 in repos ls");
+
+    // Delete consumer-1 dir to simulate a missing directory
+    await rm(consumer1Dir, { recursive: true, force: true });
+
+    // reset --all should skip consumer-1 (missing) and reset consumer-2 (exists)
+    const resetR = await pkglab(["repos", "reset", "--all"]);
+    assert(resetR.code === 0, "reset --all succeeds");
+    assert(resetR.stdout.includes("Skipping"), "skips repo with missing dir");
+    assert(resetR.stdout.includes("Reset"), "resets repo with existing dir");
+
+    // consumer-2 should be gone from repos ls (reset deletes state)
+    const lsAfter = await pkglab(["repos", "ls"]);
+    assert(!lsAfter.stdout.includes("consumer-2"), "consumer-2 removed after reset");
+
+    // consumer-1 stale entry should still be there
+    assert(lsAfter.stdout.includes("consumer-1"), "consumer-1 stale entry still in list");
+
+    // --stale should clean it up
+    const staleR = await pkglab(["repos", "reset", "--stale"]);
+    assert(staleR.code === 0, "reset --stale succeeds");
+    assert(staleR.stdout.includes("Removed stale"), "stale repo removed");
+
+    // repos ls should now be empty
+    const lsFinal = await pkglab(["repos", "ls"]);
+    assert(lsFinal.stdout.includes("No linked repos"), "all repos cleaned up");
+
+    // Recreate consumer-1 for remaining tests
+    await mkdir(consumer1Dir, { recursive: true });
+    await writeJson(join(consumer1Dir, "package.json"), {
+      name: "consumer-1",
+      version: "1.0.0",
+      dependencies: {},
+    });
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: consumer1Dir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+  }
+
   // 11. Test --worktree flag (from a git repo)
   heading("11. pkglab pub --worktree");
   {
@@ -276,8 +328,10 @@ try {
 } finally {
   // Cleanup
   heading("Cleanup");
+  await pkglab(["repos", "reset", "--all"]).catch(() => {});
   await pkglab(["down"]).catch(() => {});
   await rm(testDir, { recursive: true, force: true });
+  await pkglab(["repos", "reset", "--stale"]).catch(() => {});
   console.log(`  Removed ${testDir}`);
 }
 

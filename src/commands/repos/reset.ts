@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { loadRepoState, saveRepoState, deleteRepoState, loadAllRepos } from "../../lib/repo-state";
+import { loadRepoState, deleteRepoState, loadAllRepos } from "../../lib/repo-state";
 import {
   removeRegistryFromNpmrc,
   removeSkipWorktree,
@@ -79,9 +79,7 @@ export default defineCommand({
 
       await removeRegistryFromNpmrc(state.path);
       await removeSkipWorktree(state.path);
-      state.packages = {};
-      state.active = false;
-      await saveRepoState(name, state);
+      await deleteRepoState(name);
       log.success(`Reset ${name}`);
     }
   },
