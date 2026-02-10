@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
 import { select } from "@inquirer/prompts";
+import { ExitPromptError } from "@inquirer/core";
 import { filterableCheckbox } from "../lib/prompt";
 import { getDaemonStatus } from "../lib/daemon";
 import { loadConfig } from "../lib/config";
@@ -168,13 +169,19 @@ async function interactiveAdd(
     process.exit(1);
   }
 
-  const selectedNames = await filterableCheckbox({
-    message: "Select packages to add:",
-    choices: pkglabPackages.map((pkg) => ({
-      name: pkg.name,
-      value: pkg.name,
-    })),
-  });
+  let selectedNames: string[];
+  try {
+    selectedNames = await filterableCheckbox({
+      message: "Select packages to add:",
+      choices: pkglabPackages.map((pkg) => ({
+        name: pkg.name,
+        value: pkg.name,
+      })),
+    });
+  } catch (err) {
+    if (err instanceof ExitPromptError) process.exit(0);
+    throw err;
+  }
 
   if (selectedNames.length === 0) {
     log.dim("No packages selected.");
@@ -191,13 +198,18 @@ async function interactiveAdd(
     if (tags.length === 1) {
       selectedTag = tags[0];
     } else {
-      selectedTag = await select<string | null>({
-        message: `Tag for ${pkgName}:`,
-        choices: tags.map((t) => ({
-          name: t ?? c.dim("(untagged)"),
-          value: t,
-        })),
-      });
+      try {
+        selectedTag = await select<string | null>({
+          message: `Tag for ${pkgName}:`,
+          choices: tags.map((t) => ({
+            name: t ?? c.dim("(untagged)"),
+            value: t,
+          })),
+        });
+      } catch (err) {
+        if (err instanceof ExitPromptError) process.exit(0);
+        throw err;
+      }
     }
 
     const resolved = resolveVersion(

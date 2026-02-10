@@ -6,6 +6,7 @@ import {
   usePagination,
   useMemo,
   makeTheme,
+  ExitPromptError,
   isUpKey,
   isDownKey,
   isSpaceKey,
@@ -198,19 +199,25 @@ export async function selectRepos(opts: {
     return [];
   }
 
-  const selected = await filterableCheckbox({
-    message: opts.message,
-    choices: filtered.map(([name, state]) => {
-      const pkgs = Object.keys(state.packages);
-      const description = pkgs.length > 0 ? pkgs.join(", ") : "no packages";
-      return {
-        value: name,
-        name: `${name} ${state.path}`,
-        description,
-        checked: opts.preSelect?.has(name) ?? false,
-      };
-    }),
-  });
+  let selected: string[];
+  try {
+    selected = await filterableCheckbox({
+      message: opts.message,
+      choices: filtered.map(([name, state]) => {
+        const pkgs = Object.keys(state.packages);
+        const description = pkgs.length > 0 ? pkgs.join(", ") : "no packages";
+        return {
+          value: name,
+          name: `${name} ${state.path}`,
+          description,
+          checked: opts.preSelect?.has(name) ?? false,
+        };
+      }),
+    });
+  } catch (err) {
+    if (err instanceof ExitPromptError) process.exit(0);
+    throw err;
+  }
 
   process.stdin.unref();
 
