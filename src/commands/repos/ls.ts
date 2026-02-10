@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { loadAllRepos } from "../../lib/repo-state";
 import { log } from "../../lib/log";
-import pc from "picocolors";
+import { c } from "../../lib/color";
 
 export default defineCommand({
   meta: { name: "ls", description: "List linked consumer repos" },
@@ -15,11 +15,11 @@ export default defineCommand({
     }
 
     for (const [name, state] of entries) {
-      const status = state.active ? pc.green("active") : pc.dim("inactive");
+      const status = state.active ? c.green("active") : c.dim("inactive");
       const pkgCount = Object.keys(state.packages).length;
       log.line(
         `  ${name.padEnd(20)} ${status.padEnd(18)} ` +
-          `${pkgCount} pkg${pkgCount !== 1 ? "s" : ""}  ${pc.dim(state.path)}`,
+          `${pkgCount} pkg${pkgCount !== 1 ? "s" : ""}  ${c.dim(state.path)}`,
       );
     }
   },

@@ -7,6 +7,7 @@ import { buildPublishPlan, executePublish } from "../lib/publisher";
 import { generateVersion } from "../lib/version";
 import { acquirePublishLock } from "../lib/lock";
 import { log } from "../lib/log";
+import { createMultiSpinner } from "../lib/spinner";
 import { DaemonNotRunningError } from "../lib/errors";
 
 export default defineCommand({
@@ -15,8 +16,10 @@ export default defineCommand({
     name: { type: "positional", description: "Package name", required: false },
     "dry-run": { type: "boolean", description: "Show what would be published", default: false },
     fast: { type: "boolean", description: "Skip dep cascade", default: false },
+    verbose: { type: "boolean", description: "Show detailed output", default: false, alias: "v" },
   },
   async run({ args }) {
+    const verbose = args.verbose as boolean;
     const status = await getDaemonStatus();
     if (!status?.running) {
       throw new DaemonNotRunningError();
@@ -24,7 +27,9 @@ export default defineCommand({
 
     const config = await loadConfig();
     const workspace = await discoverWorkspace(process.cwd());
-    log.info(`Found ${workspace.packages.length} packages in workspace`);
+    if (verbose) {
+      log.info(`Found ${workspace.packages.length} packages in workspace`);
+    }
 
     const graph = buildDependencyGraph(workspace.packages);
 
@@ -90,21 +95,38 @@ export default defineCommand({
     const plan = buildPublishPlan(publishSet, version, catalogs);
 
     log.info(`Will publish ${plan.packages.length} packages:`);
-    for (const entry of plan.packages) {
-      log.line(`  - ${entry.name}@${entry.version}`);
-    }
 
     if (args["dry-run"]) {
+      for (const entry of plan.packages) {
+        log.line(`  - ${entry.name}@${entry.version}`);
+      }
       return;
     }
 
     const releaseLock = await acquirePublishLock();
     try {
-      await executePublish(plan, config);
-
-      log.success(`Published ${plan.packages.length} packages:`);
-      for (const entry of plan.packages) {
-        log.line(`  ${entry.name}@${entry.version}`);
+      if (verbose) {
+        for (const entry of plan.packages) {
+          log.line(`  - ${entry.name}@${entry.version}`);
+        }
+        await executePublish(plan, config, { verbose: true });
+        log.success(`Published ${plan.packages.length} packages:`);
+        for (const entry of plan.packages) {
+          log.line(`  ${entry.name}@${entry.version}`);
+        }
+      } else {
+        const spinner = createMultiSpinner(
+          plan.packages.map((e) => `${e.name}@${e.version}`),
+        );
+        spinner.start();
+        try {
+          await executePublish(plan, config, {
+            onPublished: (i) => spinner.complete(i),
+            onFailed: (i) => spinner.fail(i),
+          });
+        } finally {
+          spinner.stop();
+        }
       }
 
       // Auto-update active consumer repos
@@ -136,12 +158,13 @@ export default defineCommand({
         }
       }
 
-      // Auto-prune old versions in background (non-blocking)
-      import("../lib/prune").then(({ pruneAll }) =>
-        pruneAll(config).then((pruned) => {
-          if (pruned > 0) log.dim(`Pruned ${pruned} old versions`);
-        }).catch(() => {})
-      );
+      // Auto-prune old versions in detached subprocess
+      const pruneEntry = new URL("../lib/prune-worker.ts", import.meta.url).pathname;
+      Bun.spawn(["bun", "run", pruneEntry, String(config.port), String(config.prune_keep)], {
+        stdout: "ignore",
+        stderr: "ignore",
+        stdin: "ignore",
+      }).unref();
     } finally {
       await releaseLock();
     }

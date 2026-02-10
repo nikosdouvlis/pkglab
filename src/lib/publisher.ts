@@ -39,17 +39,32 @@ export function buildPublishPlan(
   return { timestamp: Date.now(), packages: entries, catalogs };
 }
 
+export interface PublishOptions {
+  verbose?: boolean;
+  onPublished?: (index: number) => void;
+  onFailed?: (index: number) => void;
+}
+
 export async function executePublish(
   plan: PublishPlan,
   config: pkglabConfig,
+  options: PublishOptions = {},
 ): Promise<void> {
   const registryUrl = `http://127.0.0.1:${config.port}`;
 
   const results = await Promise.allSettled(
-    plan.packages.map(async (entry) => {
-      log.info(`Publishing ${entry.name}@${entry.version}`);
-      await publishSinglePackage(entry, registryUrl, plan.catalogs);
-      return `${entry.name}@${entry.version}`;
+    plan.packages.map(async (entry, index) => {
+      if (options.verbose) {
+        log.info(`Publishing ${entry.name}@${entry.version}`);
+      }
+      try {
+        await publishSinglePackage(entry, registryUrl, plan.catalogs);
+        options.onPublished?.(index);
+        return `${entry.name}@${entry.version}`;
+      } catch (error) {
+        options.onFailed?.(index);
+        throw error;
+      }
     }),
   );
 

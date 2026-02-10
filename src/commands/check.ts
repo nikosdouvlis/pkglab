@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { log } from "../lib/log";
 import { ispkglabVersion } from "../lib/version";
-import pc from "picocolors";
+import { c } from "../lib/color";
 import { join } from "node:path";
 
 export default defineCommand({
@@ -22,7 +22,7 @@ export default defineCommand({
         if (!pkgJson[field]) continue;
         for (const [name, version] of Object.entries(pkgJson[field])) {
           if (typeof version === "string" && ispkglabVersion(version)) {
-            log.line(`  ${pc.red("✗")} ${field}.${name}: ${version}`);
+            log.line(`  ${c.red("✗")} ${field}.${name}: ${version}`);
             issues++;
           }
         }
@@ -35,7 +35,7 @@ export default defineCommand({
     if (await npmrcFile.exists()) {
       const content = await npmrcFile.text();
       if (content.includes("# pkglab-start")) {
-        log.line(`  ${pc.red("✗")} .npmrc contains pkglab registry markers`);
+        log.line(`  ${c.red("✗")} .npmrc contains pkglab registry markers`);
         issues++;
       }
     }
@@ -51,7 +51,7 @@ export default defineCommand({
       const staged = output.trim().split("\n").filter(Boolean);
 
       if (staged.includes(".npmrc")) {
-        log.line(`  ${pc.red("✗")} .npmrc is staged for commit`);
+        log.line(`  ${c.red("✗")} .npmrc is staged for commit`);
         issues++;
       }
 
@@ -65,7 +65,7 @@ export default defineCommand({
         const stagedContent = await new Response(showProc.stdout).text();
         if (stagedContent.includes("0.0.0-pkglab.")) {
           log.line(
-            `  ${pc.red("✗")} Staged package.json contains pkglab versions`,
+            `  ${c.red("✗")} Staged package.json contains pkglab versions`,
           );
           issues++;
         }

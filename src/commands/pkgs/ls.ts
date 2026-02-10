@@ -5,7 +5,7 @@ import { listAllPackages } from "../../lib/registry";
 import { ispkglabVersion, extractTimestamp } from "../../lib/version";
 import { log } from "../../lib/log";
 import { DaemonNotRunningError } from "../../lib/errors";
-import pc from "picocolors";
+import { c } from "../../lib/color";
 
 export default defineCommand({
   meta: { name: "ls", description: "List packages in Verdaccio" },
@@ -31,7 +31,7 @@ export default defineCommand({
       const latest = pkglabVersions[0];
       const count = pkglabVersions.length;
       log.line(
-        `  ${pkg.name.padEnd(30)} ${pc.green(latest)}  ${pc.dim(`(${count} version${count !== 1 ? "s" : ""})`)}`,
+        `  ${pkg.name.padEnd(30)} ${c.green(latest)}  ${c.dim(`(${count} version${count !== 1 ? "s" : ""})`)}`,
       );
     }
   },
