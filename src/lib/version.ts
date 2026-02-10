@@ -1,5 +1,3 @@
-import { paths } from "./paths";
-
 const VERSION_PREFIX = "0.0.0-pkglab.";
 let lastTimestamp = 0;
 
@@ -27,30 +25,4 @@ export function extractTimestamp(version: string): number {
   const suffix = version.slice(VERSION_PREFIX.length);
   const lastDot = suffix.lastIndexOf(".");
   return parseInt(lastDot >= 0 ? suffix.slice(lastDot + 1) : suffix, 10);
-}
-
-export async function seedTimestamp(existingVersions: string[]): Promise<void> {
-  for (const v of existingVersions) {
-    if (ispkglabVersion(v)) {
-      const ts = extractTimestamp(v);
-      if (ts > lastTimestamp) lastTimestamp = ts;
-    }
-  }
-  await saveSeed();
-}
-
-export async function loadSeed(): Promise<void> {
-  try {
-    const text = await Bun.file(paths.versionSeed).text();
-    const value = parseInt(text.trim(), 10);
-    if (Number.isFinite(value) && value > lastTimestamp) {
-      lastTimestamp = value;
-    }
-  } catch {
-    // file doesn't exist yet — nothing to load
-  }
-}
-
-export async function saveSeed(): Promise<void> {
-  await Bun.write(paths.versionSeed, String(lastTimestamp));
 }

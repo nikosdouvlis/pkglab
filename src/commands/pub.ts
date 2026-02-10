@@ -125,17 +125,6 @@ export default defineCommand({
       return;
     }
 
-    // Seed version monotonicity from registry + disk
-    const { seedTimestamp, loadSeed } = await import("../lib/version");
-    const { getPackageVersions } = await import("../lib/registry");
-    await loadSeed();
-    const allVersions = await Promise.all(
-      publishSet.map((pkg) => getPackageVersions(config, pkg.name)),
-    );
-    for (const versions of allVersions) {
-      await seedTimestamp(versions);
-    }
-
     const version = generateVersion();
     const catalogs = await loadCatalogs(workspace.root);
     const plan = buildPublishPlan(publishSet, version, catalogs);
