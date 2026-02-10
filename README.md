@@ -26,8 +26,7 @@ Also available as `pkgl` for short.
 - Real `npm publish` to a local Verdaccio registry, so you test the same install your users get
 - Automatic consumer repo updates after every publish
 - Dependency cascade awareness (change a shared util, all dependent packages get republished)
-- Multi-worktree tag support: publish from multiple git worktrees in parallel without version conflicts, each worktree gets its own version channel
-- Interactive package picker with tag selection when running `pkglab add` with no arguments
+- AI-Agent enabled: multi-worktree tags are supported. Publish from multiple git worktrees in parallel without version conflicts, each worktree gets its own version channel
 - Git skip-worktree protection on `.npmrc` so localhost registry URLs don't leak into commits
 - Pre-commit safety checks (`pkglab check`) to catch local artifacts before they reach your repo
 - Automatic version pruning per tag so the local registry doesn't grow forever
@@ -39,11 +38,12 @@ Also available as `pkgl` for short.
 # Start the local registry
 pkglab up
 
-# From your library monorepo, publish all public packages
-pkglab pub
+# Publish packaegs from your library monorep
+pkglab pub # all (from workspace root), or current (if inside package)
+pkglab pub @clerk/backend # specific package and cascade
 
 # From a consumer repo, install a package from the local registry
-pkglab add @your-org/your-package
+pkglab add <name> # or omit for interactive prompt
 
 # Make changes to the library, then re-publish
 # Active consumer repos update automatically
