@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { startDaemon, getDaemonStatus } from "../lib/daemon";
 import { log } from "../lib/log";
+import { checkForUpdate } from "../lib/update-check";
 
 export default defineCommand({
   meta: { name: "up", description: "Start Verdaccio daemon" },
@@ -55,5 +56,7 @@ export default defineCommand({
         }
       }
     }
+
+    await checkForUpdate();
   },
 });

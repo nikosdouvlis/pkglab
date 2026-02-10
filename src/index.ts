@@ -30,6 +30,7 @@ const cmd = defineCommand({
     doctor: () => import("./commands/doctor").then((m) => m.default),
     prune: () => import("./commands/prune").then((m) => m.default),
     check: () => import("./commands/check").then((m) => m.default),
+    version: () => import("./commands/version").then((m) => m.default),
   },
   async setup() {
     await ensurepkglabDirs();
