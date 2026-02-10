@@ -25,13 +25,15 @@ async function writeCache(cache: CheckCache): Promise<void> {
   await Bun.write(CHECK_FILE, JSON.stringify(cache));
 }
 
+declare const __PKGLAB_VERSION__: string | undefined;
+
 async function getCurrentVersion(): Promise<string | null> {
   try {
     const pkgPath = join(import.meta.dir, "../../package.json");
     const pkg = await Bun.file(pkgPath).json();
     return pkg.version ?? null;
   } catch {
-    return null;
+    return typeof __PKGLAB_VERSION__ !== "undefined" ? __PKGLAB_VERSION__ : null;
   }
 }
 

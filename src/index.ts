@@ -12,7 +12,15 @@ import { join } from "node:path";
 import { defineCommand, runMain } from "citty";
 import { ensurepkglabDirs } from "./lib/config";
 
-const pkg = await Bun.file(join(import.meta.dir, "../package.json")).json();
+declare const __PKGLAB_VERSION__: string | undefined;
+
+let pkgVersion: string;
+try {
+  const pkg = await Bun.file(join(import.meta.dir, "../package.json")).json();
+  pkgVersion = pkg.version;
+} catch {
+  pkgVersion = typeof __PKGLAB_VERSION__ !== "undefined" ? __PKGLAB_VERSION__ : "0.0.0";
+}
 
 if (process.argv[2] === "version") {
   process.argv[2] = "--version";
@@ -21,7 +29,7 @@ if (process.argv[2] === "version") {
 const cmd = defineCommand({
   meta: {
     name: "pkglab",
-    version: pkg.version,
+    version: pkgVersion,
     description: "Local package development with Verdaccio",
   },
   subCommands: {
