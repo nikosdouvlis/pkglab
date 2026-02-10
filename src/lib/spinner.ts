@@ -2,25 +2,34 @@ import { c } from "./color";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-export function createMultiSpinner(lines: string[]) {
+export type SpinnerLine = string | { text: string; header: true };
+
+export function createMultiSpinner(lines: SpinnerLine[]) {
   const isTTY = process.stdout.isTTY;
-  const done = new Array<boolean>(lines.length).fill(false);
-  const failed = new Array<boolean>(lines.length).fill(false);
+  const entries = lines.map((line) =>
+    typeof line === "string"
+      ? { text: line, header: false, done: false, failed: false }
+      : { text: line.text, header: true, done: false, failed: false },
+  );
   let frame = 0;
   let interval: Timer | undefined;
   let rendered = false;
 
   function render() {
     if (rendered) {
-      process.stdout.write(`\x1b[${lines.length}A`);
+      process.stdout.write(`\x1b[${entries.length}A`);
     }
-    for (let i = 0; i < lines.length; i++) {
-      const icon = done[i]
-        ? c.green("✔")
-        : failed[i]
-          ? c.red("✖")
-          : c.cyan(FRAMES[frame % FRAMES.length]);
-      process.stdout.write(`\x1b[2K  ${icon} ${lines[i]}\n`);
+    for (const entry of entries) {
+      if (entry.header) {
+        process.stdout.write(`\x1b[2K${entry.text}\n`);
+      } else {
+        const icon = entry.done
+          ? c.green("✔")
+          : entry.failed
+            ? c.red("✖")
+            : c.cyan(FRAMES[frame % FRAMES.length]);
+        process.stdout.write(`\x1b[2K  ${icon} ${entry.text}\n`);
+      }
     }
     frame++;
     rendered = true;
@@ -29,17 +38,19 @@ export function createMultiSpinner(lines: string[]) {
   return {
     start() {
       if (!isTTY) {
-        for (const line of lines) console.log(`  - ${line}`);
+        for (const entry of entries) {
+          console.log(entry.header ? entry.text : `  - ${entry.text}`);
+        }
         return;
       }
       render();
       interval = setInterval(render, 80);
     },
     complete(index: number) {
-      done[index] = true;
+      entries[index].done = true;
     },
     fail(index: number) {
-      failed[index] = true;
+      entries[index].failed = true;
     },
     stop() {
       if (interval) clearInterval(interval);

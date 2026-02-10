@@ -120,11 +120,12 @@ export async function scopedInstall(
   pkgName: string,
   version: string,
   pm?: PackageManager,
+  quiet?: boolean,
 ): Promise<void> {
   const detectedPm = pm || (await detectPackageManager(repoPath));
   const cmd = installCommand(detectedPm, pkgName, version);
 
-  log.dim(`  ${cmd.join(" ")}`);
+  if (!quiet) log.dim(`  ${cmd.join(" ")}`);
   const proc = Bun.spawn(cmd, {
     cwd: repoPath,
     stdout: "pipe",

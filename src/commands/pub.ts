@@ -82,11 +82,24 @@ export default defineCommand({
       }
     }
 
+    if (args["dry-run"]) {
+      const version = generateVersion();
+      const catalogs = await loadCatalogs(workspace.root);
+      const plan = buildPublishPlan(publishSet, version, catalogs);
+      log.info(`Will publish ${plan.packages.length} packages:`);
+      for (const entry of plan.packages) {
+        log.line(`  - ${entry.name}@${entry.version}`);
+      }
+      return;
+    }
+
     // Seed version monotonicity from registry
     const { seedTimestamp } = await import("../lib/version");
     const { getPackageVersions } = await import("../lib/registry");
-    for (const pkg of publishSet) {
-      const versions = await getPackageVersions(config, pkg.name);
+    const allVersions = await Promise.all(
+      publishSet.map((pkg) => getPackageVersions(config, pkg.name)),
+    );
+    for (const versions of allVersions) {
       seedTimestamp(versions);
     }
 
@@ -95,13 +108,6 @@ export default defineCommand({
     const plan = buildPublishPlan(publishSet, version, catalogs);
 
     log.info(`Will publish ${plan.packages.length} packages:`);
-
-    if (args["dry-run"]) {
-      for (const entry of plan.packages) {
-        log.line(`  - ${entry.name}@${entry.version}`);
-      }
-      return;
-    }
 
     const releaseLock = await acquirePublishLock();
     try {
@@ -131,29 +137,65 @@ export default defineCommand({
 
       // Auto-update active consumer repos
       const { getActiveRepos, saveRepoState: saveRepo } = await import("../lib/repo-state");
-      const { detectPackageManager } = await import("../lib/pm-detect");
+      const { detectPackageManager, installCommand } = await import("../lib/pm-detect");
       const { updatePackageJsonVersion, scopedInstall } = await import("../lib/consumer");
 
       const activeRepos = await getActiveRepos();
       if (activeRepos.length > 0) {
-        log.info("\nUpdating active repos:");
+        // Build per-repo work items: which packages to update and the install command
+        const repoWork = await Promise.all(
+          activeRepos.map(async ({ name, state }) => {
+            const pm = await detectPackageManager(state.path);
+            const packages = plan.packages.filter((e) => state.packages[e.name]);
+            return { name, state, pm, packages };
+          }),
+        );
+        const work = repoWork.filter((r) => r.packages.length > 0);
 
-        for (const { name, state } of activeRepos) {
-          const pm = await detectPackageManager(state.path);
-          const updated: string[] = [];
+        if (work.length > 0 && !verbose) {
+          // Build grouped spinner lines with task index tracking
+          const spinnerLines: import("../lib/spinner").SpinnerLine[] = [];
+          const tasks: { repoIdx: number; spinnerIdx: number }[] = [];
 
-          for (const entry of plan.packages) {
-            if (state.packages[entry.name]) {
-              await updatePackageJsonVersion(state.path, entry.name, entry.version);
-              await scopedInstall(state.path, entry.name, entry.version, pm);
-              state.packages[entry.name].current = entry.version;
-              await saveRepo(name, state);
-              updated.push(entry.name);
+          for (let r = 0; r < work.length; r++) {
+            const { name, pm, packages } = work[r];
+            spinnerLines.push({ text: `${name}:`, header: true });
+            for (const entry of packages) {
+              tasks.push({ repoIdx: r, spinnerIdx: spinnerLines.length });
+              spinnerLines.push(installCommand(pm, entry.name, entry.version).join(" "));
             }
           }
 
-          if (updated.length > 0) {
-            log.success(`  ${name}: updated ${updated.join(", ")}`);
+          const repoSpinner = createMultiSpinner(spinnerLines);
+          repoSpinner.start();
+
+          try {
+            await Promise.all(
+              work.map(async (repo, r) => {
+                const repoTasks = tasks.filter((t) => t.repoIdx === r);
+                for (let i = 0; i < repo.packages.length; i++) {
+                  const entry = repo.packages[i];
+                  await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
+                  await scopedInstall(repo.state.path, entry.name, entry.version, repo.pm, true);
+                  repo.state.packages[entry.name].current = entry.version;
+                  await saveRepo(repo.name, repo.state);
+                  repoSpinner.complete(repoTasks[i].spinnerIdx);
+                }
+              }),
+            );
+          } finally {
+            repoSpinner.stop();
+          }
+        } else if (work.length > 0) {
+          log.info("\nUpdating active repos:");
+          for (const repo of work) {
+            for (const entry of repo.packages) {
+              await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
+              await scopedInstall(repo.state.path, entry.name, entry.version, repo.pm);
+              repo.state.packages[entry.name].current = entry.version;
+              await saveRepo(repo.name, repo.state);
+            }
+            log.success(`  ${repo.name}: updated ${repo.packages.map((e) => e.name).join(", ")}`);
           }
         }
       }
