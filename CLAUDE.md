@@ -87,7 +87,7 @@ When active consumer repos exist, the cascade filters dependents: only dependent
 
 ## Pub command output
 
-Default output is concise with spinners. `--verbose`/`-v` shows full detail.
+Default output shows a color-coded scope summary (package list with scope/change reasons), then spinners for publishing. `--verbose`/`-v` adds the detailed cascade breakdown (dependency lists, cascading-up graph) and private-package warnings.
 Pruning runs in a detached subprocess (`src/lib/prune-worker.ts`) to avoid blocking exit.
 
 ## Version format

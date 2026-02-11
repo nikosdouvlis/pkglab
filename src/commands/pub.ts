@@ -177,28 +177,32 @@ export default defineCommand({
     // Skip private packages pulled in by cascade (they're dependents, not deps)
     const skippedPrivate = cascadePackages.filter((p) => !p.publishable);
     if (skippedPrivate.length > 0) {
-      for (const pkg of skippedPrivate) {
-        log.warn(`Skipping private package ${pkg.name}`);
+      if (verbose) {
+        for (const pkg of skippedPrivate) {
+          log.warn(`Skipping private package ${pkg.name}`);
+        }
       }
       cascadePackages = cascadePackages.filter((p) => p.publishable);
     }
 
-    // Log cascade breakdown per target
-    for (const target of targets) {
-      const deps = cascade.dependencies[target] || [];
-      const depts = cascade.dependents[target] || [];
+    // Log cascade breakdown per target (verbose only)
+    if (verbose) {
+      for (const target of targets) {
+        const deps = cascade.dependencies[target] || [];
+        const depts = cascade.dependents[target] || [];
 
-      if (deps.length > 0) {
-        log.info(`${target} dependencies:`);
-        for (const d of deps) log.line(`  - ${d}`);
-      }
+        if (deps.length > 0) {
+          log.info(`${target} dependencies:`);
+          for (const d of deps) log.line(`  - ${d}`);
+        }
 
-      if (depts.length > 0) {
-        log.info(`${target} cascading up:`);
-        for (const d of depts) {
-          const dDeps = graph.directDependenciesOf(d)
-            .filter((dep) => cascade.packages.some((p) => p.name === dep));
-          log.line(`  - ${d} -> ${dDeps.join(", ")}`);
+        if (depts.length > 0) {
+          log.info(`${target} cascading up:`);
+          for (const d of depts) {
+            const dDeps = graph.directDependenciesOf(d)
+              .filter((dep) => cascade.packages.some((p) => p.name === dep));
+            log.line(`  - ${d} -> ${dDeps.join(", ")}`);
+          }
         }
       }
     }
@@ -249,10 +253,41 @@ export default defineCommand({
     });
     const unchangedSet = cascadePackages.filter((p) => reason.get(p.name) === "unchanged");
 
+    // Build scope reason lookup: target / dependency / dependent
+    const targetSet = new Set(targets);
+    const depSet = new Set<string>();
+    const deptSet = new Set<string>();
+    for (const target of targets) {
+      for (const d of cascade.dependencies[target] || []) depSet.add(d);
+      for (const d of cascade.dependents[target] || []) deptSet.add(d);
+    }
+
+    // Scope summary
+    const toPublish = publishSet.length;
+    const unchanged = unchangedSet.length;
+    const total = cascadePackages.length;
+    const parts = [`${toPublish} to publish`];
+    if (unchanged > 0) parts.push(`${unchanged} unchanged`);
+    log.info(`Scope: ${total} packages (${parts.join(", ")})`);
+    log.line("");
+    for (const pkg of cascadePackages) {
+      const r = reason.get(pkg.name)!;
+      const willPublish = r === "changed" || r === "propagated";
+      const scopeReason = targetSet.has(pkg.name) ? "target" : depSet.has(pkg.name) ? "dependency" : "dependent";
+      const changeReason = r === "changed" ? "changed" : r === "propagated" ? "dep changed" : "unchanged";
+      if (willPublish) {
+        log.line(`  ${c.green("\u25B2")} ${pkg.name}  ${scopeReason}, ${changeReason}`);
+      } else {
+        log.line(`  ${c.dim("\u00B7")} ${c.dim(pkg.name)}  ${c.dim(`${scopeReason}, ${changeReason}`)}`);
+      }
+    }
+
     if (publishSet.length === 0) {
-      log.success("No changes detected, nothing to publish");
+      log.line("");
+      log.success("Nothing to publish");
       return;
     }
+    log.line("");
 
     await publishPackages(
       publishSet,
@@ -289,9 +324,8 @@ async function publishPackages(
     const version = generateVersion(tag);
     const plan = buildPublishPlan(publishSet, version, catalogs, existingVersions);
 
-    if (unchangedSet.length > 0) {
-      log.info(`Will publish ${plan.packages.length} packages (${unchangedSet.length} unchanged):`);
-    } else {
+    // Scope summary already printed for cascade path; show "Will publish" only for --single
+    if (!reason) {
       log.info(`Will publish ${plan.packages.length} packages:`);
     }
     for (const entry of plan.packages) {
@@ -313,9 +347,8 @@ async function publishPackages(
   const version = generateVersion(tag);
   const plan = buildPublishPlan(publishSet, version, catalogs, existingVersions);
 
-  if (unchangedSet.length > 0) {
-    log.info(`Will publish ${plan.packages.length} packages (${unchangedSet.length} unchanged):`);
-  } else {
+  // Scope summary already printed for cascade path; show "Will publish" only for --single
+  if (!reason) {
     log.info(`Will publish ${plan.packages.length} packages:`);
   }
 
