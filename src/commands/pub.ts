@@ -4,6 +4,7 @@ import { loadConfig } from "../lib/config";
 import { discoverWorkspace, findPackage, loadCatalogs } from "../lib/workspace";
 import { buildDependencyGraph, computeCascade } from "../lib/graph";
 import { buildPublishPlan, executePublish } from "../lib/publisher";
+import { setDistTag } from "../lib/registry";
 import { generateVersion, sanitizeTag } from "../lib/version";
 import { acquirePublishLock } from "../lib/lock";
 import { log } from "../lib/log";
@@ -184,6 +185,12 @@ export default defineCommand({
           spinner.stop();
         }
       }
+
+      // Set npm dist-tags so `npm install pkg@tag` works against the local registry
+      const distTag = tag ?? "pkglab";
+      await Promise.all(
+        plan.packages.map((e) => setDistTag(config, e.name, e.version, distTag)),
+      );
 
       // Auto-update active consumer repos
       const { updateActiveRepos } = await import("../lib/consumer");

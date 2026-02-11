@@ -135,6 +135,23 @@ export async function listAllPackages(
   }
 }
 
+export async function setDistTag(
+  config: pkglabConfig,
+  name: string,
+  version: string,
+  tag: string,
+): Promise<void> {
+  const url = `${registryUrl(config)}/-/package/${encodeURIComponent(name)}/dist-tags/${encodeURIComponent(tag)}`;
+  await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer pkglab-local",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(version),
+  });
+}
+
 export async function unpublishVersions(
   config: pkglabConfig,
   name: string,
