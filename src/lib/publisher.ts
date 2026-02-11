@@ -14,6 +14,7 @@ export function buildPublishPlan(
   packages: WorkspacePackage[],
   version: string,
   catalogs: Record<string, Record<string, string>> = {},
+  existingVersions: Map<string, string> = new Map(),
 ): PublishPlan {
   const publishNames = new Set(packages.map((p) => p.name));
 
@@ -30,6 +31,8 @@ export function buildPublishPlan(
       for (const depName of Object.keys(deps)) {
         if (publishNames.has(depName)) {
           rewrittenDeps[depName] = version;
+        } else if (existingVersions.has(depName)) {
+          rewrittenDeps[depName] = existingVersions.get(depName)!;
         }
       }
     }
@@ -133,13 +136,11 @@ async function publishSinglePackage(
 
     pkgJson.version = entry.version;
 
-    for (const field of [
-      "dependencies",
-      "peerDependencies",
-      "optionalDependencies",
-      "devDependencies",
-    ]) {
+    const runtimeFields = ["dependencies", "peerDependencies", "optionalDependencies"];
+
+    for (const field of [...runtimeFields, "devDependencies"]) {
       if (!pkgJson[field]) continue;
+      const isRuntime = runtimeFields.includes(field);
       for (const [name, version] of Object.entries(pkgJson[field])) {
         if (entry.rewrittenDeps[name]) {
           pkgJson[field][name] = entry.rewrittenDeps[name];
@@ -147,6 +148,13 @@ async function publishSinglePackage(
           typeof version === "string" &&
           version.startsWith("workspace:")
         ) {
+          const inner = (version as string).slice("workspace:".length);
+          if (isRuntime && (inner === "^" || inner === "~" || inner === "*")) {
+            throw new Error(
+              `${entry.name} has workspace dep "${name}" (${version}) that is not in the publish set. ` +
+              `This is a bug in cascade computation.`,
+            );
+          }
           pkgJson[field][name] = resolveWorkspaceProtocol(version as string);
         } else if (
           typeof version === "string" &&

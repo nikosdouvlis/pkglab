@@ -8,8 +8,63 @@ import { setDistTag } from "../lib/registry";
 import { generateVersion, sanitizeTag } from "../lib/version";
 import { acquirePublishLock } from "../lib/lock";
 import { log } from "../lib/log";
+import { c } from "../lib/color";
 import { createMultiSpinner } from "../lib/spinner";
 import { DaemonNotRunningError, pkglabError } from "../lib/errors";
+import { fingerprintPackages } from "../lib/fingerprint";
+import { loadFingerprintState, saveFingerprintState } from "../lib/fingerprint-state";
+import type { WorkspacePackage } from "../types";
+
+type ChangeReason = "changed" | "propagated" | "unchanged";
+
+function detectChanges(
+  cascadePackages: WorkspacePackage[],
+  fingerprints: Map<string, { hash: string; fileCount: number }>,
+  previousState: Record<string, { hash: string; version: string }>,
+  graph: ReturnType<typeof buildDependencyGraph>,
+): { reason: Map<string, ChangeReason>; existingVersions: Map<string, string> } {
+  const reason = new Map<string, ChangeReason>();
+  const existingVersions = new Map<string, string>();
+  const cascadeNames = new Set(cascadePackages.map((p) => p.name));
+
+  // Process in topological order (cascadePackages is already topo-sorted)
+  for (const pkg of cascadePackages) {
+    const fp = fingerprints.get(pkg.name);
+    const prev = previousState[pkg.name];
+
+    // Content hash changed or no previous state: mark as changed
+    if (!fp || !prev || fp.hash !== prev.hash) {
+      reason.set(pkg.name, "changed");
+      continue;
+    }
+
+    // Content same, but check if any workspace dep in the cascade changed/propagated
+    let depChanged = false;
+    try {
+      const deps = graph.directDependenciesOf(pkg.name);
+      for (const dep of deps) {
+        if (cascadeNames.has(dep)) {
+          const depReason = reason.get(dep);
+          if (depReason === "changed" || depReason === "propagated") {
+            depChanged = true;
+            break;
+          }
+        }
+      }
+    } catch {
+      // Node not in graph, treat as no deps
+    }
+
+    if (depChanged) {
+      reason.set(pkg.name, "propagated");
+    } else {
+      reason.set(pkg.name, "unchanged");
+      existingVersions.set(pkg.name, prev.version);
+    }
+  }
+
+  return { reason, existingVersions };
+}
 
 export default defineCommand({
   meta: { name: "pub", description: "Publish packages to local Verdaccio" },
@@ -89,47 +144,50 @@ export default defineCommand({
       }
     }
 
-    let publishSet: typeof workspace.packages;
+    // --single bypasses cascade and fingerprinting entirely
     if (args.single) {
-      publishSet = targets
+      const publishSet = targets
         .map((name) => findPackage(workspace.packages, name))
         .filter(Boolean) as typeof workspace.packages;
-    } else {
-      const cascade = computeCascade(graph, targets);
-      publishSet = cascade.packages;
 
-      // Skip private packages pulled in by cascade (they're dependents, not deps)
-      const skippedPrivate = publishSet.filter((p) => !p.publishable);
-      if (skippedPrivate.length > 0) {
-        for (const pkg of skippedPrivate) {
-          log.warn(`Skipping private package ${pkg.name}`);
-        }
-        publishSet = publishSet.filter((p) => p.publishable);
+      await publishPackages(publishSet, [], workspace.root, config, tag, verbose, args["dry-run"] as boolean);
+      return;
+    }
+
+    const cascade = computeCascade(graph, targets);
+    let cascadePackages = cascade.packages;
+
+    // Skip private packages pulled in by cascade (they're dependents, not deps)
+    const skippedPrivate = cascadePackages.filter((p) => !p.publishable);
+    if (skippedPrivate.length > 0) {
+      for (const pkg of skippedPrivate) {
+        log.warn(`Skipping private package ${pkg.name}`);
+      }
+      cascadePackages = cascadePackages.filter((p) => p.publishable);
+    }
+
+    // Log cascade breakdown per target
+    for (const target of targets) {
+      const deps = cascade.dependencies[target] || [];
+      const depts = cascade.dependents[target] || [];
+
+      if (deps.length > 0) {
+        log.info(`${target} dependencies:`);
+        for (const d of deps) log.line(`  - ${d}`);
       }
 
-      // Log cascade breakdown per target
-      for (const target of targets) {
-        const deps = cascade.dependencies[target] || [];
-        const depts = cascade.dependents[target] || [];
-
-        if (deps.length > 0) {
-          log.info(`${target} dependencies:`);
-          for (const d of deps) log.line(`  - ${d}`);
-        }
-
-        if (depts.length > 0) {
-          log.info(`${target} cascading up:`);
-          for (const d of depts) {
-            const dDeps = graph.directDependenciesOf(d)
-              .filter((dep) => cascade.packages.some((p) => p.name === dep));
-            log.line(`  - ${d} -> ${dDeps.join(", ")}`);
-          }
+      if (depts.length > 0) {
+        log.info(`${target} cascading up:`);
+        for (const d of depts) {
+          const dDeps = graph.directDependenciesOf(d)
+            .filter((dep) => cascade.packages.some((p) => p.name === dep));
+          log.line(`  - ${d} -> ${dDeps.join(", ")}`);
         }
       }
     }
 
-    // Validate no non-publishable dependencies in the publish set
-    for (const pkg of publishSet) {
+    // Validate no non-publishable dependencies in the cascade set
+    for (const pkg of cascadePackages) {
       for (const field of ["dependencies", "peerDependencies", "optionalDependencies"] as const) {
         const deps = pkg.packageJson[field];
         if (!deps) continue;
@@ -143,68 +201,166 @@ export default defineCommand({
       }
     }
 
-    if (args["dry-run"]) {
-      const version = generateVersion(tag);
-      const catalogs = await loadCatalogs(workspace.root);
-      const plan = buildPublishPlan(publishSet, version, catalogs);
-      log.info(`Will publish ${plan.packages.length} packages:`);
-      for (const entry of plan.packages) {
-        log.line(`  - ${entry.name}@${entry.version}`);
-      }
+    // Fingerprint all packages in the cascade
+    if (verbose) {
+      log.info("Fingerprinting packages...");
+    }
+    const fingerprints = await fingerprintPackages(
+      cascadePackages.map((p) => ({ name: p.name, dir: p.dir })),
+    );
+
+    // Load previous fingerprint state
+    const previousState = await loadFingerprintState(workspace.root, tag ?? null);
+
+    // Determine change status in topological order
+    const { reason, existingVersions } = detectChanges(
+      cascadePackages, fingerprints, previousState, graph,
+    );
+
+    const publishSet = cascadePackages.filter((p) => {
+      const r = reason.get(p.name);
+      return r === "changed" || r === "propagated";
+    });
+    const unchangedSet = cascadePackages.filter((p) => reason.get(p.name) === "unchanged");
+
+    if (publishSet.length === 0) {
+      log.success("No changes detected, nothing to publish");
       return;
     }
 
-    const version = generateVersion(tag);
-    const catalogs = await loadCatalogs(workspace.root);
-    const plan = buildPublishPlan(publishSet, version, catalogs);
-
-    log.info(`Will publish ${plan.packages.length} packages:`);
-
-    const releaseLock = await acquirePublishLock();
-    try {
-      if (verbose) {
-        for (const entry of plan.packages) {
-          log.line(`  - ${entry.name}@${entry.version}`);
-        }
-        await executePublish(plan, config, { verbose: true });
-        log.success(`Published ${plan.packages.length} packages:`);
-        for (const entry of plan.packages) {
-          log.line(`  ${entry.name}@${entry.version}`);
-        }
-      } else {
-        const spinner = createMultiSpinner(
-          plan.packages.map((e) => `${e.name}@${e.version}`),
-        );
-        spinner.start();
-        try {
-          await executePublish(plan, config, {
-            onPublished: (i) => spinner.complete(i),
-            onFailed: (i) => spinner.fail(i),
-          });
-        } finally {
-          spinner.stop();
-        }
-      }
-
-      // Set npm dist-tags so `npm install pkg@tag` works against the local registry
-      const distTag = tag ?? "pkglab";
-      await Promise.all(
-        plan.packages.map((e) => setDistTag(config, e.name, e.version, distTag)),
-      );
-
-      // Auto-update active consumer repos
-      const { updateActiveRepos } = await import("../lib/consumer");
-      await updateActiveRepos(plan, verbose, tag);
-
-      // Auto-prune old versions in detached subprocess
-      const pruneEntry = new URL("../lib/prune-worker.ts", import.meta.url).pathname;
-      Bun.spawn(["bun", "run", pruneEntry, String(config.port), String(config.prune_keep), ...(tag ? [tag] : [])], {
-        stdout: "ignore",
-        stderr: "ignore",
-        stdin: "ignore",
-      }).unref();
-    } finally {
-      await releaseLock();
-    }
+    await publishPackages(
+      publishSet,
+      unchangedSet,
+      workspace.root,
+      config,
+      tag,
+      verbose,
+      args["dry-run"] as boolean,
+      existingVersions,
+      reason,
+      fingerprints,
+      cascadePackages,
+    );
   },
 });
+
+async function publishPackages(
+  publishSet: WorkspacePackage[],
+  unchangedSet: WorkspacePackage[],
+  workspaceRoot: string,
+  config: { port: number; prune_keep: number },
+  tag: string | undefined,
+  verbose: boolean,
+  dryRun: boolean,
+  existingVersions: Map<string, string> = new Map(),
+  reason?: Map<string, ChangeReason>,
+  fingerprints?: Map<string, { hash: string; fileCount: number }>,
+  allCascadePackages?: WorkspacePackage[],
+): Promise<void> {
+  const catalogs = await loadCatalogs(workspaceRoot);
+
+  if (dryRun) {
+    const version = generateVersion(tag);
+    const plan = buildPublishPlan(publishSet, version, catalogs, existingVersions);
+
+    if (unchangedSet.length > 0) {
+      log.info(`Will publish ${plan.packages.length} packages (${unchangedSet.length} unchanged):`);
+    } else {
+      log.info(`Will publish ${plan.packages.length} packages:`);
+    }
+    for (const entry of plan.packages) {
+      const r = reason?.get(entry.name);
+      if (verbose && r) {
+        const detail = r === "propagated" ? " (dep changed)" : " (content changed)";
+        log.line(`  ${c.green("\u2714")} ${entry.name}@${entry.version}${detail}`);
+      } else {
+        log.line(`  ${c.green("\u2714")} ${entry.name}@${entry.version}`);
+      }
+    }
+    for (const pkg of unchangedSet) {
+      const ver = existingVersions.get(pkg.name) ?? "unknown";
+      log.line(`  ${c.dim("\u25CB")} ${c.dim(`${pkg.name} (unchanged, ${ver})`)}`);
+    }
+    return;
+  }
+
+  const version = generateVersion(tag);
+  const plan = buildPublishPlan(publishSet, version, catalogs, existingVersions);
+
+  if (unchangedSet.length > 0) {
+    log.info(`Will publish ${plan.packages.length} packages (${unchangedSet.length} unchanged):`);
+  } else {
+    log.info(`Will publish ${plan.packages.length} packages:`);
+  }
+
+  const releaseLock = await acquirePublishLock();
+  try {
+    if (verbose) {
+      for (const entry of plan.packages) {
+        const r = reason?.get(entry.name);
+        if (r) {
+          const detail = r === "propagated" ? " (dep changed)" : " (content changed)";
+          log.line(`  ${c.green("\u2714")} ${entry.name}@${entry.version}${detail}`);
+        } else {
+          log.line(`  - ${entry.name}@${entry.version}`);
+        }
+      }
+      for (const pkg of unchangedSet) {
+        const ver = existingVersions.get(pkg.name) ?? "unknown";
+        log.line(`  ${c.dim("\u25CB")} ${c.dim(`${pkg.name} (unchanged, ${ver})`)}`);
+      }
+      await executePublish(plan, config, { verbose: true });
+      log.success(`Published ${plan.packages.length} packages:`);
+      for (const entry of plan.packages) {
+        log.line(`  ${entry.name}@${entry.version}`);
+      }
+    } else {
+      const spinner = createMultiSpinner(
+        plan.packages.map((e) => `${e.name}@${e.version}`),
+      );
+      spinner.start();
+      try {
+        await executePublish(plan, config, {
+          onPublished: (i) => spinner.complete(i),
+          onFailed: (i) => spinner.fail(i),
+        });
+      } finally {
+        spinner.stop();
+      }
+    }
+
+    // Set npm dist-tags so `npm install pkg@tag` works against the local registry
+    const distTag = tag ?? "pkglab";
+    await Promise.all(
+      plan.packages.map((e) => setDistTag(config, e.name, e.version, distTag)),
+    );
+
+    // Auto-update active consumer repos
+    const { updateActiveRepos } = await import("../lib/consumer");
+    await updateActiveRepos(plan, verbose, tag);
+
+    // Save fingerprint state AFTER consumer updates so a failed update retries on next pub
+    if (fingerprints && allCascadePackages) {
+      const entries = allCascadePackages.map((pkg) => {
+        const fp = fingerprints.get(pkg.name);
+        const pkgVersion = existingVersions.get(pkg.name) ?? version;
+        return {
+          name: pkg.name,
+          hash: fp?.hash ?? "",
+          version: pkgVersion,
+        };
+      });
+      await saveFingerprintState(workspaceRoot, tag ?? null, entries);
+    }
+
+    // Auto-prune old versions in detached subprocess
+    const pruneEntry = new URL("../lib/prune-worker.ts", import.meta.url).pathname;
+    Bun.spawn(["bun", "run", pruneEntry, String(config.port), String(config.prune_keep), ...(tag ? [tag] : [])], {
+      stdout: "ignore",
+      stderr: "ignore",
+      stdin: "ignore",
+    }).unref();
+  } finally {
+    await releaseLock();
+  }
+}

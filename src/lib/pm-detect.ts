@@ -63,3 +63,16 @@ export function installCommand(
     case "bun": return ["bun", "add", spec];
   }
 }
+
+export function batchInstallCommand(
+  pm: PackageManager,
+  packages: { name: string; version: string }[],
+): string[] {
+  const specs = packages.map((p) => `${p.name}@${p.version}`);
+  switch (pm) {
+    case "pnpm": return ["pnpm", "add", ...specs];
+    case "yarn": return ["yarn", "add", ...specs];
+    case "npm": return ["npm", "install", ...specs];
+    case "bun": return ["bun", "add", ...specs];
+  }
+}

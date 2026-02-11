@@ -13,7 +13,7 @@ Top-level:
 - `pkglab down` — stop the registry
 - `pkglab status` — show registry status
 - `pkglab logs` — show registry logs
-- `pkglab pub [name]` — publish workspace packages to local registry, auto-updates active consumer repos. Flags: `--single` skip cascade, `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch
+- `pkglab pub [name]` — publish workspace packages to local registry, auto-updates active consumer repos. Fingerprints packages and skips unchanged ones. Flags: `--single` skip cascade/fingerprinting, `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--dry-run`, `--verbose`/`-v`
 - `pkglab add [name[@tag]]` — add a pkglab package to the current repo. No args for interactive picker
 - `pkglab rm <name>` — remove a pkglab package, restore original version
 - `pkglab doctor` — diagnose issues
@@ -48,10 +48,10 @@ For multi-worktree workflows, use tags to isolate version channels:
 - `src/index.ts` — entry point, registers all commands via lazy imports
 - `src/commands/` — one file per command, each exports `defineCommand()` as default
 - `src/commands/repos/`, `src/commands/pkg/` — subcommand groups with their own index.ts
-- `src/lib/` — shared utilities (config, daemon, publisher, registry, etc.)
+- `src/lib/` — shared utilities (config, daemon, publisher, registry, fingerprint, etc.)
 - `src/types.ts` — all shared interfaces
 
-Config and state live in `~/.pkglab/`. Verdaccio storage at `~/.pkglab/verdaccio/storage/`.
+Config and state live in `~/.pkglab/`. Verdaccio storage at `~/.pkglab/verdaccio/storage/`. Fingerprint state at `~/.pkglab/fingerprints.json`.
 
 ## Conventions
 
@@ -68,6 +68,19 @@ Config and state live in `~/.pkglab/`. Verdaccio storage at `~/.pkglab/verdaccio
 1. Create `src/commands/<name>.ts` exporting `defineCommand()` as default
 2. Register in `src/index.ts` subCommands with a lazy import
 3. Use `args` for CLI flags, `run({ args })` for the handler
+
+## Cascade and fingerprinting
+
+`pkglab pub` computes a cascade: target + transitive deps + transitive dependents, closed under deps (every published package has its workspace deps in the set). Private packages are excluded from the closure.
+
+Before publishing, each package is fingerprinted using `npm pack --dry-run --json` + `Bun.CryptoHasher` (SHA-256). Packages are classified in topological order:
+- "changed": content hash differs from previous publish
+- "propagated": content same, but a workspace dep was changed/propagated
+- "unchanged": content same, no deps changed (skipped, keeps existing version)
+
+Fingerprint state is stored per workspace, per package, per tag in `~/.pkglab/fingerprints.json`. Treated as a cache: missing/corrupt state triggers a full republish. State is saved after consumer updates succeed.
+
+`--single` bypasses cascade and fingerprinting entirely.
 
 ## Pub command output
 

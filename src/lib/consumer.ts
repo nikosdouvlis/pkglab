@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { log } from "./log";
 import { NpmrcConflictError } from "./errors";
-import { detectPackageManager, installCommand } from "./pm-detect";
+import { detectPackageManager, installCommand, batchInstallCommand } from "./pm-detect";
 import type { PackageManager } from "./pm-detect";
 import { run } from "./proc";
 import { getActiveRepos, saveRepoState } from "./repo-state";
@@ -204,11 +204,29 @@ export async function updateActiveRepos(
       await Promise.all(
         work.map(async (repo, r) => {
           const repoTasks = tasks.filter((t) => t.repoIdx === r);
+
+          // Update all package.json versions, storing previous for rollback
+          const prevVersions: { name: string; version: string }[] = [];
+          for (const entry of repo.packages) {
+            const { previousVersion } = await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
+            prevVersions.push({ name: entry.name, version: previousVersion });
+          }
+
+          // Run one batch install for all packages
+          const cmd = batchInstallCommand(repo.pm, repo.packages.map((e) => ({ name: e.name, version: e.version })));
+          const result = await run(cmd, { cwd: repo.state.path });
+          if (result.exitCode !== 0) {
+            // Revert package.json so it stays consistent with node_modules
+            for (const prev of prevVersions) {
+              await updatePackageJsonVersion(repo.state.path, prev.name, prev.version);
+            }
+            const output = (result.stderr || result.stdout).trim();
+            throw new Error(`Install failed (${repo.pm}): ${output}`);
+          }
+
+          // Mark all tasks complete and update state
           for (let i = 0; i < repo.packages.length; i++) {
-            const entry = repo.packages[i];
-            await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
-            await scopedInstall(repo.state.path, entry.name, entry.version, repo.pm, true);
-            repo.state.packages[entry.name].current = entry.version;
+            repo.state.packages[repo.packages[i].name].current = repo.packages[i].version;
             repoSpinner.complete(repoTasks[i].spinnerIdx);
           }
           await saveRepoState(repo.name, repo.state);
@@ -220,9 +238,26 @@ export async function updateActiveRepos(
   } else {
     log.info("\nUpdating active repos:");
     for (const repo of work) {
+      // Update all package.json versions, storing previous for rollback
+      const prevVersions: { name: string; version: string }[] = [];
       for (const entry of repo.packages) {
-        await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
-        await scopedInstall(repo.state.path, entry.name, entry.version, repo.pm);
+        const { previousVersion } = await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
+        prevVersions.push({ name: entry.name, version: previousVersion });
+      }
+
+      // Run one batch install for all packages
+      const cmd = batchInstallCommand(repo.pm, repo.packages.map((e) => ({ name: e.name, version: e.version })));
+      log.dim(`  ${cmd.join(" ")}`);
+      const result = await run(cmd, { cwd: repo.state.path });
+      if (result.exitCode !== 0) {
+        for (const prev of prevVersions) {
+          await updatePackageJsonVersion(repo.state.path, prev.name, prev.version);
+        }
+        const output = (result.stderr || result.stdout).trim();
+        throw new Error(`Install failed (${repo.pm}): ${output}`);
+      }
+
+      for (const entry of repo.packages) {
         repo.state.packages[entry.name].current = entry.version;
       }
       await saveRepoState(repo.name, repo.state);

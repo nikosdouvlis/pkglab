@@ -177,6 +177,9 @@ try {
     const c1Before = getDep(await readPkgJson(consumer1Dir), "@test/pkg-a")!;
     const c2Before = getDep(await readPkgJson(consumer2Dir), "@test/pkg-a")!;
 
+    // Touch a file so fingerprinting detects a change
+    await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 6\n");
+
     const r = await pkglab(["pub"], { cwd: producerDir });
     assert(r.code === 0, "pkglab pub (untagged) succeeds");
 
@@ -193,6 +196,9 @@ try {
   {
     const c1Before = getDep(await readPkgJson(consumer1Dir), "@test/pkg-a")!;
     const c2Before = getDep(await readPkgJson(consumer2Dir), "@test/pkg-a")!;
+
+    // Touch a file so fingerprinting detects a change
+    await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 7\n");
 
     const r = await pkglab(["pub", "-t", "feat1"], { cwd: producerDir });
     assert(r.code === 0, "pkglab pub -t feat1 succeeds");
@@ -312,6 +318,10 @@ try {
   // 12. Single-package pub includes dependencies
   heading("12. pub single package includes deps");
   {
+    // Touch files so fingerprinting detects changes
+    await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 12\n");
+    await Bun.write(join(producerDir, "packages/pkg-b/index.js"), "// updated for test 12\n");
+
     const r = await pkglab(["pub", "@test/pkg-b"], { cwd: producerDir });
     assert(r.code === 0, "pkglab pub @test/pkg-b succeeds");
     // pkg-b depends on pkg-a, so both should be published
@@ -325,6 +335,10 @@ try {
   {
     // pkg-a has no deps, but pkg-b depends on it, so publishing pkg-a
     // should cascade up and also publish pkg-b
+    // Touch files so fingerprinting detects changes
+    await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 13\n");
+    await Bun.write(join(producerDir, "packages/pkg-b/index.js"), "// updated for test 13\n");
+
     const r = await pkglab(["pub", "@test/pkg-a"], { cwd: producerDir });
     assert(r.code === 0, "pkglab pub @test/pkg-a succeeds");
     assert(r.stdout.includes("@test/pkg-a"), "@test/pkg-a included in publish");

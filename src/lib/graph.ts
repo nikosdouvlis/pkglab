@@ -78,6 +78,39 @@ export function computeCascade(
     }
   }
 
+  // Close under deps: every publishable package in the set must have its workspace deps in the set.
+  // Skip private packages: they'll be filtered out later and shouldn't drag in their sibling deps.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const name of [...closure]) {
+      const pkg = graph.getNodeData(name);
+      if (pkg.packageJson.private) continue;
+      try {
+        const deps = graph.dependenciesOf(name);
+        for (const dep of deps) {
+          if (!closure.has(dep)) {
+            closure.add(dep);
+            changed = true;
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // Populate dependencies record for any packages added by the close-under-deps pass
+  for (const name of closure) {
+    if (!dependencies[name]) {
+      try {
+        dependencies[name] = graph.directDependenciesOf(name).filter(
+          (dep) => dep !== name
+        );
+      } catch {
+        dependencies[name] = [];
+      }
+    }
+  }
+
   // Deterministic toposort with lexical tie-breaking
   const ordered = deterministicToposort(graph, closure);
   if (ordered.length !== closure.size) {

@@ -17,6 +17,7 @@ Also available as `pkgl` for short (so efficient ✨).
 - [Multi-worktree support](#multi-worktree-support)
 - [How versioning works](#how-versioning-works)
 - [Why not ...](#why-not-)
+- [Design decisions](#design-decisions)
 - [Configuration](#configuration)
 - [Safety](#safety)
 - [Acknowledgments](#acknowledgments)
@@ -26,6 +27,7 @@ Also available as `pkgl` for short (so efficient ✨).
 - Real `npm publish` to a local Verdaccio registry, so you test the same install your users get
 - Automatic consumer repo updates after every publish
 - Dependency cascade awareness (change a shared util, all dependent packages get republished)
+- Content-aware publishing: unchanged packages are skipped automatically, only packages with real changes (or whose deps changed) get a new version
 - AI-Agent enabled: multi-worktree tags are supported. Publish from multiple git worktrees in parallel without version conflicts, each worktree gets its own version channel
 - Git skip-worktree protection on `.npmrc` so localhost registry URLs don't leak into commits
 - Pre-commit safety checks (`pkglab check`) to catch local artifacts before they reach your repo
@@ -99,7 +101,7 @@ On top of that, **`pkglab`** handles automatic consumer updates, dependency casc
 
 - `pkglab up` -start the local registry. Deactivates repos from the previous session, then offers a picker to reactivate the ones you need.
 - `pkglab down` -stop the registry.
-- `pkglab pub [name]` -publish packages to the local registry. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch).
+- `pkglab pub [name]` -publish packages to the local registry. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade, including sibling workspace deps of dependents. Fingerprints each package and skips unchanged ones: only packages with content changes or whose deps changed get a new version. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade and fingerprinting), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch).
 - `pkglab add [name[@tag]]` -install a pkglab package in the current repo. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. Append `@tag` to pin to a tag (e.g. `pkglab add @clerk/pkg@feat1`). No args for an interactive picker.
 - `pkglab rm <name>` -remove a pkglab package. Restores the original version from before `pkglab add`, cleans `.npmrc` if no packages remain, and removes skip-worktree. Run your package manager's install afterward to sync the lock file.
 - `pkglab status` -show whether the registry is running and on which port.
@@ -162,6 +164,18 @@ When using tags, each tag gets its own version channel. Publishing with `--tag f
 `workspace:^` - only works within a single monorepo. Doesn't help when the consumer is a separate repository. Within the workspace, packages resolve to local copies during install, so version resolution bugs only appear once you actually publish. On top of that, during snapshot or canary releases, `workspace:^` resolves to caret ranges that can match the wrong pre-release versions: `^3.0.0-canary.v20251211` satisfies `3.0.0-snapshot.v20251204` because semver sorts `snapshot` after `canary`.
 
 Standalone Verdaccio - gives you the registry, but you still have to manage the daemon lifecycle, generate versions, manually install in every consumer, track which repos are linked, prune old versions, and protect against committing localhost URLs. **`pkglab`** automates all of that.
+
+## Design decisions
+
+**The duplicate-instance problem.** In a monorepo like Clerk's, `@clerk/nextjs` depends on both `@clerk/react` and `@clerk/backend`, which both depend on `@clerk/shared`. If you publish `@clerk/react` and cascade to `nextjs`, but `backend` isn't in the publish set, the consumer ends up with two versions of `@clerk/shared`: a new one (from the react cascade) and an old one (from the previous backend publish). Two versions of the same package means two module instances in Node.js, even if the code is identical. Singleton state isn't shared, `instanceof` checks fail across the boundary, and React contexts created by one version are invisible to the other.
+
+**Close under deps.** The cascade now ensures every published package has all its workspace dependencies also in the publish set. If `nextjs` is being published and it depends on `backend`, `backend` gets pulled in. This eliminates floating `workspace:` references that could resolve to stale versions. Any workspace shorthand dep not covered by the cascade is treated as a bug and throws an error at publish time.
+
+**Why not publish the full connected component?** The obvious fix is to publish every package connected through the dependency graph. But in a monorepo where a shared utility connects everything, publishing any one package would publish the entire repo. For Clerk, that's ~15 packages when you only changed one.
+
+**Content-aware publishing.** Instead of giving every package a new version, pkglab fingerprints each package (using `npm pack --dry-run --json` to get the exact file list, then SHA-256 hashing the contents). Packages are classified in topological order: "changed" if the content hash differs from the previous publish, "propagated" if the content is the same but a dependency got a new version, or "unchanged" if nothing is different. Unchanged packages keep their existing version and are skipped entirely. This means publishing `@clerk/react` when `@clerk/shared` hasn't changed only publishes react and its direct dependents, not shared, not backend, not the entire monorepo. Consumers get one version of shared because it was never given a new one.
+
+**Batched consumer installs.** When auto-updating consumer repos, pkglab batches all packages into a single install command per repo (`pnpm add a@v1 b@v2 c@v3`) instead of running one command per package. If the install fails, package.json changes are rolled back so the repo stays consistent with its node_modules.
 
 ## Configuration
 

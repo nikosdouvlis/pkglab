@@ -24,5 +24,10 @@ export default defineCommand({
     } else {
       log.info("Nothing to prune");
     }
+
+    if (args.all) {
+      const { clearFingerprintState } = await import("../lib/fingerprint-state");
+      await clearFingerprintState();
+    }
   },
 });
