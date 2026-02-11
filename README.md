@@ -99,7 +99,7 @@ On top of that, **`pkglab`** handles automatic consumer updates, dependency casc
 
 - `pkglab up` -start the local registry. Deactivates repos from the previous session, then offers a picker to reactivate the ones you need.
 - `pkglab down` -stop the registry.
-- `pkglab pub [name]` -publish packages to the local registry. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--fast` (skip cascade), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch).
+- `pkglab pub [name]` -publish packages to the local registry. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch).
 - `pkglab add [name[@tag]]` -install a pkglab package in the current repo. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. Append `@tag` to pin to a tag (e.g. `pkglab add @clerk/pkg@feat1`). No args for an interactive picker.
 - `pkglab rm <name>` -remove a pkglab package. Restores the original version from before `pkglab add`, cleans `.npmrc` if no packages remain, and removes skip-worktree. Run your package manager's install afterward to sync the lock file.
 - `pkglab status` -show whether the registry is running and on which port.
@@ -111,7 +111,8 @@ On top of that, **`pkglab`** handles automatic consumer updates, dependency casc
 - `pkglab repos on/off [name]` -activate or deactivate a consumer repo. Interactive picker if no name given.
 - `pkglab repos reset [name]` -clear all state for a repo. `--all` to reset every repo.
 - `pkglab repos rename <old> <new>` -rename a repo's display name.
-- `pkglab pkgs ls` -list published packages in the local registry, grouped by tag with the latest version per tag.
+- `pkglab pkg ls` -list published packages in the local registry, grouped by tag with the latest version per tag.
+- `pkglab reset --hard` -wipe all pkglab data and Verdaccio storage. Stops the daemon if running.
 
 Wire `check` into a git hook:
 

@@ -13,12 +13,13 @@ Top-level:
 - `pkglab down` — stop the registry
 - `pkglab status` — show registry status
 - `pkglab logs` — show registry logs
-- `pkglab pub [name]` — publish workspace packages to local registry, auto-updates active consumer repos. Flags: `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch
+- `pkglab pub [name]` — publish workspace packages to local registry, auto-updates active consumer repos. Flags: `--single` skip cascade, `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch
 - `pkglab add [name[@tag]]` — add a pkglab package to the current repo. No args for interactive picker
 - `pkglab rm <name>` — remove a pkglab package, restore original version
 - `pkglab doctor` — diagnose issues
 - `pkglab prune` — clean up old versions from storage
 - `pkglab check` — check package status
+- `pkglab reset --hard` — wipe all pkglab data and Verdaccio storage
 
 Subcommands:
 - `pkglab repos ls` — list consumer repos
@@ -26,7 +27,7 @@ Subcommands:
 - `pkglab repos off` — deactivate a repo
 - `pkglab repos reset` — reset repo state
 - `pkglab repos rename` — rename a repo
-- `pkglab pkgs ls` — list published packages
+- `pkglab pkg ls` — list published packages
 
 ## Workflow
 
@@ -46,7 +47,7 @@ For multi-worktree workflows, use tags to isolate version channels:
 
 - `src/index.ts` — entry point, registers all commands via lazy imports
 - `src/commands/` — one file per command, each exports `defineCommand()` as default
-- `src/commands/repos/`, `src/commands/pkgs/` — subcommand groups with their own index.ts
+- `src/commands/repos/`, `src/commands/pkg/` — subcommand groups with their own index.ts
 - `src/lib/` — shared utilities (config, daemon, publisher, registry, etc.)
 - `src/types.ts` — all shared interfaces
 
@@ -85,6 +86,8 @@ extractTimestamp reads after the last dot, extractTag reads between `pkglab-` an
 ## Testing
 
 IMPORTANT: After making changes to commands or core lib code, always run `bun run test:e2e` and verify all tests pass before committing.
+
+IMPORTANT: After changing commands, flags, or CLI behavior, always check README.md and CLAUDE.md are up to date.
 
 ## /cmt Skill Config
 

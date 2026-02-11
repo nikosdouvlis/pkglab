@@ -16,7 +16,7 @@ export default defineCommand({
   args: {
     name: { type: "positional", description: "Package name", required: false },
     "dry-run": { type: "boolean", description: "Show what would be published", default: false },
-    fast: { type: "boolean", description: "Skip dep cascade", default: false },
+    single: { type: "boolean", description: "Skip dep cascade", default: false },
     verbose: { type: "boolean", description: "Show detailed output", default: false, alias: "v" },
     tag: { type: "string", description: "Publish with a tag", alias: "t" },
     worktree: { type: "boolean", description: "Auto-detect tag from git branch", default: false, alias: "w" },
@@ -90,7 +90,7 @@ export default defineCommand({
     }
 
     let publishSet: typeof workspace.packages;
-    if (args.fast) {
+    if (args.single) {
       publishSet = targets
         .map((name) => findPackage(workspace.packages, name))
         .filter(Boolean) as typeof workspace.packages;
