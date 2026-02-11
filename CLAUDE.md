@@ -80,6 +80,8 @@ Before publishing, each package is fingerprinted using `npm pack --dry-run --jso
 
 Fingerprint state is stored per workspace, per package, per tag in `~/.pkglab/fingerprints.json`. Treated as a cache: missing/corrupt state triggers a full republish. State is saved after consumer updates succeed.
 
+When active consumer repos exist, the cascade filters dependents: only dependents that some consumer has installed (via `pkglab add`) are included. This avoids publishing packages nobody is using. If no active repos exist, all dependents are included. Trade-off: `pkglab add` of a previously-skipped package gives a stale version until the next `pkglab pub`.
+
 `--single` bypasses cascade and fingerprinting entirely.
 
 ## Pub command output

@@ -1,7 +1,7 @@
 # Publish Cascade Consistency
 
 Date: 2026-02-11
-Status: Phase 1 and Phase 2 implemented
+Status: Phase 1, Phase 2, and Phase 3 implemented
 
 ## Problem
 
@@ -91,9 +91,15 @@ Consumer result: `nextjs@V2 -> react@V2 + shared@V1 + backend@V1 -> shared@V1`. 
 - Process in topological order (each topo layer can be parallel)
 - Per-package versions in manifests (changed packages reference the new version for changed deps, existing version for unchanged deps)
 
-## Future: Consumer-Aware Filtering
+## Phase 3: Consumer-Aware Filtering (Implemented)
 
-Optional optimization: skip dependents that no active consumer repo has installed (via `pkglab add`). The cascade would filter dependents against active repo state. Trade-off: `pkglab add` of a previously-skipped package gives a stale version until the next `pkglab pub`.
+When active consumer repos exist, the cascade skips dependents that no consumer has installed (via `pkglab add`). This avoids publishing packages nobody is currently using.
+
+How it works: `computeCascade` accepts an optional `consumedPackages` set (all package names across active repos). When provided, dependents are filtered: only those in the consumed set (or already in the closure as targets/deps) are included. Close-under-deps still runs after filtering, so deps of consumed dependents are pulled in correctly.
+
+If no active repos exist, no filtering happens (all dependents are included as before).
+
+Trade-off: `pkglab add` of a previously-skipped package gives a stale version until the next `pkglab pub`.
 
 ## Design Discussion Notes
 

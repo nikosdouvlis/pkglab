@@ -66,6 +66,7 @@ console.log(`  Test dir: ${testDir}`);
 // Create directory structure
 await mkdir(join(producerDir, "packages/pkg-a"), { recursive: true });
 await mkdir(join(producerDir, "packages/pkg-b"), { recursive: true });
+await mkdir(join(producerDir, "packages/pkg-c"), { recursive: true });
 await mkdir(consumer1Dir, { recursive: true });
 await mkdir(consumer2Dir, { recursive: true });
 
@@ -85,6 +86,13 @@ await writeJson(join(producerDir, "packages/pkg-a/package.json"), {
 // Producer: pkg-b (depends on pkg-a)
 await writeJson(join(producerDir, "packages/pkg-b/package.json"), {
   name: "@test/pkg-b",
+  version: "1.0.0",
+  dependencies: { "@test/pkg-a": "workspace:*" },
+});
+
+// Producer: pkg-c (depends on pkg-a, used to test consumer-aware filtering)
+await writeJson(join(producerDir, "packages/pkg-c/package.json"), {
+  name: "@test/pkg-c",
   version: "1.0.0",
   dependencies: { "@test/pkg-a": "workspace:*" },
 });
@@ -333,17 +341,19 @@ try {
   // 13. Single-package pub includes dependents
   heading("13. pub single package includes dependents");
   {
-    // pkg-a has no deps, but pkg-b depends on it, so publishing pkg-a
-    // should cascade up and also publish pkg-b
+    // pkg-a has no deps, but pkg-b and pkg-c depend on it, so publishing pkg-a
+    // should cascade up and also publish both dependents (no active repos = no filtering)
     // Touch files so fingerprinting detects changes
     await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 13\n");
     await Bun.write(join(producerDir, "packages/pkg-b/index.js"), "// updated for test 13\n");
+    await Bun.write(join(producerDir, "packages/pkg-c/index.js"), "// updated for test 13\n");
 
     const r = await pkglab(["pub", "@test/pkg-a"], { cwd: producerDir });
     assert(r.code === 0, "pkglab pub @test/pkg-a succeeds");
     assert(r.stdout.includes("@test/pkg-a"), "@test/pkg-a included in publish");
     assert(r.stdout.includes("@test/pkg-b"), "dependent @test/pkg-b included in publish");
-    assert(r.stdout.includes("2 packages"), "publishes 2 packages total");
+    assert(r.stdout.includes("@test/pkg-c"), "dependent @test/pkg-c included in publish");
+    assert(r.stdout.includes("3 packages"), "publishes 3 packages total");
   }
 
   // 14. Test error: add with non-existent tag
@@ -358,6 +368,35 @@ try {
   {
     const r = await pkglab(["pub", "-t", "foo", "-w"], { cwd: producerDir });
     assert(r.code !== 0, "pub with both --tag and --worktree fails");
+  }
+
+  // 16. Consumer-aware cascade filtering
+  heading("16. Consumer-aware filtering: skip unconsumed dependents");
+  {
+    // Publish all so everything has fingerprint state
+    await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 16 setup\n");
+    await Bun.write(join(producerDir, "packages/pkg-b/index.js"), "// updated for test 16 setup\n");
+    await Bun.write(join(producerDir, "packages/pkg-c/index.js"), "// updated for test 16 setup\n");
+    const setup = await pkglab(["pub"], { cwd: producerDir });
+    assert(setup.code === 0, "full pub for test 16 setup");
+
+    // Add only pkg-b to consumer-1 (consumer has pkg-b but NOT pkg-c)
+    const addR = await pkglab(["add", "@test/pkg-b"], { cwd: consumer1Dir });
+    assert(addR.code === 0, "add @test/pkg-b to consumer-1");
+
+    // Touch only pkg-a to force a change
+    await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 16\n");
+
+    // Publish just pkg-a: should cascade to pkg-b (consumed) but skip pkg-c (not consumed)
+    const r = await pkglab(["pub", "@test/pkg-a"], { cwd: producerDir });
+    assert(r.code === 0, "pub @test/pkg-a succeeds");
+    assert(r.stdout.includes("@test/pkg-a"), "pkg-a published");
+    assert(r.stdout.includes("@test/pkg-b"), "pkg-b published (consumed dependent)");
+    assert(r.stdout.includes("2 packages"), "only 2 packages published (pkg-c filtered)");
+    assert(r.stdout.includes("Skipped"), "mentions skipped dependents");
+
+    // Clean up: remove pkg-b from consumer
+    await pkglab(["rm", "@test/pkg-b"], { cwd: consumer1Dir });
   }
 
   heading("Results");

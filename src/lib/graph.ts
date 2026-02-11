@@ -34,15 +34,20 @@ export interface CascadeResult {
   dependencies: Record<string, string[]>;
   // Per-target: transitive dependents (packages that depend on the target)
   dependents: Record<string, string[]>;
+  // Dependents removed by consumer-aware filtering (empty when no filter applied)
+  skippedDependents: string[];
 }
 
 export function computeCascade(
   graph: DepGraph<WorkspacePackage>,
-  changedPackages: string[]
+  changedPackages: string[],
+  consumedPackages?: Set<string>,
 ): CascadeResult {
   const dependencies: Record<string, string[]> = {};
   const dependents: Record<string, string[]> = {};
   const closure = new Set<string>();
+  // Track all possible dependents so we can report which ones were filtered
+  const allPossibleDependents = consumedPackages ? new Set<string>() : null;
 
   for (const name of changedPackages) {
     closure.add(name);
@@ -64,9 +69,25 @@ export function computeCascade(
 
     try {
       const transitiveDependents = graph.dependantsOf(name);
-      dependents[name] = transitiveDependents;
-      for (const dep of transitiveDependents) {
-        closure.add(dep);
+      if (allPossibleDependents) {
+        for (const d of transitiveDependents) allPossibleDependents.add(d);
+      }
+
+      if (consumedPackages) {
+        // Keep dependents that are consumed by active repos OR already in the
+        // closure (targets and their deps that happen to also be dependents)
+        const filtered = transitiveDependents.filter(
+          (d) => closure.has(d) || consumedPackages.has(d),
+        );
+        dependents[name] = filtered;
+        for (const dep of filtered) {
+          closure.add(dep);
+        }
+      } else {
+        dependents[name] = transitiveDependents;
+        for (const dep of transitiveDependents) {
+          closure.add(dep);
+        }
       }
     } catch (err: any) {
       if (err.cyclePath) {
@@ -111,6 +132,15 @@ export function computeCascade(
     }
   }
 
+  // Compute skipped dependents: those that would have been included without the filter
+  // but ended up outside the closure (even after close-under-deps may have re-added some)
+  const skippedDependents = allPossibleDependents
+    ? [...allPossibleDependents]
+        .filter((d) => !closure.has(d))
+        .filter((d) => !graph.getNodeData(d).packageJson.private)
+        .sort()
+    : [];
+
   // Deterministic toposort with lexical tie-breaking
   const ordered = deterministicToposort(graph, closure);
   if (ordered.length !== closure.size) {
@@ -122,6 +152,7 @@ export function computeCascade(
     packages: ordered.map((name) => graph.getNodeData(name)),
     dependencies,
     dependents,
+    skippedDependents,
   };
 }
 

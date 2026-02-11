@@ -175,6 +175,8 @@ Standalone Verdaccio - gives you the registry, but you still have to manage the 
 
 **Content-aware publishing.** Instead of giving every package a new version, pkglab fingerprints each package (using `npm pack --dry-run --json` to get the exact file list, then SHA-256 hashing the contents). Packages are classified in topological order: "changed" if the content hash differs from the previous publish, "propagated" if the content is the same but a dependency got a new version, or "unchanged" if nothing is different. Unchanged packages keep their existing version and are skipped entirely. This means publishing `@clerk/react` when `@clerk/shared` hasn't changed only publishes react and its direct dependents, not shared, not backend, not the entire monorepo. Consumers get one version of shared because it was never given a new one.
 
+**Consumer-aware filtering.** When active consumer repos exist, the cascade skips dependents that no consumer has installed (via `pkglab add`). If you have consumers using `@clerk/react` and `@clerk/nextjs` but not `@clerk/vue`, publishing a shared dependency won't cascade to vue. This keeps publishes focused on what's actually being tested. If no consumers are registered, all dependents are included as before. Trade-off: adding a previously-skipped package via `pkglab add` gives the last-published version until the next `pkglab pub`.
+
 **Batched consumer installs.** When auto-updating consumer repos, pkglab batches all packages into a single install command per repo (`pnpm add a@v1 b@v2 c@v3`) instead of running one command per package. If the install fails, package.json changes are rolled back so the repo stays consistent with its node_modules.
 
 ## Configuration

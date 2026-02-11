@@ -7,6 +7,7 @@ import { buildPublishPlan, executePublish } from "../lib/publisher";
 import { setDistTag } from "../lib/registry";
 import { generateVersion, sanitizeTag } from "../lib/version";
 import { acquirePublishLock } from "../lib/lock";
+import { getActiveRepos } from "../lib/repo-state";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import { createMultiSpinner } from "../lib/spinner";
@@ -154,7 +155,23 @@ export default defineCommand({
       return;
     }
 
-    const cascade = computeCascade(graph, targets);
+    // Gather consumed packages from active repos for cascade filtering.
+    // When consumers exist, skip dependents that no consumer has installed.
+    let consumedPackages: Set<string> | undefined;
+    const activeRepos = await getActiveRepos();
+    if (activeRepos.length > 0) {
+      consumedPackages = new Set<string>();
+      for (const { state } of activeRepos) {
+        for (const pkgName of Object.keys(state.packages)) {
+          consumedPackages.add(pkgName);
+        }
+      }
+      if (consumedPackages.size === 0) {
+        consumedPackages = undefined;
+      }
+    }
+
+    const cascade = computeCascade(graph, targets, consumedPackages);
     let cascadePackages = cascade.packages;
 
     // Skip private packages pulled in by cascade (they're dependents, not deps)
@@ -183,6 +200,15 @@ export default defineCommand({
             .filter((dep) => cascade.packages.some((p) => p.name === dep));
           log.line(`  - ${d} -> ${dDeps.join(", ")}`);
         }
+      }
+    }
+
+    // Log skipped dependents from consumer-aware filtering
+    if (cascade.skippedDependents.length > 0) {
+      if (verbose) {
+        log.dim(`Skipped ${cascade.skippedDependents.length} unconsumed dependents: ${cascade.skippedDependents.join(", ")}`);
+      } else {
+        log.dim(`Skipped ${cascade.skippedDependents.length} unconsumed dependents`);
       }
     }
 
