@@ -374,6 +374,7 @@ async function publishPackages(
         log.line(`  ${entry.name}@${entry.version}`);
       }
     } else {
+      log.info("Publishing...");
       const spinner = createMultiSpinner(
         plan.packages.map((e) => `${e.name}@${e.version}`),
       );
