@@ -1,84 +1,7 @@
-import { join } from "node:path";
-import { readdir } from "node:fs/promises";
-import { paths } from "./paths";
-import { ispkglabVersion } from "./version";
 import type { pkglabConfig } from "../types";
 
 function registryUrl(config: pkglabConfig): string {
   return `http://127.0.0.1:${config.port}`;
-}
-
-function storagePath(pkgName: string): string {
-  return join(paths.verdaccioStorage, pkgName);
-}
-
-function unscopedName(pkgName: string): string {
-  const slash = pkgName.lastIndexOf("/");
-  return slash === -1 ? pkgName : pkgName.slice(slash + 1);
-}
-
-export async function getPkglabVersions(
-  pkgName: string,
-): Promise<string[]> {
-  const dir = storagePath(pkgName);
-  const prefix = unscopedName(pkgName) + "-";
-  try {
-    const files = await readdir(dir);
-    const versions: string[] = [];
-    for (const f of files) {
-      if (!f.endsWith(".tgz") || !f.startsWith(prefix)) continue;
-      const version = f.slice(prefix.length, -4);
-      if (ispkglabVersion(version)) versions.push(version);
-    }
-    return versions;
-  } catch {
-    return [];
-  }
-}
-
-export async function listPkglabPackages(): Promise<
-  Array<{ name: string; versions: string[] }>
-> {
-  const results: Array<{ name: string; versions: string[] }> = [];
-  try {
-    const entries = await readdir(paths.verdaccioStorage, {
-      withFileTypes: true,
-    });
-    const dirs: { name: string; path: string }[] = [];
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name.startsWith("@")) {
-        // Scoped package: read subdirectories
-        const scopeDir = join(paths.verdaccioStorage, entry.name);
-        const scopeEntries = await readdir(scopeDir, { withFileTypes: true });
-        for (const sub of scopeEntries) {
-          if (sub.isDirectory()) {
-            dirs.push({
-              name: `${entry.name}/${sub.name}`,
-              path: join(scopeDir, sub.name),
-            });
-          }
-        }
-      } else {
-        dirs.push({
-          name: entry.name,
-          path: join(paths.verdaccioStorage, entry.name),
-        });
-      }
-    }
-
-    const resolved = await Promise.all(
-      dirs.map(async (d) => ({
-        name: d.name,
-        versions: await getPkglabVersions(d.name),
-      })),
-    );
-    for (const r of resolved) {
-      if (r.versions.length > 0) results.push(r);
-    }
-  } catch {}
-  return results;
 }
 
 export async function getPackageVersions(
@@ -132,6 +55,20 @@ export async function listAllPackages(
     return results;
   } catch {
     return [];
+  }
+}
+
+export async function getDistTags(
+  config: pkglabConfig,
+  name: string,
+): Promise<Record<string, string>> {
+  try {
+    const url = `${registryUrl(config)}/-/package/${encodeURIComponent(name)}/dist-tags`;
+    const resp = await fetch(url);
+    if (!resp.ok) return {};
+    return (await resp.json()) as Record<string, string>;
+  } catch {
+    return {};
   }
 }
 

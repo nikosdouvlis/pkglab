@@ -205,11 +205,11 @@ try {
     assert(c2After.includes("0.0.0-pkglab-feat1."), "consumer-2 still has feat1 tag");
   }
 
-  // 8. pkgs ls shows both tagged and untagged
-  heading("8. pkglab pkgs ls");
+  // 8. pkg ls shows both tagged and untagged
+  heading("8. pkglab pkg ls");
   {
-    const r = await pkglab(["pkgs", "ls"]);
-    assert(r.code === 0, "pkglab pkgs ls succeeds");
+    const r = await pkglab(["pkg", "ls"]);
+    assert(r.code === 0, "pkglab pkg ls succeeds");
 
     const out = r.stdout;
     assert(out.includes("@test/pkg-a"), "output contains @test/pkg-a");
@@ -305,19 +305,42 @@ try {
     assert(r.code === 0, "pkglab pub -w succeeds");
 
     // Verify the tag was sanitized from feat/test-branch to feat-test-branch
-    const lsR = await pkglab(["pkgs", "ls"]);
+    const lsR = await pkglab(["pkg", "ls"]);
     assert(lsR.stdout.includes("feat-test-branch"), "worktree tag sanitized correctly");
   }
 
-  // 12. Test error: add with non-existent tag
-  heading("12. Error: add with non-existent tag");
+  // 12. Single-package pub includes dependencies
+  heading("12. pub single package includes deps");
+  {
+    const r = await pkglab(["pub", "@test/pkg-b"], { cwd: producerDir });
+    assert(r.code === 0, "pkglab pub @test/pkg-b succeeds");
+    // pkg-b depends on pkg-a, so both should be published
+    assert(r.stdout.includes("@test/pkg-a"), "dependency @test/pkg-a included in publish");
+    assert(r.stdout.includes("@test/pkg-b"), "@test/pkg-b included in publish");
+    assert(r.stdout.includes("2 packages"), "publishes 2 packages total");
+  }
+
+  // 13. Single-package pub includes dependents
+  heading("13. pub single package includes dependents");
+  {
+    // pkg-a has no deps, but pkg-b depends on it, so publishing pkg-a
+    // should cascade up and also publish pkg-b
+    const r = await pkglab(["pub", "@test/pkg-a"], { cwd: producerDir });
+    assert(r.code === 0, "pkglab pub @test/pkg-a succeeds");
+    assert(r.stdout.includes("@test/pkg-a"), "@test/pkg-a included in publish");
+    assert(r.stdout.includes("@test/pkg-b"), "dependent @test/pkg-b included in publish");
+    assert(r.stdout.includes("2 packages"), "publishes 2 packages total");
+  }
+
+  // 14. Test error: add with non-existent tag
+  heading("14. Error: add with non-existent tag");
   {
     const r = await pkglab(["add", "@test/pkg-a@nonexistent"], { cwd: consumer1Dir });
     assert(r.code !== 0, "pkglab add with bad tag fails");
   }
 
-  // 13. Test error: --tag and --worktree together
-  heading("13. Error: --tag and --worktree together");
+  // 15. Test error: --tag and --worktree together
+  heading("15. Error: --tag and --worktree together");
   {
     const r = await pkglab(["pub", "-t", "foo", "-w"], { cwd: producerDir });
     assert(r.code !== 0, "pub with both --tag and --worktree fails");

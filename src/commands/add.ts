@@ -15,15 +15,10 @@ import {
   saveRepoState,
 } from "../lib/repo-state";
 import {
-  getPkglabVersions,
-  listPkglabPackages,
+  getDistTags,
+  listPackageNames,
 } from "../lib/registry";
-import {
-  ispkglabVersion,
-  extractTimestamp,
-  extractTag,
-  sanitizeTag,
-} from "../lib/version";
+import { sanitizeTag } from "../lib/version";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import { DaemonNotRunningError } from "../lib/errors";
@@ -47,63 +42,38 @@ interface ResolvedPackage {
   tag: string | undefined;
 }
 
-function resolveVersion(
+function resolveFromDistTags(
   pkgName: string,
-  allVersions: string[],
+  distTags: Record<string, string>,
   requestedTag?: string,
 ): ResolvedPackage {
-  const allPkglabVersions = allVersions.filter(ispkglabVersion);
+  const tag = requestedTag ? sanitizeTag(requestedTag) : undefined;
+  const distTagKey = tag ?? "pkglab";
+  const version = distTags[distTagKey];
 
-  if (allPkglabVersions.length === 0) {
-    log.error(
-      `No pkglab versions for ${pkgName}. Publish first: pkglab pub ${pkgName}`,
-    );
-    process.exit(1);
-  }
-
-  const sanitizedTag = requestedTag ? sanitizeTag(requestedTag) : undefined;
-
-  // Filter by tag: match sanitized tag, or null for untagged
-  const filtered = allPkglabVersions
-    .filter((v) => {
-      const vTag = extractTag(v);
-      if (sanitizedTag) return vTag === sanitizedTag;
-      return vTag === null;
-    })
-    .sort((a, b) => extractTimestamp(b) - extractTimestamp(a));
-
-  if (filtered.length === 0) {
-    const availableTags = [
-      ...new Set(allPkglabVersions.map(extractTag).filter(Boolean)),
-    ] as string[];
-    const hasUntagged = allPkglabVersions.some((v) => extractTag(v) === null);
-
-    if (sanitizedTag) {
-      const tagNote =
-        sanitizedTag !== requestedTag
-          ? ` (sanitized from '${requestedTag}')`
-          : "";
-      const tagList = availableTags.length
-        ? availableTags.join(", ")
-        : "(none)";
+  if (!version) {
+    const available = Object.keys(distTags).filter((t) => t !== "latest");
+    if (available.length === 0) {
+      log.error(
+        `No pkglab versions for ${pkgName}. Publish first: pkglab pub ${pkgName}`,
+      );
+    } else if (tag) {
+      const tagList = available.filter((t) => t !== "pkglab").join(", ");
+      const hasUntagged = "pkglab" in distTags;
       const untaggedNote = hasUntagged ? " Also has untagged versions." : "";
       log.error(
-        `No versions found for '${pkgName}' with tag '${sanitizedTag}'${tagNote}. Available tags: ${tagList}.${untaggedNote}`,
+        `No version for '${pkgName}' with tag '${tag}'. Available: ${tagList || "(none)"}.${untaggedNote}`,
       );
     } else {
-      const tagList = availableTags.join(", ");
+      const tagList = available.filter((t) => t !== "pkglab").join(", ");
       log.error(
-        `No untagged versions for '${pkgName}'. Available tags: ${tagList}`,
+        `No untagged version for '${pkgName}'. Available tags: ${tagList}`,
       );
     }
     process.exit(1);
   }
 
-  return {
-    name: pkgName,
-    version: filtered[0],
-    tag: sanitizedTag,
-  };
+  return { name: pkgName, version, tag };
 }
 
 async function installPackage(
@@ -159,15 +129,15 @@ async function interactiveAdd(
   config: pkglabConfig,
   repoPath: string,
 ): Promise<void> {
-  const [packages, { filterableCheckbox }, { select }, { ExitPromptError }] =
+  const [packageNames, { filterableCheckbox }, { select }, { ExitPromptError }] =
     await Promise.all([
-      listPkglabPackages(),
+      listPackageNames(config),
       import("../lib/prompt"),
       import("@inquirer/prompts"),
       import("@inquirer/core"),
     ]);
 
-  if (packages.length === 0) {
+  if (packageNames.length === 0) {
     log.error("No pkglab packages found. Publish first: pkglab pub");
     process.exit(1);
   }
@@ -177,7 +147,7 @@ async function interactiveAdd(
     selectedNames = await filterableCheckbox({
       message: "Select packages to add:",
       pageSize: 15,
-      choices: packages.map((pkg) => ({ name: pkg.name, value: pkg.name })),
+      choices: packageNames.map((name) => ({ name, value: name })),
     });
   } catch (err) {
     if (err instanceof ExitPromptError) process.exit(0);
@@ -190,28 +160,33 @@ async function interactiveAdd(
   }
 
   for (const pkgName of selectedNames) {
-    const pkg = packages.find((p) => p.name === pkgName)!;
-    const tags = [...new Set(pkg.versions.map(extractTag))];
-    let selectedTag: string | null;
+    const distTags = await getDistTags(config, pkgName);
+    const tags = Object.keys(distTags).filter((t) => t !== "latest");
+    let selectedTag: string | undefined;
 
-    if (tags.length === 1) {
-      selectedTag = tags[0];
+    if (tags.length === 0) {
+      log.error(`No pkglab versions for ${pkgName}. Publish first.`);
+      continue;
+    } else if (tags.length === 1) {
+      // Single tag: use it directly (could be "pkglab" or a named tag)
+      selectedTag = tags[0] === "pkglab" ? undefined : tags[0];
     } else {
       try {
-        selectedTag = await select<string | null>({
+        const picked = await select<string>({
           message: `Tag for ${pkgName}:`,
           choices: tags.map((t) => ({
-            name: t ?? c.dim("(untagged)"),
+            name: t === "pkglab" ? c.dim("(untagged)") : t,
             value: t,
           })),
         });
+        selectedTag = picked === "pkglab" ? undefined : picked;
       } catch (err) {
         if (err instanceof ExitPromptError) process.exit(0);
         throw err;
       }
     }
 
-    const resolved = resolveVersion(pkgName, pkg.versions, selectedTag ?? undefined);
+    const resolved = resolveFromDistTags(pkgName, distTags, selectedTag);
     await installPackage(config, repoPath, resolved);
   }
 }
@@ -240,14 +215,14 @@ export default defineCommand({
     }
 
     const { name: pkgName, tag } = parsePackageArg(args.name as string);
-    const [status, repoPath, versions] = await Promise.all([
+    const [status, repoPath, distTags] = await Promise.all([
       getDaemonStatus(),
       canonicalRepoPath(process.cwd()),
-      getPkglabVersions(pkgName),
+      getDistTags(config, pkgName),
     ]);
     if (!status?.running) throw new DaemonNotRunningError();
 
-    const resolved = resolveVersion(pkgName, versions, tag);
+    const resolved = resolveFromDistTags(pkgName, distTags, tag);
     await installPackage(config, repoPath, resolved);
     await ensureNpmrcForActiveRepos(config.port);
   },

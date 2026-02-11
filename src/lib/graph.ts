@@ -52,6 +52,12 @@ export function computeCascade(
         (dep) => dep !== name
       );
       dependencies[name] = directDeps;
+      // Include transitive dependencies in the publish set so that
+      // workspace deps are published at the same pkglab version
+      const allDeps = graph.dependenciesOf(name);
+      for (const dep of allDeps) {
+        closure.add(dep);
+      }
     } catch {
       dependencies[name] = [];
     }
