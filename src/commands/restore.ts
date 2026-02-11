@@ -10,6 +10,8 @@ import {
   findRepoByPath,
   saveRepoState,
 } from "../lib/repo-state";
+import { detectPackageManager } from "../lib/pm-detect";
+import { run } from "../lib/proc";
 import { log } from "../lib/log";
 
 async function removeDependency(
@@ -67,6 +69,14 @@ export default defineCommand({
       await saveRepoState(repo.name, repo.state);
       await removeRegistryFromNpmrc(repoPath);
       await removeSkipWorktree(repoPath);
+
+      const pm = await detectPackageManager(repoPath);
+      log.dim(`  ${pm} install`);
+      const result = await run([pm, "install"], { cwd: repoPath });
+      if (result.exitCode !== 0) {
+        log.warn(`Install failed, run '${pm} install' manually`);
+      }
+
       log.success(`Restored ${names.length} packages, .npmrc cleaned up`);
       return;
     }
@@ -90,6 +100,13 @@ export default defineCommand({
       await removeRegistryFromNpmrc(repoPath);
       await removeSkipWorktree(repoPath);
       log.info("All pkglab packages removed, .npmrc restored");
+    }
+
+    const pm = await detectPackageManager(repoPath);
+    log.dim(`  ${pm} install`);
+    const result = await run([pm, "install"], { cwd: repoPath });
+    if (result.exitCode !== 0) {
+      log.warn(`Install failed, run '${pm} install' manually`);
     }
 
     log.success(`Restored ${pkgName}`);

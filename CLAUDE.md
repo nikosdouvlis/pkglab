@@ -13,9 +13,9 @@ Top-level:
 - `pkglab down` — stop the registry
 - `pkglab status` — show registry status
 - `pkglab logs` — show registry logs
-- `pkglab pub [name...]` — publish workspace packages to local registry, auto-updates active consumer repos. Accepts multiple names. Fingerprints packages and skips unchanged ones. Flags: `--single` skip cascade/fingerprinting, `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--dry-run`, `--verbose`/`-v`
+- `pkglab pub [name...]` — publish workspace packages to local registry, auto-updates active consumer repos. Accepts multiple names. Fingerprints packages and skips unchanged ones. Flags: `--single` skip cascade/fingerprinting, `--force`/`-f` ignore fingerprints (republish all), `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--dry-run`, `--verbose`/`-v`
 - `pkglab add [name[@tag]...]` — add pkglab packages to the current repo. Accepts multiple names. No args for interactive picker. Batch installs in one command.
-- `pkglab restore <name>` — restore a pkglab package to its original version. `--all` restores all packages in the repo.
+- `pkglab restore <name>` — restore a pkglab package to its original version, runs pm install to sync node_modules. `--all` restores all packages in the repo.
 - `pkglab doctor` — diagnose issues
 - `pkglab check` — check package status
 - `pkglab reset --hard` — wipe all pkglab data and Verdaccio storage
@@ -84,6 +84,7 @@ Fingerprint state is stored per workspace, per package, per tag in `~/.pkglab/fi
 When active consumer repos exist, the cascade filters dependents: only dependents that some consumer has installed (via `pkglab add`) are included. This avoids publishing packages nobody is using. If no active repos exist, all dependents are included. Trade-off: `pkglab add` of a previously-skipped package gives a stale version until the next `pkglab pub`.
 
 `--single` bypasses cascade and fingerprinting entirely.
+`--force`/`-f` ignores previous fingerprint state (republishes all packages) but still computes and saves new fingerprints.
 
 ## Pub command output
 

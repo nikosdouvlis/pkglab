@@ -17,7 +17,8 @@ import {
   getDistTags,
   listPackageNames,
 } from "../lib/registry";
-import { sanitizeTag } from "../lib/version";
+import { sanitizeTag, ispkglabVersion, extractTag } from "../lib/version";
+import { join } from "node:path";
 import { detectPackageManager, batchInstallCommand } from "../lib/pm-detect";
 import { run } from "../lib/proc";
 import { log } from "../lib/log";
@@ -91,6 +92,52 @@ async function batchInstallPackages(
         "pkglab has applied --skip-worktree to prevent accidental commits.\n" +
         "Run pkglab restore --all to restore your .npmrc.",
     );
+  }
+
+  // Detect stale pkglab deps in consumer's package.json that aren't in the current batch
+  const batchNames = new Set(packages.map((p) => p.name));
+  const pkgJson = await Bun.file(join(repoPath, "package.json")).json();
+  const staleDeps: { name: string; version: string }[] = [];
+
+  for (const field of ["dependencies", "devDependencies"] as const) {
+    const deps = pkgJson[field];
+    if (!deps) continue;
+    for (const [depName, depVersion] of Object.entries(deps)) {
+      if (
+        typeof depVersion === "string" &&
+        ispkglabVersion(depVersion) &&
+        !batchNames.has(depName)
+      ) {
+        staleDeps.push({ name: depName, version: depVersion });
+      }
+    }
+  }
+
+  if (staleDeps.length > 0) {
+    const unresolvable: string[] = [];
+
+    for (const dep of staleDeps) {
+      const distTags = await getDistTags(dep.name);
+      const tag = extractTag(dep.version);
+      const distTagKey = tag ?? "pkglab";
+      const latestVersion = distTags[distTagKey];
+
+      if (latestVersion) {
+        packages.push({ name: dep.name, version: latestVersion, tag: tag ?? undefined });
+        log.dim(`  Upgrading stale ${dep.name}@${dep.version} to ${latestVersion}`);
+      } else {
+        unresolvable.push(dep.name);
+      }
+    }
+
+    if (unresolvable.length > 0) {
+      log.error(
+        `These pkglab packages have stale versions in package.json but no matching version on the registry:\n` +
+          unresolvable.map((n) => `  ${n}`).join("\n") +
+          `\nRun pkglab restore for these packages first: pkglab restore ${unresolvable.join(" ")}`,
+      );
+      process.exit(1);
+    }
   }
 
   // Update all package.json versions before installing

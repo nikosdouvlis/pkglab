@@ -74,6 +74,7 @@ export default defineCommand({
     "dry-run": { type: "boolean", description: "Show what would be published", default: false },
     single: { type: "boolean", description: "Skip dep cascade", default: false },
     verbose: { type: "boolean", description: "Show detailed output", default: false, alias: "v" },
+    force: { type: "boolean", description: "Ignore fingerprints (republish all)", default: false, alias: "f" },
     tag: { type: "string", description: "Publish with a tag", alias: "t" },
     worktree: { type: "boolean", description: "Auto-detect tag from git branch", default: false, alias: "w" },
   },
@@ -235,8 +236,10 @@ export default defineCommand({
       cascadePackages.map((p) => ({ name: p.name, dir: p.dir })),
     );
 
-    // Load previous fingerprint state
-    const previousState = await loadFingerprintState(workspace.root, tag ?? null);
+    // Load previous fingerprint state (--force uses empty state to republish all)
+    const previousState = args.force
+      ? {}
+      : await loadFingerprintState(workspace.root, tag ?? null);
 
     // Determine change status in topological order
     const { reason, existingVersions } = detectChanges(

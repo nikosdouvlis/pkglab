@@ -189,11 +189,11 @@ export async function updateActiveRepos(
     const tasks: { repoIdx: number; spinnerIdx: number }[] = [];
 
     for (let r = 0; r < work.length; r++) {
-      const { name, pm, packages } = work[r];
+      const { name, packages } = work[r];
       spinnerLines.push({ text: `${name}:`, header: true });
       for (const entry of packages) {
         tasks.push({ repoIdx: r, spinnerIdx: spinnerLines.length });
-        spinnerLines.push(installCommand(pm, entry.name, entry.version).join(" "));
+        spinnerLines.push(entry.name);
       }
     }
 
@@ -237,31 +237,33 @@ export async function updateActiveRepos(
     }
   } else {
     log.info("\nUpdating active repos:");
-    for (const repo of work) {
-      // Update all package.json versions, storing previous for rollback
-      const prevVersions: { name: string; version: string }[] = [];
-      for (const entry of repo.packages) {
-        const { previousVersion } = await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
-        prevVersions.push({ name: entry.name, version: previousVersion });
-      }
-
-      // Run one batch install for all packages
-      const cmd = batchInstallCommand(repo.pm, repo.packages.map((e) => ({ name: e.name, version: e.version })));
-      log.dim(`  ${cmd.join(" ")}`);
-      const result = await run(cmd, { cwd: repo.state.path });
-      if (result.exitCode !== 0) {
-        for (const prev of prevVersions) {
-          await updatePackageJsonVersion(repo.state.path, prev.name, prev.version);
+    await Promise.all(
+      work.map(async (repo) => {
+        // Update all package.json versions, storing previous for rollback
+        const prevVersions: { name: string; version: string }[] = [];
+        for (const entry of repo.packages) {
+          const { previousVersion } = await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
+          prevVersions.push({ name: entry.name, version: previousVersion });
         }
-        const output = (result.stderr || result.stdout).trim();
-        throw new Error(`Install failed (${repo.pm}): ${output}`);
-      }
 
-      for (const entry of repo.packages) {
-        repo.state.packages[entry.name].current = entry.version;
-      }
-      await saveRepoState(repo.name, repo.state);
-      log.success(`  ${repo.name}: updated ${repo.packages.map((e) => e.name).join(", ")}`);
-    }
+        // Run one batch install for all packages
+        const cmd = batchInstallCommand(repo.pm, repo.packages.map((e) => ({ name: e.name, version: e.version })));
+        log.dim(`  ${cmd.join(" ")}`);
+        const result = await run(cmd, { cwd: repo.state.path });
+        if (result.exitCode !== 0) {
+          for (const prev of prevVersions) {
+            await updatePackageJsonVersion(repo.state.path, prev.name, prev.version);
+          }
+          const output = (result.stderr || result.stdout).trim();
+          throw new Error(`Install failed (${repo.pm}): ${output}`);
+        }
+
+        for (const entry of repo.packages) {
+          repo.state.packages[entry.name].current = entry.version;
+        }
+        await saveRepoState(repo.name, repo.state);
+        log.success(`  ${repo.name}: updated ${repo.packages.map((e) => e.name).join(", ")}`);
+      }),
+    );
   }
 }
