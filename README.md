@@ -15,6 +15,7 @@ Also available as `pkgl` for short (so efficient ✨).
 - [How it works](#how-it-works)
 - [Commands](#commands)
 - [Multi-worktree support](#multi-worktree-support)
+- [Catalog support](#catalog-support)
 - [How versioning works](#how-versioning-works)
 - [Why not ...](#why-not-)
 - [Design decisions](#design-decisions)
@@ -103,7 +104,7 @@ On top of that, **`pkglab`** handles automatic consumer updates, dependency casc
 - `pkglab up` -start the local registry. Deactivates repos from the previous session, then offers a picker to reactivate the ones you need.
 - `pkglab down` -stop the registry.
 - `pkglab pub [name...]` -publish packages to the local registry. Accepts multiple names. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade, including sibling workspace deps of dependents. Fingerprints each package and skips unchanged ones: only packages with content changes or whose deps changed get a new version. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade and fingerprinting), `--force`/`-f` (ignore fingerprints, republish all), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch).
-- `pkglab add [name[@tag]...]` -install pkglab packages in the current repo. Accepts multiple names, batch installs in one command. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. Append `@tag` to pin to a tag (e.g. `pkglab add @clerk/pkg@feat1`). No args for an interactive picker.
+- `pkglab add [name[@tag]...]` -install pkglab packages in the current repo. Accepts multiple names, batch installs in one command. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. Append `@tag` to pin to a tag (e.g. `pkglab add @clerk/pkg@feat1`). No args for an interactive picker. `--catalog` updates the workspace root catalog instead of individual package.json files (for Bun/pnpm monorepos using the `catalog:` protocol).
 - `pkglab restore <name>` -restore a pkglab package to its original version from before `pkglab add`. Runs the package manager install to sync node_modules, cleans `.npmrc` if no packages remain, and removes skip-worktree. `--all` restores every pkglab package in the repo.
 - `pkglab status` -show whether the registry is running and on which port.
 - `pkglab logs` -tail Verdaccio logs. `-f` for follow mode.
@@ -148,6 +149,34 @@ pkglab add
 Each tag gets its own version channel. Publishing untagged only auto-updates consumers that are also untagged, and publishing with `--tag feat-auth` only updates consumers pinned to `feat-auth`. Pruning also respects tags, keeping the N most recent versions per tag per package.
 
 Branch names are sanitized for use as tags: `feat/auth-rewrite` becomes `feat-auth-rewrite`. Tags are capped at 50 characters.
+
+## Catalog support
+
+If your consumer repo uses the `catalog:` protocol (Bun or pnpm workspaces), use `--catalog` so pkglab updates the catalog source instead of overwriting `catalog:` references in individual package.json files.
+
+```bash
+# Without --catalog: overwrites "catalog:" with a plain version (breaks catalog setup)
+# With --catalog: updates the version in the root package.json catalog field
+pkglab add --catalog @clerk/backend @clerk/shared
+
+# Restore puts the original catalog versions back
+pkglab restore --all
+```
+
+The workspace root package.json must have a `catalog` or `catalogs` field, and the package must already be listed in it:
+
+```json
+{
+  "catalog": {
+    "@clerk/backend": "^3.0.0",
+    "@clerk/shared": "^2.0.0"
+  }
+}
+```
+
+Named catalogs (`catalogs.react19`, etc.) are also supported. pkglab finds which catalog contains each package automatically.
+
+When `pkglab pub` auto-updates consumer repos, catalog-linked packages are updated in the catalog (not in individual package.json files), preserving the `catalog:` references.
 
 ## How versioning works
 

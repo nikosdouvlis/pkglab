@@ -27,6 +27,27 @@ export default defineCommand({
           }
         }
       }
+
+      // Check catalog fields for pkglab versions
+      if (pkgJson.catalog) {
+        for (const [name, version] of Object.entries(pkgJson.catalog)) {
+          if (typeof version === "string" && ispkglabVersion(version)) {
+            log.line(`  ${c.red("✗")} catalog.${name}: ${version}`);
+            issues++;
+          }
+        }
+      }
+      if (pkgJson.catalogs) {
+        for (const [catName, entries] of Object.entries(pkgJson.catalogs)) {
+          if (!entries || typeof entries !== "object") continue;
+          for (const [name, version] of Object.entries(entries as Record<string, string>)) {
+            if (typeof version === "string" && ispkglabVersion(version)) {
+              log.line(`  ${c.red("✗")} catalogs.${catName}.${name}: ${version}`);
+              issues++;
+            }
+          }
+        }
+      }
     }
 
     // Check .npmrc for pkglab markers

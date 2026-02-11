@@ -4,6 +4,8 @@ import {
   removeRegistryFromNpmrc,
   removeSkipWorktree,
   updatePackageJsonVersion,
+  findCatalogRoot,
+  updateCatalogVersion,
 } from "../lib/consumer";
 import {
   canonicalRepoPath,
@@ -32,7 +34,19 @@ async function restorePackage(
   repoPath: string,
   pkgName: string,
   original: string,
+  catalogName?: string,
 ): Promise<void> {
+  if (catalogName) {
+    const catalogRoot = await findCatalogRoot(repoPath);
+    if (catalogRoot && original) {
+      await updateCatalogVersion(catalogRoot, pkgName, original, catalogName);
+      log.info(`Restored ${pkgName} to ${original} (catalog)`);
+    } else if (!catalogRoot) {
+      log.warn(`Could not find catalog root for ${pkgName}, restoring in package.json`);
+      if (original) await updatePackageJsonVersion(repoPath, pkgName, original);
+    }
+    return;
+  }
   if (original) {
     await updatePackageJsonVersion(repoPath, pkgName, original);
     log.info(`Restored ${pkgName} to ${original}`);
@@ -63,7 +77,8 @@ export default defineCommand({
     if (args.all) {
       const names = Object.keys(repo.state.packages);
       for (const name of names) {
-        await restorePackage(repoPath, name, repo.state.packages[name].original);
+        const link = repo.state.packages[name];
+        await restorePackage(repoPath, name, link.original, link.catalogName);
         delete repo.state.packages[name];
       }
       await saveRepoState(repo.name, repo.state);
@@ -92,7 +107,8 @@ export default defineCommand({
       return;
     }
 
-    await restorePackage(repoPath, pkgName, repo.state.packages[pkgName].original);
+    const link = repo.state.packages[pkgName];
+    await restorePackage(repoPath, pkgName, link.original, link.catalogName);
     delete repo.state.packages[pkgName];
     await saveRepoState(repo.name, repo.state);
 

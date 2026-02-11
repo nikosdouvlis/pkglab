@@ -14,6 +14,7 @@ export interface PackageLink {
   original: string;
   current: string;
   tag?: string;
+  catalogName?: string; // "default" for catalog field, other string for catalogs[name]
 }
 
 export interface WorkspacePackage {

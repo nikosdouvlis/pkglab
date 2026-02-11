@@ -7,7 +7,7 @@ import { run } from "./proc";
 import { getActiveRepos, saveRepoState } from "./repo-state";
 import { createMultiSpinner } from "./spinner";
 import type { SpinnerLine } from "./spinner";
-import type { PublishPlan } from "../types";
+import type { PublishPlan, PublishEntry, RepoState } from "../types";
 
 const MARKER_START = "# pkglab-start";
 const MARKER_END = "# pkglab-end";
@@ -137,6 +137,73 @@ export async function updatePackageJsonVersion(
   return { previousVersion };
 }
 
+/**
+ * Walk up from startDir to find the nearest package.json with a catalog or catalogs field.
+ */
+export async function findCatalogRoot(startDir: string): Promise<string | null> {
+  let dir = startDir;
+  while (true) {
+    const file = Bun.file(join(dir, "package.json"));
+    if (await file.exists()) {
+      const pkgJson = await file.json();
+      if (pkgJson.catalog || pkgJson.catalogs) return dir;
+    }
+    const parent = join(dir, "..");
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
+ * Find which catalog (default or named) contains a given package.
+ * Returns null if the package isn't in any catalog.
+ */
+export function findCatalogEntry(
+  rootPkgJson: any,
+  pkgName: string,
+): { catalogName: string; version: string } | null {
+  if (rootPkgJson.catalog?.[pkgName] !== undefined) {
+    return { catalogName: "default", version: rootPkgJson.catalog[pkgName] };
+  }
+  if (rootPkgJson.catalogs) {
+    for (const [name, entries] of Object.entries(rootPkgJson.catalogs)) {
+      if (entries && typeof entries === "object" && (entries as any)[pkgName] !== undefined) {
+        return { catalogName: name, version: (entries as any)[pkgName] };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Update a version in the workspace root catalog (or named catalog).
+ */
+export async function updateCatalogVersion(
+  rootDir: string,
+  pkgName: string,
+  version: string,
+  catalogName: string,
+): Promise<{ previousVersion: string }> {
+  const pkgJsonPath = join(rootDir, "package.json");
+  const pkgJson = await Bun.file(pkgJsonPath).json();
+
+  let previousVersion = "";
+  if (catalogName === "default") {
+    if (pkgJson.catalog?.[pkgName] !== undefined) {
+      previousVersion = pkgJson.catalog[pkgName];
+      pkgJson.catalog[pkgName] = version;
+    }
+  } else {
+    if (pkgJson.catalogs?.[catalogName]?.[pkgName] !== undefined) {
+      previousVersion = pkgJson.catalogs[catalogName][pkgName];
+      pkgJson.catalogs[catalogName][pkgName] = version;
+    }
+  }
+
+  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+  return { previousVersion };
+}
+
 export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
   const activeRepos = await getActiveRepos();
   for (const { name, state } of activeRepos) {
@@ -154,6 +221,59 @@ export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
       }
     }
   }
+}
+
+interface RepoRollback {
+  catalogEntries: { name: string; version: string; catalogName: string; rootDir: string }[];
+  directEntries: { name: string; version: string }[];
+}
+
+async function updateRepoVersions(
+  state: RepoState,
+  packages: PublishEntry[],
+): Promise<RepoRollback> {
+  const rollback: RepoRollback = { catalogEntries: [], directEntries: [] };
+
+  for (const entry of packages) {
+    const link = state.packages[entry.name];
+    if (link?.catalogName) {
+      const catalogRoot = await findCatalogRoot(state.path);
+      if (catalogRoot) {
+        const { previousVersion } = await updateCatalogVersion(catalogRoot, entry.name, entry.version, link.catalogName);
+        rollback.catalogEntries.push({ name: entry.name, version: previousVersion, catalogName: link.catalogName, rootDir: catalogRoot });
+      }
+    } else {
+      const { previousVersion } = await updatePackageJsonVersion(state.path, entry.name, entry.version);
+      rollback.directEntries.push({ name: entry.name, version: previousVersion });
+    }
+  }
+
+  return rollback;
+}
+
+async function rollbackRepoVersions(state: RepoState, rollback: RepoRollback): Promise<void> {
+  for (const prev of rollback.catalogEntries) {
+    await updateCatalogVersion(prev.rootDir, prev.name, prev.version, prev.catalogName);
+  }
+  for (const prev of rollback.directEntries) {
+    await updatePackageJsonVersion(state.path, prev.name, prev.version);
+  }
+}
+
+function repoInstallCommand(
+  pm: PackageManager,
+  packages: PublishEntry[],
+  state: RepoState,
+): { cmd: string[]; cwd: string } {
+  // If any package is catalog-linked, use plain install (catalog entries already updated)
+  const hasCatalog = packages.some((e) => state.packages[e.name]?.catalogName);
+  if (hasCatalog) {
+    return { cmd: [pm, "install"], cwd: state.path };
+  }
+  return {
+    cmd: batchInstallCommand(pm, packages.map((e) => ({ name: e.name, version: e.version }))),
+    cwd: state.path,
+  };
 }
 
 export async function updateActiveRepos(
@@ -204,22 +324,12 @@ export async function updateActiveRepos(
       await Promise.all(
         work.map(async (repo, r) => {
           const repoTasks = tasks.filter((t) => t.repoIdx === r);
+          const rollback = await updateRepoVersions(repo.state, repo.packages);
 
-          // Update all package.json versions, storing previous for rollback
-          const prevVersions: { name: string; version: string }[] = [];
-          for (const entry of repo.packages) {
-            const { previousVersion } = await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
-            prevVersions.push({ name: entry.name, version: previousVersion });
-          }
-
-          // Run one batch install for all packages
-          const cmd = batchInstallCommand(repo.pm, repo.packages.map((e) => ({ name: e.name, version: e.version })));
-          const result = await run(cmd, { cwd: repo.state.path });
+          const { cmd, cwd } = repoInstallCommand(repo.pm, repo.packages, repo.state);
+          const result = await run(cmd, { cwd });
           if (result.exitCode !== 0) {
-            // Revert package.json so it stays consistent with node_modules
-            for (const prev of prevVersions) {
-              await updatePackageJsonVersion(repo.state.path, prev.name, prev.version);
-            }
+            await rollbackRepoVersions(repo.state, rollback);
             const output = (result.stderr || result.stdout).trim();
             throw new Error(`Install failed (${repo.pm}): ${output}`);
           }
@@ -239,21 +349,13 @@ export async function updateActiveRepos(
     log.info("\nUpdating active repos:");
     await Promise.all(
       work.map(async (repo) => {
-        // Update all package.json versions, storing previous for rollback
-        const prevVersions: { name: string; version: string }[] = [];
-        for (const entry of repo.packages) {
-          const { previousVersion } = await updatePackageJsonVersion(repo.state.path, entry.name, entry.version);
-          prevVersions.push({ name: entry.name, version: previousVersion });
-        }
+        const rollback = await updateRepoVersions(repo.state, repo.packages);
 
-        // Run one batch install for all packages
-        const cmd = batchInstallCommand(repo.pm, repo.packages.map((e) => ({ name: e.name, version: e.version })));
+        const { cmd, cwd } = repoInstallCommand(repo.pm, repo.packages, repo.state);
         log.dim(`  ${cmd.join(" ")}`);
-        const result = await run(cmd, { cwd: repo.state.path });
+        const result = await run(cmd, { cwd });
         if (result.exitCode !== 0) {
-          for (const prev of prevVersions) {
-            await updatePackageJsonVersion(repo.state.path, prev.name, prev.version);
-          }
+          await rollbackRepoVersions(repo.state, rollback);
           const output = (result.stderr || result.stdout).trim();
           throw new Error(`Install failed (${repo.pm}): ${output}`);
         }
