@@ -4,5 +4,6 @@ export default defineCommand({
   meta: { name: "pkg", description: "Manage packages in Verdaccio" },
   subCommands: {
     ls: () => import("./ls").then((m) => m.default),
+    rm: () => import("./rm").then((m) => m.default),
   },
 });

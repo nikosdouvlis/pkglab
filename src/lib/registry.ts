@@ -1,5 +1,5 @@
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, rm } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import type { pkglabConfig } from "../types";
 import { paths } from "./paths";
 import { ispkglabVersion } from "./version";
@@ -178,4 +178,42 @@ export async function unpublishVersions(
   }
 
   return { removed, failed: versions.filter((v) => !removed.includes(v)) };
+}
+
+export async function removePackage(
+  config: pkglabConfig,
+  name: string,
+): Promise<boolean> {
+  const url = registryUrl(config);
+  const pkgUrl = `${url}/${encodeURIComponent(name)}`;
+  const headers = { Authorization: "Bearer pkglab-local" };
+
+  // Get the revision needed for DELETE
+  const resp = await fetch(pkgUrl, { headers });
+  if (!resp.ok) return false;
+  const doc = (await resp.json()) as any;
+  const rev = doc._rev || "0-0";
+
+  // Delete from Verdaccio API
+  const delResp = await fetch(`${pkgUrl}/-rev/${rev}`, {
+    method: "DELETE",
+    headers,
+  });
+
+  // Clean up storage directory regardless of API response
+  const pkgDir = join(paths.verdaccioStorage, name);
+  await rm(pkgDir, { recursive: true, force: true }).catch(() => {});
+
+  // Clean up empty scope directory
+  if (name.startsWith("@")) {
+    const scopeDir = dirname(pkgDir);
+    try {
+      const remaining = await readdir(scopeDir);
+      if (remaining.length === 0) {
+        await rm(scopeDir, { recursive: true, force: true });
+      }
+    } catch {}
+  }
+
+  return delResp.ok;
 }
