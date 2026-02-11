@@ -1,6 +1,6 @@
 {
   "name": "pkglab-darwin-x64",
-  "version": "0.0.22",
+  "version": "0.0.23",
   "description": "pkglab macOS x64 binary",
   "license": "MIT",
   "author": "Nikos Douvlis <nikosdouvlis@gmail.com>",
