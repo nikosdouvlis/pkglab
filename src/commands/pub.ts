@@ -70,7 +70,7 @@ function detectChanges(
 export default defineCommand({
   meta: { name: "pub", description: "Publish packages to local Verdaccio" },
   args: {
-    name: { type: "positional", description: "Package name", required: false },
+    name: { type: "positional", description: "Package name(s)", required: false },
     "dry-run": { type: "boolean", description: "Show what would be published", default: false },
     single: { type: "boolean", description: "Skip dep cascade", default: false },
     verbose: { type: "boolean", description: "Show detailed output", default: false, alias: "v" },
@@ -119,17 +119,21 @@ export default defineCommand({
     const graph = buildDependencyGraph(workspace.packages);
 
     let targets: string[];
-    if (args.name) {
-      const pkg = findPackage(workspace.packages, args.name as string);
-      if (!pkg) {
-        log.error(`Package not found in workspace: ${args.name}`);
-        process.exit(1);
+    const names = ((args as any)._ as string[] | undefined) ?? [];
+    if (names.length > 0) {
+      targets = [];
+      for (const name of names) {
+        const pkg = findPackage(workspace.packages, name);
+        if (!pkg) {
+          log.error(`Package not found in workspace: ${name}`);
+          process.exit(1);
+        }
+        if (!pkg.publishable) {
+          log.error(`Package ${name} is private and cannot be published`);
+          process.exit(1);
+        }
+        targets.push(pkg.name);
       }
-      if (!pkg.publishable) {
-        log.error(`Package ${args.name} is private and cannot be published`);
-        process.exit(1);
-      }
-      targets = [pkg.name];
     } else {
       const cwd = process.cwd();
       const currentPkg = workspace.packages.find((p) => p.dir === cwd);
@@ -207,14 +211,6 @@ export default defineCommand({
       }
     }
 
-    // Log skipped dependents from consumer-aware filtering
-    if (cascade.skippedDependents.length > 0) {
-      if (verbose) {
-        log.dim(`Skipped ${cascade.skippedDependents.length} unconsumed dependents: ${cascade.skippedDependents.join(", ")}`);
-      } else {
-        log.dim(`Skipped ${cascade.skippedDependents.length} unconsumed dependents`);
-      }
-    }
 
     // Validate no non-publishable dependencies in the cascade set
     for (const pkg of cascadePackages) {
@@ -280,6 +276,9 @@ export default defineCommand({
       } else {
         log.line(`  ${c.dim("\u00B7")} ${c.dim(pkg.name)}  ${c.dim(`${scopeReason}, ${changeReason}`)}`);
       }
+    }
+    for (const name of cascade.skippedDependents) {
+      log.line(`  ${c.dim("\u00B7")} ${c.dim(name)}  ${c.dim("dependent, no consumers")}`);
     }
 
     if (publishSet.length === 0) {

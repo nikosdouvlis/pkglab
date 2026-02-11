@@ -5,7 +5,6 @@ import {
   addRegistryToNpmrc,
   applySkipWorktree,
   ensureNpmrcForActiveRepos,
-  scopedInstall,
   updatePackageJsonVersion,
 } from "../lib/consumer";
 import {
@@ -19,6 +18,8 @@ import {
   listPackageNames,
 } from "../lib/registry";
 import { sanitizeTag } from "../lib/version";
+import { detectPackageManager, batchInstallCommand } from "../lib/pm-detect";
+import { run } from "../lib/proc";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import { DaemonNotRunningError } from "../lib/errors";
@@ -76,13 +77,11 @@ function resolveFromDistTags(
   return { name: pkgName, version, tag };
 }
 
-async function installPackage(
+async function batchInstallPackages(
   config: pkglabConfig,
   repoPath: string,
-  resolved: ResolvedPackage,
+  packages: ResolvedPackage[],
 ): Promise<void> {
-  const { name, version, tag } = resolved;
-
   const { isFirstTime } = await addRegistryToNpmrc(repoPath, config.port);
   if (isFirstTime) {
     await applySkipWorktree(repoPath);
@@ -90,17 +89,32 @@ async function installPackage(
       "notice: pkglab added registry entries to .npmrc\n" +
         "These entries point to localhost and will break CI if committed.\n" +
         "pkglab has applied --skip-worktree to prevent accidental commits.\n" +
-        "Run pkglab rm to restore your .npmrc.",
+        "Run pkglab restore --all to restore your .npmrc.",
     );
   }
 
-  const { previousVersion } = await updatePackageJsonVersion(
-    repoPath,
-    name,
-    version,
-  );
-  await scopedInstall(repoPath, name, version);
+  // Update all package.json versions before installing
+  const prevVersions: { name: string; version: string }[] = [];
+  for (const { name, version } of packages) {
+    const { previousVersion } = await updatePackageJsonVersion(repoPath, name, version);
+    prevVersions.push({ name, version: previousVersion });
+  }
 
+  // One batch install for all packages
+  const pm = await detectPackageManager(repoPath);
+  const cmd = batchInstallCommand(pm, packages.map((p) => ({ name: p.name, version: p.version })));
+  log.dim(`  ${cmd.join(" ")}`);
+  const result = await run(cmd, { cwd: repoPath });
+  if (result.exitCode !== 0) {
+    // Revert package.json so it stays consistent with node_modules
+    for (const prev of prevVersions) {
+      await updatePackageJsonVersion(repoPath, prev.name, prev.version);
+    }
+    const output = (result.stderr || result.stdout).trim();
+    throw new Error(`Install failed (${pm}): ${output}`);
+  }
+
+  // Update repo state
   const repoFile = await repoFileName(repoPath);
   let repoState: RepoState = (await loadRepoState(repoFile)) || {
     path: repoPath,
@@ -108,21 +122,26 @@ async function installPackage(
     packages: {},
   };
 
-  if (!repoState.packages[name]) {
-    repoState.packages[name] = {
-      original: previousVersion,
-      current: version,
-      tag,
-    };
-  } else {
-    repoState.packages[name].current = version;
-    repoState.packages[name].tag = tag;
+  for (const { name, version, tag } of packages) {
+    if (!repoState.packages[name]) {
+      const prev = prevVersions.find((p) => p.name === name);
+      repoState.packages[name] = {
+        original: prev?.version ?? "",
+        current: version,
+        tag,
+      };
+    } else {
+      repoState.packages[name].current = version;
+      repoState.packages[name].tag = tag;
+    }
   }
 
   repoState.active = true;
   repoState.lastUsed = Date.now();
   await saveRepoState(repoFile, repoState);
-  log.success(`Installed ${name}@${version}`);
+  for (const { name, version } of packages) {
+    log.success(`Installed ${name}@${version}`);
+  }
 }
 
 async function interactiveAdd(
@@ -159,6 +178,8 @@ async function interactiveAdd(
     return;
   }
 
+  // Resolve all packages (with tag prompts) before installing
+  const resolved: ResolvedPackage[] = [];
   for (const pkgName of selectedNames) {
     const distTags = await getDistTags(pkgName);
     const tags = Object.keys(distTags).filter((t) => t !== "latest");
@@ -168,7 +189,6 @@ async function interactiveAdd(
       log.error(`No pkglab versions for ${pkgName}. Publish first.`);
       continue;
     } else if (tags.length === 1) {
-      // Single tag: use it directly (could be "pkglab" or a named tag)
       selectedTag = tags[0] === "pkglab" ? undefined : tags[0];
     } else {
       try {
@@ -186,8 +206,11 @@ async function interactiveAdd(
       }
     }
 
-    const resolved = resolveFromDistTags(pkgName, distTags, selectedTag);
-    await installPackage(config, repoPath, resolved);
+    resolved.push(resolveFromDistTags(pkgName, distTags, selectedTag));
+  }
+
+  if (resolved.length > 0) {
+    await batchInstallPackages(config, repoPath, resolved);
   }
 }
 
@@ -196,14 +219,15 @@ export default defineCommand({
   args: {
     name: {
       type: "positional",
-      description: "Package name or name@tag",
+      description: "Package name(s) or name@tag",
       required: false,
     },
   },
   async run({ args }) {
     const config = await loadConfig();
+    const names = ((args as any)._ as string[] | undefined) ?? [];
 
-    if (!args.name) {
+    if (names.length === 0) {
       const [status, repoPath] = await Promise.all([
         getDaemonStatus(),
         canonicalRepoPath(process.cwd()),
@@ -214,16 +238,19 @@ export default defineCommand({
       return;
     }
 
-    const { name: pkgName, tag } = parsePackageArg(args.name as string);
-    const [status, repoPath, distTags] = await Promise.all([
+    const parsed = names.map(parsePackageArg);
+    const [status, repoPath, ...distTagResults] = await Promise.all([
       getDaemonStatus(),
       canonicalRepoPath(process.cwd()),
-      getDistTags(pkgName),
+      ...parsed.map((p) => getDistTags(p.name)),
     ]);
     if (!status?.running) throw new DaemonNotRunningError();
 
-    const resolved = resolveFromDistTags(pkgName, distTags, tag);
-    await installPackage(config, repoPath, resolved);
+    const resolved = parsed.map((p, i) =>
+      resolveFromDistTags(p.name, distTagResults[i], p.tag),
+    );
+
+    await batchInstallPackages(config, repoPath, resolved);
     await ensureNpmrcForActiveRepos(config.port);
   },
 });

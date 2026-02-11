@@ -231,16 +231,16 @@ try {
     assert(out.includes("feat1"), "output shows feat1 tag");
   }
 
-  // 9. pkglab rm from consumer-1
-  heading("9. pkglab rm @test/pkg-a (consumer-1)");
+  // 9. pkglab restore from consumer-1
+  heading("9. pkglab restore @test/pkg-a (consumer-1)");
   {
-    const r = await pkglab(["rm", "@test/pkg-a"], { cwd: consumer1Dir });
-    assert(r.code === 0, "pkglab rm succeeds");
+    const r = await pkglab(["restore", "@test/pkg-a"], { cwd: consumer1Dir });
+    assert(r.code === 0, "pkglab restore succeeds");
 
     const pkg = await readPkgJson(consumer1Dir);
     const ver = getDep(pkg, "@test/pkg-a");
     // Original was empty (added by pkglab), so dep should be removed
-    assert(!ver, "dependency removed after pkglab rm");
+    assert(!ver, "dependency removed after pkglab restore");
   }
 
   // 10. pkglab check from consumer-2 (should find artifacts)
@@ -250,41 +250,41 @@ try {
     assert(r.code !== 0, "pkglab check exits non-zero (found artifacts)");
   }
 
-  // 10b. repos reset --all skips missing dirs, reset deletes repo state
-  heading("10b. repos reset (missing dirs + cleanup)");
+  // 10b. repo reset --all skips missing dirs, reset deletes repo state
+  heading("10b. repo reset (missing dirs + cleanup)");
   {
-    // consumer-1 was already removed via `pkglab rm`, re-add so we have a repo to reset
+    // consumer-1 was already removed via `pkglab restore`, re-add so we have a repo to reset
     const addR = await pkglab(["add", "@test/pkg-a"], { cwd: consumer1Dir });
     assert(addR.code === 0, "re-add @test/pkg-a to consumer-1");
 
     // Verify both repos show up
-    const lsBefore = await pkglab(["repos", "ls"]);
-    assert(lsBefore.stdout.includes("consumer-1"), "consumer-1 in repos ls");
-    assert(lsBefore.stdout.includes("consumer-2"), "consumer-2 in repos ls");
+    const lsBefore = await pkglab(["repo", "ls"]);
+    assert(lsBefore.stdout.includes("consumer-1"), "consumer-1 in repo ls");
+    assert(lsBefore.stdout.includes("consumer-2"), "consumer-2 in repo ls");
 
     // Delete consumer-1 dir to simulate a missing directory
     await rm(consumer1Dir, { recursive: true, force: true });
 
     // reset --all should skip consumer-1 (missing) and reset consumer-2 (exists)
-    const resetR = await pkglab(["repos", "reset", "--all"]);
+    const resetR = await pkglab(["repo", "reset", "--all"]);
     assert(resetR.code === 0, "reset --all succeeds");
     assert(resetR.stdout.includes("Skipping"), "skips repo with missing dir");
     assert(resetR.stdout.includes("Reset"), "resets repo with existing dir");
 
-    // consumer-2 should be gone from repos ls (reset deletes state)
-    const lsAfter = await pkglab(["repos", "ls"]);
+    // consumer-2 should be gone from repo ls (reset deletes state)
+    const lsAfter = await pkglab(["repo", "ls"]);
     assert(!lsAfter.stdout.includes("consumer-2"), "consumer-2 removed after reset");
 
     // consumer-1 stale entry should still be there
     assert(lsAfter.stdout.includes("consumer-1"), "consumer-1 stale entry still in list");
 
     // --stale should clean it up
-    const staleR = await pkglab(["repos", "reset", "--stale"]);
+    const staleR = await pkglab(["repo", "reset", "--stale"]);
     assert(staleR.code === 0, "reset --stale succeeds");
     assert(staleR.stdout.includes("Removed stale"), "stale repo removed");
 
-    // repos ls should now be empty
-    const lsFinal = await pkglab(["repos", "ls"]);
+    // repo ls should now be empty
+    const lsFinal = await pkglab(["repo", "ls"]);
     assert(lsFinal.stdout.includes("No linked repos"), "all repos cleaned up");
 
     // Recreate consumer-1 for remaining tests
@@ -393,10 +393,10 @@ try {
     assert(r.stdout.includes("@test/pkg-a"), "pkg-a published");
     assert(r.stdout.includes("@test/pkg-b"), "pkg-b published (consumed dependent)");
     assert(r.stdout.includes("2 packages"), "only 2 packages published (pkg-c filtered)");
-    assert(r.stdout.includes("Skipped"), "mentions skipped dependents");
+    assert(r.stdout.includes("no consumers"), "mentions filtered dependents");
 
     // Clean up: remove pkg-b from consumer
-    await pkglab(["rm", "@test/pkg-b"], { cwd: consumer1Dir });
+    await pkglab(["restore", "@test/pkg-b"], { cwd: consumer1Dir });
   }
 
   heading("Results");
@@ -404,10 +404,11 @@ try {
 } finally {
   // Cleanup
   heading("Cleanup");
-  await pkglab(["repos", "reset", "--all"]).catch(() => {});
+  await pkglab(["repo", "reset", "--all"]).catch(() => {});
+  await pkglab(["pkg", "rm", "@test/pkg-a", "@test/pkg-b", "@test/pkg-c"]).catch(() => {});
   await pkglab(["down"]).catch(() => {});
   await rm(testDir, { recursive: true, force: true });
-  await pkglab(["repos", "reset", "--stale"]).catch(() => {});
+  await pkglab(["repo", "reset", "--stale"]).catch(() => {});
   console.log(`  Removed ${testDir}`);
 }
 
