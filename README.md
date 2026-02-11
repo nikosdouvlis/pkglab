@@ -11,13 +11,13 @@ Also available as `pkgl` for short (so efficient ✨).
 - [Features](#features)
 - [Quick start](#quick-start)
 - [Install](#install)
-- [Configuration](#configuration)
 - [The problem](#the-problem)
 - [How it works](#how-it-works)
 - [Commands](#commands)
-- [Why not ...](#why-not-)
-- [How versioning works](#how-versioning-works)
 - [Multi-worktree support](#multi-worktree-support)
+- [How versioning works](#how-versioning-works)
+- [Why not ...](#why-not-)
+- [Configuration](#configuration)
 - [Safety](#safety)
 - [Acknowledgments](#acknowledgments)
 
@@ -35,6 +35,9 @@ Also available as `pkgl` for short (so efficient ✨).
 ## Quick start
 
 ```bash
+# Globally install the binaries
+npm install -g pkglab
+
 # Start the local registry
 pkglab up
 
@@ -50,7 +53,7 @@ pkglab add <name> # or omit for interactive prompt
 pkglab pub
 
 # When done, restore the original version
-pkglab rm @your-org/your-package
+pkglab rm @clerk/backend
 
 # Stop the registry
 pkglab down
@@ -68,24 +71,9 @@ This installs a native binary for your platform. No Bun or Node.js runtime requi
 
 Under the hood, the `pkglab` npm package contains a tiny Node.js wrapper. It declares platform-specific packages (`pkglab-darwin-arm64`, `pkglab-linux-x64`, etc.) as optional dependencies with `os` and `cpu` constraints, so npm only downloads the one matching your machine. When you run `pkglab`, the wrapper resolves the platform binary and execs it. The compiled binary has the Bun runtime embedded, so nothing else needs to be installed.
 
-From source (requires Bun):
-
-```
-bun install -g pkglab
-```
-
 Your consumer repos can use any package manager: npm, pnpm, yarn, or bun. pkglab shells out to `npm` for publishing, so Node.js needs to be available on your machine.
 
 Supported on macOS (ARM64, x64) and Linux (x64, ARM64).
-
-## Configuration
-
-**`pkglab`** stores its state in `~/.pkglab/`. The config file at `~/.pkglab/config.yaml` supports:
-
-- `port`: Verdaccio port (default: 4873)
-- `prune_keep`: number of old versions to retain per package (default: 3)
-
-Logs are written to `/tmp/pkglab/verdaccio.log`.
 
 ## The problem
 
@@ -109,62 +97,28 @@ On top of that, **`pkglab`** handles automatic consumer updates, dependency casc
 
 ## Commands
 
-`pkglab up` - start the local Verdaccio registry. Deactivates all repos from the previous session, then offers an interactive picker to reactivate the ones you need.
+- `pkglab up` -start the local registry. Deactivates repos from the previous session, then offers a picker to reactivate the ones you need.
+- `pkglab down` -stop the registry.
+- `pkglab pub [name]` -publish packages to the local registry. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--fast` (skip cascade), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch).
+- `pkglab add [name[@tag]]` -install a pkglab package in the current repo. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. Append `@tag` to pin to a tag (e.g. `pkglab add @clerk/pkg@feat1`). No args for an interactive picker.
+- `pkglab rm <name>` -remove a pkglab package. Restores the original version from before `pkglab add`, cleans `.npmrc` if no packages remain, and removes skip-worktree. Run your package manager's install afterward to sync the lock file.
+- `pkglab status` -show whether the registry is running and on which port.
+- `pkglab logs` -tail Verdaccio logs. `-f` for follow mode.
+- `pkglab check` -pre-commit safety check. Scans for pkglab artifacts in `package.json` and `.npmrc` (local versions, registry markers, staged files). Returns exit code 1 if anything is found.
+- `pkglab doctor` -diagnose your setup. Checks directory structure, daemon health, registry connectivity, and skip-worktree flags across all linked repos. Auto-repairs missing flags.
+- `pkglab prune` -clean old versions from storage. Keeps the 3 most recent versions per tag per package (configurable) and preserves any version currently linked in an active repo. `--all` to remove all pkglab versions.
+- `pkglab repos ls` -list consumer repos with their active/inactive status and linked packages.
+- `pkglab repos on/off [name]` -activate or deactivate a consumer repo. Interactive picker if no name given.
+- `pkglab repos reset [name]` -clear all state for a repo. `--all` to reset every repo.
+- `pkglab repos rename <old> <new>` -rename a repo's display name.
+- `pkglab pkgs ls` -list published packages in the local registry, grouped by tag with the latest version per tag.
 
-`pkglab down` - stop the registry.
-
-`pkglab pub [name]` - publish workspace packages to the local registry. If run from a package directory, publishes that package. Otherwise publishes all public packages. Computes transitive dependents and republishes the entire cascade. Auto-updates active consumer repos (matching the same tag) and prunes old versions in the background.
-
-Flags: `--dry-run` preview without publishing, `--fast` skip dependency cascade, `--verbose` / `-v` show full output instead of spinners, `--tag <name>` / `-t` publish with a tag for multi-worktree support, `--worktree` / `-w` auto-detect tag from the current git branch name.
-
-`pkglab add [name[@tag]]` - add a **`pkglab`** package to the current repo. Configures `.npmrc` to point at the local registry, applies git skip-worktree, and installs using your repo's package manager (`npm install`, `pnpm add`, `yarn add`, or `bun add` depending on your lock file). Append `@tag` to pin to a specific tag (e.g. `pkglab add @org/pkg@feat1`). Run with no arguments for an interactive picker where you can select packages and tags.
-
-`pkglab rm <name>` - remove a **`pkglab`** package. Restores the original version in `package.json` from before `pkglab add`, cleans `.npmrc` if no packages remain, and removes skip-worktree. Run your package manager's install afterward to sync the lock file.
-
-`pkglab status` - show whether the registry is running and on which port.
-
-`pkglab logs` - tail Verdaccio logs (written to `/tmp/pkglab/verdaccio.log`). `-f` for follow mode.
-
-`pkglab check` - pre-commit safety check. Scans `package.json` and `.npmrc` for **`pkglab`** artifacts (local versions, registry markers, staged files). Returns exit code 1 if anything is found. Wire it into a git hook:
+Wire `check` into a git hook:
 
 ```bash
 # .git/hooks/pre-commit (or via your hook manager)
 pkglab check
 ```
-
-`pkglab doctor` - diagnose your setup. Checks Bun version, directory structure, daemon health, registry connectivity, and skip-worktree flags on all linked repos. Auto-repairs missing flags.
-
-`pkglab prune` - manually clean old versions from Verdaccio storage. Keeps the 3 most recent versions per tag per package (configurable) and preserves any version currently linked in an active repo. Use `--all` to remove all pkglab versions.
-
-`pkglab repos ls` - list consumer repos with their active/inactive status and linked packages.
-
-`pkglab repos on [name]` - activate a consumer repo. Interactive picker if no name given.
-
-`pkglab repos off [name]` - deactivate a repo (stops auto-updates on publish).
-
-`pkglab repos reset [name]` - clear all state for a repo. Use `--all` to reset every repo.
-
-`pkglab repos rename <old> <new>` - rename a repo's display name.
-
-`pkglab pkgs ls` - list **`pkglab`**-published packages in the local registry, grouped by tag with the latest version per tag.
-
-## Why not ...
-
-`npm link` - symlinks cause duplicate module instances. React, styled-components, and anything using `instanceof` or React context can break with two copies in the tree. A single `npm install` can silently remove links. No lock file entries, so your CI and teammates can't reproduce the setup.
-
-`yalc` - injects `.yalc` directories and `file:.yalc/...` references into `package.json`. Lock files end up with local paths instead of registry URLs. The install shape you test against doesn't match what your users get from a real `npm install`.
-
-`pnpm overrides` / `yarn resolutions` - manual `package.json` edits that are easy to forget and commit. No auto-update on republish. When pointed at local or workspace targets, they can bypass registry validation entirely, so you miss broken exports maps, missing `"files"`, and unresolved `workspace:` / `catalog:` protocols until you actually publish to npm.
-
-`workspace:^` - only works within a single monorepo. Doesn't help when the consumer is a separate repository. Within the workspace, packages resolve to local copies during install, so version resolution bugs only appear once you actually publish. On top of that, during snapshot or canary releases, `workspace:^` resolves to caret ranges that can match the wrong pre-release versions: `^3.0.0-canary.v20251211` satisfies `3.0.0-snapshot.v20251204` because semver sorts `snapshot` after `canary`.
-
-Standalone Verdaccio - gives you the registry, but you still have to manage the daemon lifecycle, generate versions, manually install in every consumer, track which repos are linked, prune old versions, and protect against committing localhost URLs. **`pkglab`** automates all of that.
-
-## How versioning works
-
-**`pkglab`** generates versions in the format `0.0.0-pkglab.{timestamp}` (untagged) or `0.0.0-pkglab-{tag}.{timestamp}` (tagged). The monotonic timestamp ensures versions always increment, even across rapid publishes. The `0.0.0-pkglab` prefix makes these versions instantly recognizable and ensures they sort below any real release.
-
-When using tags, each tag gets its own version channel. Publishing with `--tag feat1` only updates consumers pinned to `feat1`, leaving other consumers untouched. This lets you work on multiple branches simultaneously from different git worktrees without version conflicts.
 
 ## Multi-worktree support
 
@@ -180,7 +134,7 @@ pkglab pub --tag feat-auth
 pkglab pub --worktree
 
 # Consumer repos pin to a specific tag
-pkglab add @org/pkg@feat-auth
+pkglab add @clerk/pkg@feat-auth
 
 # Or use the interactive picker to browse packages and tags
 pkglab add
@@ -189,6 +143,33 @@ pkglab add
 Each tag gets its own version channel. Publishing untagged only auto-updates consumers that are also untagged, and publishing with `--tag feat-auth` only updates consumers pinned to `feat-auth`. Pruning also respects tags, keeping the N most recent versions per tag per package.
 
 Branch names are sanitized for use as tags: `feat/auth-rewrite` becomes `feat-auth-rewrite`. Tags are capped at 50 characters.
+
+## How versioning works
+
+**`pkglab`** generates versions in the format `0.0.0-pkglab.{timestamp}` (untagged) or `0.0.0-pkglab-{tag}.{timestamp}` (tagged). The monotonic timestamp ensures versions always increment, even across rapid publishes. The `0.0.0-pkglab` prefix makes these versions instantly recognizable and ensures they sort below any real release.
+
+When using tags, each tag gets its own version channel. Publishing with `--tag feat1` only updates consumers pinned to `feat1`, leaving other consumers untouched. This lets you work on multiple branches simultaneously from different git worktrees without version conflicts.
+
+## Why not ...
+
+`npm link` - symlinks cause duplicate module instances. React, styled-components, and anything using `instanceof` or React context can break with two copies in the tree. A single `npm install` can silently remove links. No lock file entries, so your CI and teammates can't reproduce the setup.
+
+`yalc` - injects `.yalc` directories and `file:.yalc/...` references into `package.json`. Lock files end up with local paths instead of registry URLs. The install shape you test against doesn't match what your users get from a real `npm install`.
+
+`pnpm overrides` / `yarn resolutions` - manual `package.json` edits that are easy to forget and commit. No auto-update on republish. When pointed at local or workspace targets, they can bypass registry validation entirely, so you miss broken exports maps, missing `"files"`, and unresolved `workspace:` / `catalog:` protocols until you actually publish to npm.
+
+`workspace:^` - only works within a single monorepo. Doesn't help when the consumer is a separate repository. Within the workspace, packages resolve to local copies during install, so version resolution bugs only appear once you actually publish. On top of that, during snapshot or canary releases, `workspace:^` resolves to caret ranges that can match the wrong pre-release versions: `^3.0.0-canary.v20251211` satisfies `3.0.0-snapshot.v20251204` because semver sorts `snapshot` after `canary`.
+
+Standalone Verdaccio - gives you the registry, but you still have to manage the daemon lifecycle, generate versions, manually install in every consumer, track which repos are linked, prune old versions, and protect against committing localhost URLs. **`pkglab`** automates all of that.
+
+## Configuration
+
+**`pkglab`** stores its state in `~/.pkglab/`. The config file at `~/.pkglab/config.yaml` supports:
+
+- `port`: Verdaccio port (default: 4873)
+- `prune_keep`: number of old versions to retain per package (default: 3)
+
+Logs are written to `/tmp/pkglab/verdaccio.log`.
 
 ## Safety
 
