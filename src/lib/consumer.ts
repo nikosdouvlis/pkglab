@@ -193,7 +193,7 @@ export async function updateActiveRepos(
       spinnerLines.push({ text: `${name}:`, header: true });
       for (const entry of packages) {
         tasks.push({ repoIdx: r, spinnerIdx: spinnerLines.length });
-        spinnerLines.push(entry.name);
+        spinnerLines.push(`updated ${entry.name}`);
       }
     }
 
