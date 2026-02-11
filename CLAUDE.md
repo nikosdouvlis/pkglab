@@ -20,6 +20,7 @@ Top-level:
 - `pkglab prune` — clean up old versions from storage
 - `pkglab check` — check package status
 - `pkglab reset --hard` — wipe all pkglab data and Verdaccio storage
+- `pkglab reset --fingerprints` — clear fingerprint cache, forces full republish on next pub
 
 Subcommands:
 - `pkglab repos ls` — list consumer repos
@@ -73,7 +74,7 @@ Config and state live in `~/.pkglab/`. Verdaccio storage at `~/.pkglab/verdaccio
 
 `pkglab pub` computes a cascade: target + transitive deps + transitive dependents, closed under deps (every published package has its workspace deps in the set). Private packages are excluded from the closure.
 
-Before publishing, each package is fingerprinted using `npm pack --dry-run --json` + `Bun.CryptoHasher` (SHA-256). Packages are classified in topological order:
+Before publishing, each package is fingerprinted using `Bun.Glob` + `Bun.CryptoHasher` (SHA-256) to hash the publishable file set (the `files` field, always-included files, and entry points from main/module/types/bin/exports). Falls back to `npm pack --dry-run --json` for packages with bundledDependencies. Packages are classified in topological order:
 - "changed": content hash differs from previous publish
 - "propagated": content same, but a workspace dep was changed/propagated
 - "unchanged": content same, no deps changed (skipped, keeps existing version)

@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { rm } from "node:fs/promises";
 import { getDaemonStatus, stopDaemon } from "../lib/daemon";
+import { clearFingerprintState } from "../lib/fingerprint-state";
 import { paths } from "../lib/paths";
 import { log } from "../lib/log";
 
@@ -12,8 +13,19 @@ export default defineCommand({
       description: "Wipe all pkglab data and Verdaccio storage",
       default: false,
     },
+    fingerprints: {
+      type: "boolean",
+      description: "Clear fingerprint cache (forces full republish on next pub)",
+      default: false,
+    },
   },
   async run({ args }) {
+    if (args.fingerprints) {
+      await clearFingerprintState();
+      log.success("Fingerprint cache cleared. Next pub will republish all packages.");
+      return;
+    }
+
     if (!args.hard) {
       log.error("Use --hard to confirm: pkglab reset --hard");
       process.exit(1);

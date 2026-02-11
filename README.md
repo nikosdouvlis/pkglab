@@ -115,6 +115,7 @@ On top of that, **`pkglab`** handles automatic consumer updates, dependency casc
 - `pkglab repos rename <old> <new>` -rename a repo's display name.
 - `pkglab pkg ls` -list published packages in the local registry, grouped by tag with the latest version per tag.
 - `pkglab reset --hard` -wipe all pkglab data and Verdaccio storage. Stops the daemon if running.
+- `pkglab reset --fingerprints` -clear the fingerprint cache. Next `pub` will republish all packages regardless of content changes.
 
 Wire `check` into a git hook:
 
@@ -173,7 +174,7 @@ Standalone Verdaccio - gives you the registry, but you still have to manage the 
 
 **Why not publish the full connected component?** The obvious fix is to publish every package connected through the dependency graph. But in a monorepo where a shared utility connects everything, publishing any one package would publish the entire repo. For Clerk, that's ~15 packages when you only changed one.
 
-**Content-aware publishing.** Instead of giving every package a new version, pkglab fingerprints each package (using `npm pack --dry-run --json` to get the exact file list, then SHA-256 hashing the contents). Packages are classified in topological order: "changed" if the content hash differs from the previous publish, "propagated" if the content is the same but a dependency got a new version, or "unchanged" if nothing is different. Unchanged packages keep their existing version and are skipped entirely. This means publishing `@clerk/react` when `@clerk/shared` hasn't changed only publishes react and its direct dependents, not shared, not backend, not the entire monorepo. Consumers get one version of shared because it was never given a new one.
+**Content-aware publishing.** Instead of giving every package a new version, pkglab fingerprints each package by globbing the publishable file set (the `files` field, always-included files like package.json/README/LICENSE, and entry points from main/module/types/bin/exports) and SHA-256 hashing their contents. Packages are classified in topological order: "changed" if the content hash differs from the previous publish, "propagated" if the content is the same but a dependency got a new version, or "unchanged" if nothing is different. Unchanged packages keep their existing version and are skipped entirely. This means publishing `@clerk/react` when `@clerk/shared` hasn't changed only publishes react and its direct dependents, not shared, not backend, not the entire monorepo. Consumers get one version of shared because it was never given a new one.
 
 **Consumer-aware filtering.** When active consumer repos exist, the cascade skips dependents that no consumer has installed (via `pkglab add`). If you have consumers using `@clerk/react` and `@clerk/nextjs` but not `@clerk/vue`, publishing a shared dependency won't cascade to vue. This keeps publishes focused on what's actually being tested. If no consumers are registered, all dependents are included as before. Trade-off: adding a previously-skipped package via `pkglab add` gives the last-published version until the next `pkglab pub`.
 
