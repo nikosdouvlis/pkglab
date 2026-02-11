@@ -131,7 +131,7 @@ async function interactiveAdd(
 ): Promise<void> {
   const [packageNames, { filterableCheckbox }, { select }, { ExitPromptError }] =
     await Promise.all([
-      listPackageNames(config),
+      listPackageNames(),
       import("../lib/prompt"),
       import("@inquirer/prompts"),
       import("@inquirer/core"),
@@ -160,7 +160,7 @@ async function interactiveAdd(
   }
 
   for (const pkgName of selectedNames) {
-    const distTags = await getDistTags(config, pkgName);
+    const distTags = await getDistTags(pkgName);
     const tags = Object.keys(distTags).filter((t) => t !== "latest");
     let selectedTag: string | undefined;
 
@@ -218,7 +218,7 @@ export default defineCommand({
     const [status, repoPath, distTags] = await Promise.all([
       getDaemonStatus(),
       canonicalRepoPath(process.cwd()),
-      getDistTags(config, pkgName),
+      getDistTags(pkgName),
     ]);
     if (!status?.running) throw new DaemonNotRunningError();
 

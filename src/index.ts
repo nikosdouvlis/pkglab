@@ -42,6 +42,7 @@ const cmd = defineCommand({
     rm: () => import("./commands/rm").then((m) => m.default),
     repos: () => import("./commands/repos/index").then((m) => m.default),
     pkg: () => import("./commands/pkg/index").then((m) => m.default),
+    reset: () => import("./commands/reset").then((m) => m.default),
     doctor: () => import("./commands/doctor").then((m) => m.default),
     prune: () => import("./commands/prune").then((m) => m.default),
     check: () => import("./commands/check").then((m) => m.default),

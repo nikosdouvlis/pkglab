@@ -1,76 +1,117 @@
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import type { pkglabConfig } from "../types";
+import { paths } from "./paths";
+import { ispkglabVersion } from "./version";
 
 function registryUrl(config: pkglabConfig): string {
   return `http://127.0.0.1:${config.port}`;
 }
 
-export async function getPackageVersions(
-  config: pkglabConfig,
+// ---------------------------------------------------------------------------
+// Storage-based reads (no HTTP, no upstream proxy contamination)
+// ---------------------------------------------------------------------------
+
+async function scanStoragePackages(): Promise<string[]> {
+  const storageDir = paths.verdaccioStorage;
+  const names: string[] = [];
+
+  let entries: string[];
+  try {
+    entries = await readdir(storageDir);
+  } catch {
+    return [];
+  }
+
+  for (const entry of entries) {
+    if (entry.startsWith(".")) continue;
+
+    if (entry.startsWith("@")) {
+      // Scoped packages: @scope/name
+      try {
+        const scopeEntries = await readdir(join(storageDir, entry));
+        for (const pkg of scopeEntries) {
+          if (!pkg.startsWith(".")) names.push(`${entry}/${pkg}`);
+        }
+      } catch {
+        continue;
+      }
+    } else {
+      names.push(entry);
+    }
+  }
+
+  return names;
+}
+
+async function readStoragePackageJson(
   name: string,
-): Promise<string[]> {
+): Promise<Record<string, any> | null> {
+  const pkgJsonPath = join(paths.verdaccioStorage, name, "package.json");
   try {
-    const url = `${registryUrl(config)}/${encodeURIComponent(name)}`;
-    const resp = await fetch(url);
-    if (!resp.ok) return [];
-    const data = (await resp.json()) as any;
-    return Object.keys(data.versions || {});
+    return await Bun.file(pkgJsonPath).json();
   } catch {
-    return [];
+    return null;
   }
 }
 
-export async function listPackageNames(
-  config: pkglabConfig,
-): Promise<string[]> {
-  try {
-    const resp = await fetch(
-      `${registryUrl(config)}/-/verdaccio/data/packages`,
-    );
-    if (!resp.ok) return [];
-    const data = (await resp.json()) as any[];
-    return data.map((pkg: any) => pkg.name as string);
-  } catch {
-    return [];
+export async function listPackageNames(): Promise<string[]> {
+  const allNames = await scanStoragePackages();
+  const result: string[] = [];
+
+  for (const name of allNames) {
+    // Check for pkglab tarballs without parsing JSON
+    const dir = join(paths.verdaccioStorage, name);
+    try {
+      const files = await readdir(dir);
+      if (files.some((f) => f.includes("pkglab") && f.endsWith(".tgz"))) {
+        result.push(name);
+      }
+    } catch {
+      continue;
+    }
   }
+
+  return result;
 }
 
-export async function listAllPackages(
-  config: pkglabConfig,
-): Promise<Array<{ name: string; versions: string[] }>> {
-  try {
-    const resp = await fetch(
-      `${registryUrl(config)}/-/verdaccio/data/packages`,
-    );
-    if (!resp.ok) return [];
-    const data = (await resp.json()) as any[];
-    const names = data.map((pkg: any) => pkg.name as string);
+export async function listAllPackages(): Promise<
+  Array<{ name: string; versions: string[] }>
+> {
+  const allNames = await scanStoragePackages();
+  const results: Array<{ name: string; versions: string[] }> = [];
 
-    // Fetch full version lists in parallel
-    const results = await Promise.all(
-      names.map(async (name) => ({
-        name,
-        versions: await getPackageVersions(config, name),
-      })),
-    );
-    return results;
-  } catch {
-    return [];
+  for (const name of allNames) {
+    const doc = await readStoragePackageJson(name);
+    if (!doc?.versions) continue;
+
+    const versions = Object.keys(doc.versions).filter(ispkglabVersion);
+    if (versions.length > 0) {
+      results.push({ name, versions });
+    }
   }
+
+  return results;
 }
 
 export async function getDistTags(
-  config: pkglabConfig,
   name: string,
 ): Promise<Record<string, string>> {
-  try {
-    const url = `${registryUrl(config)}/-/package/${encodeURIComponent(name)}/dist-tags`;
-    const resp = await fetch(url);
-    if (!resp.ok) return {};
-    return (await resp.json()) as Record<string, string>;
-  } catch {
-    return {};
+  const doc = await readStoragePackageJson(name);
+  if (!doc?.["dist-tags"]) return {};
+
+  const tags: Record<string, string> = {};
+  for (const [tag, version] of Object.entries(doc["dist-tags"])) {
+    if (ispkglabVersion(version as string)) {
+      tags[tag] = version as string;
+    }
   }
+  return tags;
 }
+
+// ---------------------------------------------------------------------------
+// HTTP-based mutations (go through Verdaccio API)
+// ---------------------------------------------------------------------------
 
 export async function setDistTag(
   config: pkglabConfig,

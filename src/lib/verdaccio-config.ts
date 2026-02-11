@@ -7,7 +7,7 @@ export function buildVerdaccioConfig() {
     uplinks: {
       npmjs: {
         url: "https://registry.npmjs.org/",
-        cache: true,
+        cache: false,
         timeout: "60s",
         max_fails: 10,
         fail_timeout: "10s",
