@@ -13,22 +13,22 @@ Top-level:
 - `pkglab down` — stop the registry
 - `pkglab status` — show registry status
 - `pkglab logs` — show registry logs
-- `pkglab pub [name]` — publish workspace packages to local registry, auto-updates active consumer repos. Fingerprints packages and skips unchanged ones. Flags: `--single` skip cascade/fingerprinting, `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--dry-run`, `--verbose`/`-v`
-- `pkglab add [name[@tag]]` — add a pkglab package to the current repo. No args for interactive picker
-- `pkglab rm <name>` — remove a pkglab package, restore original version
+- `pkglab pub [name...]` — publish workspace packages to local registry, auto-updates active consumer repos. Accepts multiple names. Fingerprints packages and skips unchanged ones. Flags: `--single` skip cascade/fingerprinting, `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--dry-run`, `--verbose`/`-v`
+- `pkglab add [name[@tag]...]` — add pkglab packages to the current repo. Accepts multiple names. No args for interactive picker. Batch installs in one command.
+- `pkglab restore <name>` — restore a pkglab package to its original version. `--all` restores all packages in the repo.
 - `pkglab doctor` — diagnose issues
-- `pkglab prune` — clean up old versions from storage
 - `pkglab check` — check package status
 - `pkglab reset --hard` — wipe all pkglab data and Verdaccio storage
 - `pkglab reset --fingerprints` — clear fingerprint cache, forces full republish on next pub
 
 Subcommands:
-- `pkglab repos ls` — list consumer repos
-- `pkglab repos on` — activate a repo
-- `pkglab repos off` — deactivate a repo
-- `pkglab repos reset` — reset repo state
-- `pkglab repos rename` — rename a repo
+- `pkglab repo ls` — list consumer repos
+- `pkglab repo on` — activate a repo
+- `pkglab repo off` — deactivate a repo
+- `pkglab repo reset` — reset repo state
+- `pkglab repo rename` — rename a repo
 - `pkglab pkg ls` — list published packages
+- `pkglab pkg rm <name...>` — remove packages from registry (also `--all`)
 
 ## Workflow
 
@@ -36,7 +36,7 @@ Subcommands:
 2. `pkglab pub` — publish workspace packages (from the library repo)
 3. `pkglab add <pkg>` — install a pkglab package in a consumer repo (run from consumer repo dir)
 4. Iterate: make changes to the library, run `pkglab pub` again — active consumer repos are auto-updated
-5. `pkglab rm <pkg>` — restore original version when done
+5. `pkglab restore <pkg>` or `pkglab restore --all` — restore original versions when done
 6. `pkglab down` — stop the registry
 
 For multi-worktree workflows, use tags to isolate version channels:

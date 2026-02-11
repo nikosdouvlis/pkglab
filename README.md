@@ -54,8 +54,9 @@ pkglab add <name> # or omit for interactive prompt
 # Active consumer repos update automatically
 pkglab pub
 
-# When done, restore the original version
-pkglab rm @clerk/backend
+# When done, restore original versions
+pkglab restore @clerk/backend   # one package
+pkglab restore --all            # everything in this repo
 
 # Stop the registry
 pkglab down
@@ -101,18 +102,18 @@ On top of that, **`pkglab`** handles automatic consumer updates, dependency casc
 
 - `pkglab up` -start the local registry. Deactivates repos from the previous session, then offers a picker to reactivate the ones you need.
 - `pkglab down` -stop the registry.
-- `pkglab pub [name]` -publish packages to the local registry. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade, including sibling workspace deps of dependents. Fingerprints each package and skips unchanged ones: only packages with content changes or whose deps changed get a new version. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade and fingerprinting), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch).
-- `pkglab add [name[@tag]]` -install a pkglab package in the current repo. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. Append `@tag` to pin to a tag (e.g. `pkglab add @clerk/pkg@feat1`). No args for an interactive picker.
-- `pkglab rm <name>` -remove a pkglab package. Restores the original version from before `pkglab add`, cleans `.npmrc` if no packages remain, and removes skip-worktree. Run your package manager's install afterward to sync the lock file.
+- `pkglab pub [name...]` -publish packages to the local registry. Accepts multiple names. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade, including sibling workspace deps of dependents. Fingerprints each package and skips unchanged ones: only packages with content changes or whose deps changed get a new version. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade and fingerprinting), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch).
+- `pkglab add [name[@tag]...]` -install pkglab packages in the current repo. Accepts multiple names, batch installs in one command. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. Append `@tag` to pin to a tag (e.g. `pkglab add @clerk/pkg@feat1`). No args for an interactive picker.
+- `pkglab restore <name>` -restore a pkglab package to its original version from before `pkglab add`. Cleans `.npmrc` if no packages remain, and removes skip-worktree. `--all` restores every pkglab package in the repo. Run your package manager's install afterward to sync the lock file.
 - `pkglab status` -show whether the registry is running and on which port.
 - `pkglab logs` -tail Verdaccio logs. `-f` for follow mode.
 - `pkglab check` -pre-commit safety check. Scans for pkglab artifacts in `package.json` and `.npmrc` (local versions, registry markers, staged files). Returns exit code 1 if anything is found.
 - `pkglab doctor` -diagnose your setup. Checks directory structure, daemon health, registry connectivity, and skip-worktree flags across all linked repos. Auto-repairs missing flags.
-- `pkglab prune` -clean old versions from storage. Keeps the 3 most recent versions per tag per package (configurable) and preserves any version currently linked in an active repo. `--all` to remove all pkglab versions.
-- `pkglab repos ls` -list consumer repos with their active/inactive status and linked packages.
-- `pkglab repos on/off [name]` -activate or deactivate a consumer repo. Interactive picker if no name given.
-- `pkglab repos reset [name]` -clear all state for a repo. `--all` to reset every repo.
-- `pkglab repos rename <old> <new>` -rename a repo's display name.
+- `pkglab pkg rm <name...>` -remove packages from the local registry entirely (API + storage). Accepts multiple names. `--all` removes every pkglab package and clears fingerprint state.
+- `pkglab repo ls` -list consumer repos with their active/inactive status and linked packages.
+- `pkglab repo on/off [name]` -activate or deactivate a consumer repo. Interactive picker if no name given.
+- `pkglab repo reset [name]` -clear all state for a repo. `--all` to reset every repo.
+- `pkglab repo rename <old> <new>` -rename a repo's display name.
 - `pkglab pkg ls` -list published packages in the local registry, grouped by tag with the latest version per tag.
 - `pkglab reset --hard` -wipe all pkglab data and Verdaccio storage. Stops the daemon if running.
 - `pkglab reset --fingerprints` -clear the fingerprint cache. Next `pub` will republish all packages regardless of content changes.
@@ -194,7 +195,7 @@ Logs are written to `/tmp/pkglab/verdaccio.log`.
 **`pkglab`** is designed to prevent local development artifacts from leaking into your codebase:
 
 - `git update-index --skip-worktree .npmrc` is applied automatically when you `pkglab add`, so your localhost registry URL won't show up in `git status` (requires `.npmrc` to be tracked by git)
-- `pkglab rm` restores the original package version and cleans up `.npmrc`
+- `pkglab restore` restores original package versions and cleans up `.npmrc`
 - `pkglab check` scans for any remaining artifacts and returns a non-zero exit code, wire it into your pre-commit hook or CI
 - `pkglab doctor` verifies and repairs skip-worktree flags across all linked repos
 
