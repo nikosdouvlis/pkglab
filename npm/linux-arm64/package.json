@@ -1,6 +1,6 @@
 {
   "name": "pkglab-linux-arm64",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "description": "pkglab Linux ARM64 binary",
   "license": "MIT",
   "author": "Nikos Douvlis <nikosdouvlis@gmail.com>",
