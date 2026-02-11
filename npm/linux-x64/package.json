@@ -1,6 +1,6 @@
 {
   "name": "pkglab-linux-x64",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "pkglab Linux x64 binary",
   "license": "MIT",
   "author": "Nikos Douvlis <nikosdouvlis@gmail.com>",
