@@ -1,7 +1,4 @@
 import { defineCommand } from "citty";
-import { select } from "@inquirer/prompts";
-import { ExitPromptError } from "@inquirer/core";
-import { filterableCheckbox } from "../lib/prompt";
 import { getDaemonStatus } from "../lib/daemon";
 import { loadConfig } from "../lib/config";
 import {
@@ -17,7 +14,10 @@ import {
   loadRepoState,
   saveRepoState,
 } from "../lib/repo-state";
-import { getPackageVersions, listAllPackages } from "../lib/registry";
+import {
+  getPkglabVersions,
+  listPkglabPackages,
+} from "../lib/registry";
 import {
   ispkglabVersion,
   extractTimestamp,
@@ -159,12 +159,15 @@ async function interactiveAdd(
   config: pkglabConfig,
   repoPath: string,
 ): Promise<void> {
-  const allPackages = await listAllPackages(config);
-  const pkglabPackages = allPackages.filter((pkg) =>
-    pkg.versions.some(ispkglabVersion),
-  );
+  const [packages, { filterableCheckbox }, { select }, { ExitPromptError }] =
+    await Promise.all([
+      listPkglabPackages(),
+      import("../lib/prompt"),
+      import("@inquirer/prompts"),
+      import("@inquirer/core"),
+    ]);
 
-  if (pkglabPackages.length === 0) {
+  if (packages.length === 0) {
     log.error("No pkglab packages found. Publish first: pkglab pub");
     process.exit(1);
   }
@@ -173,10 +176,8 @@ async function interactiveAdd(
   try {
     selectedNames = await filterableCheckbox({
       message: "Select packages to add:",
-      choices: pkglabPackages.map((pkg) => ({
-        name: pkg.name,
-        value: pkg.name,
-      })),
+      pageSize: 15,
+      choices: packages.map((pkg) => ({ name: pkg.name, value: pkg.name })),
     });
   } catch (err) {
     if (err instanceof ExitPromptError) process.exit(0);
@@ -189,10 +190,8 @@ async function interactiveAdd(
   }
 
   for (const pkgName of selectedNames) {
-    const pkg = pkglabPackages.find((p) => p.name === pkgName)!;
-    const pkglabVersions = pkg.versions.filter(ispkglabVersion);
-    const tags = [...new Set(pkglabVersions.map(extractTag))];
-
+    const pkg = packages.find((p) => p.name === pkgName)!;
+    const tags = [...new Set(pkg.versions.map(extractTag))];
     let selectedTag: string | null;
 
     if (tags.length === 1) {
@@ -212,11 +211,7 @@ async function interactiveAdd(
       }
     }
 
-    const resolved = resolveVersion(
-      pkgName,
-      pkg.versions,
-      selectedTag ?? undefined,
-    );
+    const resolved = resolveVersion(pkgName, pkg.versions, selectedTag ?? undefined);
     await installPackage(config, repoPath, resolved);
   }
 }
@@ -231,22 +226,28 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    const status = await getDaemonStatus();
-    if (!status?.running) throw new DaemonNotRunningError();
-
     const config = await loadConfig();
-    const repoPath = await canonicalRepoPath(process.cwd());
 
     if (!args.name) {
+      const [status, repoPath] = await Promise.all([
+        getDaemonStatus(),
+        canonicalRepoPath(process.cwd()),
+      ]);
+      if (!status?.running) throw new DaemonNotRunningError();
       await interactiveAdd(config, repoPath);
       await ensureNpmrcForActiveRepos(config.port);
       return;
     }
 
     const { name: pkgName, tag } = parsePackageArg(args.name as string);
-    const versions = await getPackageVersions(config, pkgName);
-    const resolved = resolveVersion(pkgName, versions, tag);
+    const [status, repoPath, versions] = await Promise.all([
+      getDaemonStatus(),
+      canonicalRepoPath(process.cwd()),
+      getPkglabVersions(pkgName),
+    ]);
+    if (!status?.running) throw new DaemonNotRunningError();
 
+    const resolved = resolveVersion(pkgName, versions, tag);
     await installPackage(config, repoPath, resolved);
     await ensureNpmrcForActiveRepos(config.port);
   },
