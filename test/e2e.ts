@@ -341,6 +341,24 @@ try {
     assert(r.stdout.includes("3 packages"), "publishes 3 packages (target + dep + dependent)");
   }
 
+  // 12b. Unchanged dep does NOT cascade to its dependents
+  heading("12b. unchanged dep skips cascade");
+  {
+    // After test 12, all packages have fingerprint state.
+    // Touch ONLY pkg-b (not pkg-a). Publishing pkg-b should include
+    // pkg-a as a dep (unchanged), but NOT cascade to pkg-c because
+    // pkg-a didn't change.
+    await Bun.write(join(producerDir, "packages/pkg-b/index.js"), "// updated for test 12b\n");
+
+    const r = await pkglab(["pub", "@test/pkg-b"], { cwd: producerDir });
+    assert(r.code === 0, "pkglab pub @test/pkg-b succeeds");
+    assert(r.stdout.includes("@test/pkg-a"), "dep @test/pkg-a in scope");
+    assert(r.stdout.includes("@test/pkg-b"), "@test/pkg-b in scope");
+    // pkg-c should NOT appear because pkg-a is unchanged
+    assert(!r.stdout.includes("@test/pkg-c"), "pkg-c excluded (dep pkg-a unchanged)");
+    assert(r.stdout.includes("1 to publish"), "only 1 package to publish (pkg-b)");
+  }
+
   // 13. Single-package pub includes dependents
   heading("13. pub single package includes dependents");
   {
