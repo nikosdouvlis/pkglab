@@ -20,7 +20,9 @@
   "scripts": {
     "build:npm": "scripts/build-npm.sh",
     "publish:npm": "scripts/publish-npm.sh",
-    "test:e2e": "bun run test/e2e.ts"
+    "test:e2e": "bun run test/e2e.ts",
+    "version": "changeset version && bun run scripts/sync-versions.ts",
+    "release": "bun run scripts/ci-release.ts"
   },
   "bin": {
     "pkglab": "./src/index.ts",
@@ -36,6 +38,7 @@
     "yaml": "^2.7"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.8",
     "@types/bun": "latest",
     "typescript": "^5.7"
   }
