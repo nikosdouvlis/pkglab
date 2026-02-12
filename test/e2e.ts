@@ -324,7 +324,7 @@ try {
   }
 
   // 12. Single-package pub includes deps and cascades to dependents of changed deps
-  heading("12. pub single package includes deps + dependent cascade");
+  heading("12. pub single package includes deps but not dependents (no repos)");
   {
     // Touch files so fingerprinting detects changes
     await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 12\n");
@@ -334,20 +334,19 @@ try {
     const r = await pkglab(["pub", "@test/pkg-b"], { cwd: producerDir });
     assert(r.code === 0, "pkglab pub @test/pkg-b succeeds");
     // pkg-b depends on pkg-a, so pkg-a is in scope as a dependency.
-    // Two-phase cascade: pkg-a is changed, so its dependent pkg-c is also included.
+    // No active repos = no dependent expansion, so pkg-c is NOT included.
     assert(r.stdout.includes("@test/pkg-a"), "dependency @test/pkg-a included in publish");
     assert(r.stdout.includes("@test/pkg-b"), "@test/pkg-b included in publish");
-    assert(r.stdout.includes("@test/pkg-c"), "dependent @test/pkg-c included via changed dep");
-    assert(r.stdout.includes("3 packages"), "publishes 3 packages (target + dep + dependent)");
+    assert(!r.stdout.includes("@test/pkg-c"), "pkg-c excluded (no active repos)");
+    assert(r.stdout.includes("2 packages"), "publishes 2 packages (target + dep)");
   }
 
   // 12b. Unchanged dep does NOT cascade to its dependents
   heading("12b. unchanged dep skips cascade");
   {
-    // After test 12, all packages have fingerprint state.
+    // After test 12, pkg-a and pkg-b have fingerprint state.
     // Touch ONLY pkg-b (not pkg-a). Publishing pkg-b should include
-    // pkg-a as a dep (unchanged), but NOT cascade to pkg-c because
-    // pkg-a didn't change.
+    // pkg-a as a dep (unchanged). pkg-c is excluded (no active repos).
     await Bun.write(join(producerDir, "packages/pkg-b/index.js"), "// updated for test 12b\n");
 
     const r = await pkglab(["pub", "@test/pkg-b"], { cwd: producerDir });
@@ -359,22 +358,19 @@ try {
     assert(r.stdout.includes("1 to publish"), "only 1 package to publish (pkg-b)");
   }
 
-  // 13. Single-package pub includes dependents
-  heading("13. pub single package includes dependents");
+  // 13. Single-package pub without repos only publishes target
+  heading("13. pub single package without repos (no dependents)");
   {
-    // pkg-a has no deps, but pkg-b and pkg-c depend on it, so publishing pkg-a
-    // should cascade up and also publish both dependents (no active repos = no filtering)
-    // Touch files so fingerprinting detects changes
+    // pkg-a has no deps. pkg-b and pkg-c depend on it, but with no active repos
+    // there's no dependent expansion, so only pkg-a is published.
     await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 13\n");
-    await Bun.write(join(producerDir, "packages/pkg-b/index.js"), "// updated for test 13\n");
-    await Bun.write(join(producerDir, "packages/pkg-c/index.js"), "// updated for test 13\n");
 
     const r = await pkglab(["pub", "@test/pkg-a"], { cwd: producerDir });
     assert(r.code === 0, "pkglab pub @test/pkg-a succeeds");
     assert(r.stdout.includes("@test/pkg-a"), "@test/pkg-a included in publish");
-    assert(r.stdout.includes("@test/pkg-b"), "dependent @test/pkg-b included in publish");
-    assert(r.stdout.includes("@test/pkg-c"), "dependent @test/pkg-c included in publish");
-    assert(r.stdout.includes("3 packages"), "publishes 3 packages total");
+    assert(!r.stdout.includes("@test/pkg-b"), "pkg-b excluded (no active repos)");
+    assert(!r.stdout.includes("@test/pkg-c"), "pkg-c excluded (no active repos)");
+    assert(r.stdout.includes("1 packages"), "publishes 1 package (target only)");
   }
 
   // 14. Test error: add with non-existent tag

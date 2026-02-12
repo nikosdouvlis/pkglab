@@ -64,16 +64,18 @@ export function expandDependents(
   changedPackages: string[],
   currentScope: Set<string>,
   consumedPackages?: Set<string>,
-): { newPackages: string[]; dependents: Record<string, string[]>; skippedDependents: string[] } {
+): { newPackages: string[]; dependents: Record<string, string[]>; skippedDependents: { name: string; via: string }[] } {
   const dependents: Record<string, string[]> = {};
   const newPackages = new Set<string>();
-  const allPossibleDependents = consumedPackages ? new Set<string>() : null;
+  const allPossibleDependents = consumedPackages ? new Map<string, string>() : null;
 
   for (const name of changedPackages) {
     try {
       const transitiveDependents = graph.dependantsOf(name);
       if (allPossibleDependents) {
-        for (const d of transitiveDependents) allPossibleDependents.add(d);
+        for (const d of transitiveDependents) {
+          if (!allPossibleDependents.has(d)) allPossibleDependents.set(d, name);
+        }
       }
 
       if (consumedPackages) {
@@ -108,11 +110,12 @@ export function expandDependents(
   // Skipped dependents: those that would have been included without the filter
   // but are not in scope and not in the new packages set
   const allIncluded = new Set([...currentScope, ...newPackages]);
-  const skippedDependents = allPossibleDependents
-    ? [...allPossibleDependents]
-        .filter((d) => !allIncluded.has(d))
-        .filter((d) => !graph.getNodeData(d).packageJson.private)
-        .sort()
+  const skippedDependents: { name: string; via: string }[] = allPossibleDependents
+    ? [...allPossibleDependents.entries()]
+        .filter((e) => !allIncluded.has(e[0]))
+        .filter((e) => !graph.getNodeData(e[0]).packageJson.private)
+        .map((e) => ({ name: e[0], via: e[1] }))
+        .sort((a, b) => a.name.localeCompare(b.name))
     : [];
 
   return { newPackages: [...newPackages], dependents, skippedDependents };

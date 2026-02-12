@@ -79,6 +79,7 @@ export default defineCommand({
     name: { type: "positional", description: "Package name(s)", required: false },
     "dry-run": { type: "boolean", description: "Show what would be published", default: false },
     single: { type: "boolean", description: "Skip dep cascade", default: false },
+    shallow: { type: "boolean", description: "Targets + deps only, no dependent expansion", default: false },
     verbose: { type: "boolean", description: "Show detailed output", default: false, alias: "v" },
     force: { type: "boolean", description: "Ignore fingerprints (republish all)", default: false, alias: "f" },
     tag: { type: "string", description: "Publish with a tag", alias: "t" },
@@ -164,18 +165,13 @@ export default defineCommand({
     }
 
     // Gather consumed packages from active repos for cascade filtering.
-    // When consumers exist, skip dependents that no consumer has installed.
-    let consumedPackages: Set<string> | undefined;
+    // No active repos = empty set = no dependents pass filter (nobody is consuming).
+    // Active repos = filter dependents to only packages consumers have installed.
+    const consumedPackages = new Set<string>();
     const activeRepos = await getActiveRepos();
-    if (activeRepos.length > 0) {
-      consumedPackages = new Set<string>();
-      for (const { state } of activeRepos) {
-        for (const pkgName of Object.keys(state.packages)) {
-          consumedPackages.add(pkgName);
-        }
-      }
-      if (consumedPackages.size === 0) {
-        consumedPackages = undefined;
+    for (const { state } of activeRepos) {
+      for (const pkgName of Object.keys(state.packages)) {
+        consumedPackages.add(pkgName);
       }
     }
 
@@ -187,8 +183,8 @@ export default defineCommand({
     const targetSet = new Set(targets);
     // Maps dependent name to the package that triggered its inclusion
     const expandedFrom = new Map<string, string>();
-    // All skipped dependents across iterations
-    let allSkippedDependents: string[] = [];
+    // All skipped dependents across iterations (name + which package triggered them)
+    let allSkippedDependents: { name: string; via: string }[] = [];
 
     // Load previous fingerprint state (--force uses empty state to republish all)
     const previousState = args.force
@@ -239,10 +235,13 @@ export default defineCommand({
         scopePackages, fingerprints, previousState, graph,
       ));
 
+      // --shallow: skip dependent expansion (targets + deps only)
+      if (args.shallow) break;
+
       // Find changed packages we haven't expanded from yet
       const toExpand: string[] = [];
       for (const [name, r] of reason) {
-        if ((r === "changed" || r === "propagated") && !expandedSet.has(name)) {
+        if (r === "changed" && !expandedSet.has(name)) {
           toExpand.push(name);
         }
       }
@@ -287,9 +286,14 @@ export default defineCommand({
     }
 
     // Deduplicate skipped dependents
-    allSkippedDependents = [...new Set(allSkippedDependents)]
-      .filter((d) => !scope.has(d))
-      .sort();
+    const seenSkipped = new Set<string>();
+    allSkippedDependents = allSkippedDependents
+      .filter((d) => {
+        if (scope.has(d.name) || seenSkipped.has(d.name)) return false;
+        seenSkipped.add(d.name);
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     // Final toposort of the complete scope
     const finalOrdered = deterministicToposort(graph, scope);
@@ -371,8 +375,10 @@ export default defineCommand({
         log.line(`  ${c.dim("\u00B7")} ${c.dim(pkg.name)}  ${c.dim(`${scopeReason}, ${changeReason}`)}`);
       }
     }
-    for (const name of allSkippedDependents) {
-      log.line(`  ${c.dim("\u00B7")} ${c.dim(name)}  ${c.dim("dependent, no consumers")}`);
+    if (activeRepos.length > 0) {
+      for (const { name, via } of allSkippedDependents) {
+        log.line(`  ${c.dim("\u00B7")} ${c.dim(name)}  ${c.dim(`dependent (via ${via}), no consumers`)}`);
+      }
     }
 
     if (publishSet.length === 0) {

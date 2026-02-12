@@ -103,7 +103,7 @@ On top of that, **`pkglab`** handles automatic consumer updates, dependency casc
 
 - `pkglab up` -start the local registry. Deactivates repos from the previous session, then offers a picker to reactivate the ones you need.
 - `pkglab down` -stop the registry.
-- `pkglab pub [name...]` -publish packages to the local registry. Accepts multiple names. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade, including sibling workspace deps of dependents. Fingerprints each package and skips unchanged ones: only packages with content changes or whose deps changed get a new version. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade and fingerprinting), `--force`/`-f` (ignore fingerprints, republish all), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch).
+- `pkglab pub [name...]` -publish packages to the local registry. Accepts multiple names. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade, including sibling workspace deps of dependents. Fingerprints each package and skips unchanged ones: only packages with content changes or whose deps changed get a new version. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade and fingerprinting), `--shallow` (targets + deps only, no dependent expansion), `--force`/`-f` (ignore fingerprints, republish all), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch).
 - `pkglab add [name[@tag]...]` -install pkglab packages in the current repo. Accepts multiple names, batch installs in one command. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. Append `@tag` to pin to a tag (e.g. `pkglab add @clerk/pkg@feat1`). No args for an interactive picker. `--catalog` updates the workspace root catalog instead of individual package.json files (for Bun/pnpm monorepos using the `catalog:` protocol).
 - `pkglab restore <name>` -restore a pkglab package to its original version from before `pkglab add`. Runs the package manager install to sync node_modules, cleans `.npmrc` if no packages remain, and removes skip-worktree. `--all` restores every pkglab package in the repo.
 - `pkglab status` -show whether the registry is running and on which port.
@@ -236,7 +236,17 @@ pkgA keeps its existing version and pkgC is never pulled in. The cascade stays n
 
 This two-phase approach gives you the best of both worlds. Narrow publishes when nothing upstream changed, automatic expansion when a shared dependency did change. The loop repeats until no new packages are added (a fixpoint), so deeply nested dependency changes propagate correctly through the entire graph.
 
-**Consumer-aware filtering.** When active consumer repos exist, the cascade skips dependents that no consumer has installed (via `pkglab add`). If you have consumers using `@clerk/react` and `@clerk/nextjs` but not `@clerk/vue`, publishing a shared dependency won't cascade to vue. This keeps publishes focused on what's actually being tested. If no consumers are registered, all dependents are included as before. Trade-off: adding a previously-skipped package via `pkglab add` gives the last-published version until the next `pkglab pub`.
+**The cascade in three steps.**
+
+1. DOWN (deps): pull in transitive deps of the target, unconditionally. These must be in scope so `workspace:^` references resolve.
+2. UP (dependents): expand from packages whose content actually changed. If `shared` is unchanged, don't cascade to `express`/`remix`. If `shared` changed, pull them in.
+3. PUBLISH filter: of the dependents pulled in by step 2, only publish the ones a consumer has installed (via `pkglab add`). `express` not consumed? Skip it.
+
+When no consumer repos are active (you haven't run `pkglab add` anywhere), the consumed set is empty and the filter removes all dependents. The result is targets + deps only. Once you add a consumer repo, dependents of changed packages start flowing through.
+
+`--shallow` skips step 2 entirely: targets + their transitive deps, no dependent expansion, regardless of whether consumer repos exist. Useful for a quick publish when you know you only care about the target.
+
+Trade-off: adding a previously-skipped package via `pkglab add` gives the last-published version until the next `pkglab pub`.
 
 **Batched consumer installs.** When auto-updating consumer repos, pkglab batches all packages into a single install command per repo (`pnpm add a@v1 b@v2 c@v3`) instead of running one command per package. If the install fails, package.json changes are rolled back so the repo stays consistent with its node_modules.
 

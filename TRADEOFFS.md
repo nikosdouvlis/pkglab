@@ -9,7 +9,7 @@ When you run `pkglab pub`, the algorithm builds a "cascade" of packages to inclu
 1. Pick targets. If you're in a package directory, the target is that package. If you pass a name, that's the target. From workspace root, all publishable packages become targets.
 2. Pull in transitive dependencies of each target. This ensures workspace deps get published at matching pkglab versions, so internal `workspace:^` references resolve correctly against the local registry.
 3. Fingerprint the current scope. Classify each package as changed (content hash differs), propagated (content same but a workspace dep changed), or unchanged (skip, keep existing version).
-4. Expand dependents only from packages classified as changed or propagated (not from unchanged ones).
+4. Expand dependents only from packages classified as changed (not propagated or unchanged). Propagated packages don't need expansion because their dependents are already transitive dependents of the original changed package.
 5. If active consumer repos exist, filter dependents: only keep the ones that some consumer has installed via `pkglab add`.
 6. Close under deps: every package in the final set must have its workspace deps also in the set.
 7. Repeat steps 3-6 until no new packages are added (fixpoint).
@@ -53,7 +53,9 @@ When active consumer repos exist (repos where you've run `pkglab add`), the casc
 
 The tradeoff: if you later run `pkglab add @clerk/express` and express was previously filtered out of the cascade, you get a stale version until the next `pkglab pub`. The `add` command installs whatever version is currently in the local Verdaccio, and if express hasn't been published recently, that version could be outdated.
 
-When no consumer repos are active at all, the filter is disabled and all dependents are included. This is the safe default for first-time users who haven't set up any consumers yet, but it does mean larger cascades in big monorepos.
+When no consumer repos are active at all, the consumed set is empty, so the filter removes all dependents. The result is the same as `--shallow` (targets + deps only), but for a different reason: nobody is consuming anything yet. Once you run `pkglab add` in a consumer repo, the cascade starts expanding dependents (filtered to consumed packages).
+
+`--shallow` explicitly skips the UP step (dependent expansion). Use it when you want a quick publish of just the target and its deps, regardless of whether consumer repos exist.
 
 ## Possible improvements
 

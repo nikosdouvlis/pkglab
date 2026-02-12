@@ -13,7 +13,7 @@ Top-level:
 - `pkglab down` — stop the registry
 - `pkglab status` — show registry status
 - `pkglab logs` — show registry logs
-- `pkglab pub [name...]` — publish workspace packages to local registry, auto-updates active consumer repos. Accepts multiple names. Fingerprints packages and skips unchanged ones. Flags: `--single` skip cascade/fingerprinting, `--force`/`-f` ignore fingerprints (republish all), `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--dry-run`, `--verbose`/`-v`
+- `pkglab pub [name...]` — publish workspace packages to local registry, auto-updates active consumer repos. Accepts multiple names. Fingerprints packages and skips unchanged ones. Flags: `--single` skip cascade/fingerprinting, `--shallow` targets + deps only (no dependent expansion), `--force`/`-f` ignore fingerprints (republish all), `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--dry-run`, `--verbose`/`-v`
 - `pkglab add [name[@tag]...]` — add pkglab packages to the current repo. Accepts multiple names. No args for interactive picker. Batch installs in one command. `--catalog` updates the workspace root catalog instead of individual package.json (for repos using `catalog:` protocol).
 - `pkglab restore <name>` — restore a pkglab package to its original version, runs pm install to sync node_modules. `--all` restores all packages in the repo.
 - `pkglab doctor` — diagnose issues
@@ -81,13 +81,14 @@ Fingerprinting: each package in scope is fingerprinted using `Bun.Glob` + `Bun.C
 - "propagated": content same, but a workspace dep was changed/propagated
 - "unchanged": content same, no deps changed (skipped, keeps existing version)
 
-Phase 2 (dependent expansion): for each package classified as "changed" or "propagated," expand its transitive dependents into the scope. New packages are fingerprinted and classified, and the loop repeats until no new changed packages are found. This ensures that if a dependency (like `@clerk/shared`) changes, all its dependents (like `@clerk/express`) are included even if they weren't in the original targets.
+Phase 2 (dependent expansion): for each package classified as "changed," expand its transitive dependents into the scope. Expanding from "propagated" is skipped because every dependent of a propagated package is already a transitive dependent of the original changed package. New packages are fingerprinted and classified, and the loop repeats until no new changed packages are found. This ensures that if a dependency (like `@clerk/shared`) changes, all its dependents (like `@clerk/express`) are included even if they weren't in the original targets.
 
 Fingerprint state is stored per workspace, per package, per tag in `~/.pkglab/fingerprints.json`. Treated as a cache: missing/corrupt state triggers a full republish. State is saved after consumer updates succeed.
 
-When active consumer repos exist, the cascade filters dependents: only dependents that some consumer has installed (via `pkglab add`) are included. This avoids publishing packages nobody is using. If no active repos exist, all dependents are included. Trade-off: `pkglab add` of a previously-skipped package gives a stale version until the next `pkglab pub`.
+The cascade has three steps: (1) DOWN: pull in transitive deps of targets so `workspace:^` references resolve, (2) UP: expand dependents from packages whose content actually changed, (3) PUBLISH filter: only publish dependents that a consumer has installed via `pkglab add`. No active repos means nothing is consumed, so the filter removes all dependents.
 
 `--single` bypasses cascade and fingerprinting entirely.
+`--shallow` runs step 1 (DOWN) only, skipping dependent expansion and the consumer filter. Targets + their transitive deps, nothing more.
 `--force`/`-f` ignores previous fingerprint state (republishes all packages) but still computes and saves new fingerprints.
 
 ## Pub command output
