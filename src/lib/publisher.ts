@@ -9,6 +9,7 @@ import type {
 } from "../types";
 import { log } from "./log";
 import { run, npmEnvWithAuth } from "./proc";
+import { extractTag } from "./version";
 
 export function buildPublishPlan(
   packages: WorkspacePackage[],
@@ -176,8 +177,11 @@ async function publishSinglePackage(
     const npmrc = `registry=${registryUrl}\n${registryHost}/:_authToken=pkglab-local\n`;
     await Bun.write(join(tempDir, ".npmrc"), npmrc);
 
+    const tag = extractTag(entry.version);
+    const distTag = tag ? `pkglab-${tag}` : "pkglab";
+
     const result = await run(
-      ["npm", "publish", "--registry", registryUrl, "--no-git-checks", "--access", "public"],
+      ["npm", "publish", "--registry", registryUrl, "--tag", distTag, "--access", "public"],
       { cwd: tempDir },
     );
     if (result.exitCode !== 0) {

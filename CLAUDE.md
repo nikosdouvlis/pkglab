@@ -115,4 +115,4 @@ IMPORTANT: After changing commands, flags, or CLI behavior, always check README.
 
 Scopes: pub, pkgs, repos, daemon, consumer, registry, version, config
 
-IMPORTANT: Changesets should be created alongside the commit when using /cmt. Add a changeset file in `.changeset/` with the appropriate bump level (patch for fixes, minor for features) and stage it together with the code changes.
+IMPORTANT: Changesets are MANDATORY for every commit made with /cmt. Always create a changeset file in `.changeset/` with the appropriate bump level (patch for fixes, minor for features) and stage it together with the code changes. Never commit without a changeset.
