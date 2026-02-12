@@ -1,5 +1,11 @@
 # pkglab
 
+## 0.1.1
+
+### Patch Changes
+
+- f5ef3f0: Fix npm publish failing on npm 11 by adding required --tag flag for prerelease versions
+
 ## 0.1.0
 
 ### Minor Changes
