@@ -10,6 +10,18 @@ const version = rootPkg.version;
 
 console.log(`Publishing pkglab@${version}`);
 
+// Check if this version is already published
+const checkProc = Bun.spawn(["npm", "view", `pkglab@${version}`, "version"], {
+  stdout: "pipe",
+  stderr: "pipe",
+});
+const checkOutput = (await new Response(checkProc.stdout).text()).trim();
+await checkProc.exited;
+if (checkOutput === version) {
+  console.log(`pkglab@${version} is already published, nothing to do.`);
+  process.exit(0);
+}
+
 const platforms = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] as const;
 
 // Copy repo README into main package, write redirect READMEs for platform packages
