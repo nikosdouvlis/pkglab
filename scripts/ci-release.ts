@@ -12,6 +12,16 @@ console.log(`Publishing pkglab@${version}`);
 
 const platforms = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] as const;
 
+// Copy repo README into main package, write redirect READMEs for platform packages
+const repoReadme = await Bun.file(`${ROOT}/README.md`).text();
+await Bun.write(`${ROOT}/npm/pkglab/README.md`, repoReadme);
+for (const platform of platforms) {
+  await Bun.write(
+    `${ROOT}/npm/${platform}/README.md`,
+    `# pkglab-${platform}\n\nPlatform binary for [pkglab](https://www.npmjs.com/package/pkglab). See the main package for documentation.\n`,
+  );
+}
+
 // Cross-compile binaries
 console.log("\nBuilding binaries...");
 for (const platform of platforms) {
