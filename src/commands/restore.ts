@@ -1,4 +1,5 @@
 import { defineCommand } from "citty";
+import { join } from "node:path";
 import {
   removeRegistryFromNpmrc,
   removeSkipWorktree,
@@ -21,7 +22,9 @@ async function restorePackage(
   pkgName: string,
   original: string,
   catalogName?: string,
+  packageJsonDir?: string,
 ): Promise<void> {
+  const targetDir = packageJsonDir ? join(repoPath, packageJsonDir) : repoPath;
   if (catalogName) {
     const catalogRoot = await findCatalogRoot(repoPath);
     if (catalogRoot && original) {
@@ -29,15 +32,15 @@ async function restorePackage(
       log.info(`Restored ${pkgName} to ${original} (catalog)`);
     } else if (!catalogRoot) {
       log.warn(`Could not find catalog root for ${pkgName}, restoring in package.json`);
-      if (original) await updatePackageJsonVersion(repoPath, pkgName, original);
+      if (original) await updatePackageJsonVersion(targetDir, pkgName, original);
     }
     return;
   }
   if (original) {
-    await updatePackageJsonVersion(repoPath, pkgName, original);
+    await updatePackageJsonVersion(targetDir, pkgName, original);
     log.info(`Restored ${pkgName} to ${original}`);
   } else {
-    await removePackageJsonDependency(repoPath, pkgName);
+    await removePackageJsonDependency(targetDir, pkgName);
     log.info(`Removed ${pkgName} (was added by pkglab, no original version)`);
   }
 }
@@ -64,7 +67,7 @@ export default defineCommand({
       const names = Object.keys(repo.state.packages);
       for (const name of names) {
         const link = repo.state.packages[name];
-        await restorePackage(repoPath, name, link.original, link.catalogName);
+        await restorePackage(repoPath, name, link.original, link.catalogName, link.packageJsonDir);
         delete repo.state.packages[name];
       }
       await saveRepoState(repo.name, repo.state);
@@ -94,7 +97,7 @@ export default defineCommand({
     }
 
     const link = repo.state.packages[pkgName];
-    await restorePackage(repoPath, pkgName, link.original, link.catalogName);
+    await restorePackage(repoPath, pkgName, link.original, link.catalogName, link.packageJsonDir);
     delete repo.state.packages[pkgName];
     await saveRepoState(repo.name, repo.state);
 

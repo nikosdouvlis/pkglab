@@ -155,6 +155,7 @@ export interface VersionEntry {
   name: string;
   version: string;
   catalogName?: string;
+  packageJsonDir?: string; // relative path from repoPath to the dir containing the target package.json
 }
 
 interface InstallWithVersionUpdatesOpts {
@@ -173,6 +174,7 @@ export async function installWithVersionUpdates(
   opts: InstallWithVersionUpdatesOpts,
 ): Promise<Map<string, string | null>> {
   const { repoPath, catalogRoot, entries, pm, onCommand } = opts;
+  const hasCustomTarget = entries.some(e => e.packageJsonDir);
   const previousVersions = new Map<string, string | null>();
 
   // Step 1: write version updates
@@ -181,7 +183,8 @@ export async function installWithVersionUpdates(
       const { previousVersion } = await updateCatalogVersion(catalogRoot, entry.name, entry.version, entry.catalogName);
       previousVersions.set(entry.name, previousVersion);
     } else {
-      const { previousVersion } = await updatePackageJsonVersion(repoPath, entry.name, entry.version);
+      const target = entry.packageJsonDir ? join(repoPath, entry.packageJsonDir) : repoPath;
+      const { previousVersion } = await updatePackageJsonVersion(target, entry.name, entry.version);
       previousVersions.set(entry.name, previousVersion);
     }
   }
@@ -193,6 +196,10 @@ export async function installWithVersionUpdates(
   if (hasCatalog) {
     cmd = [pm, "install"];
     cwd = catalogRoot ?? repoPath;
+  } else if (hasCustomTarget) {
+    // Versions already written to target package.json(s), just sync
+    cmd = [pm, "install"];
+    cwd = repoPath;
   } else {
     cmd = batchInstallCommand(pm, entries.map(e => ({ name: e.name, version: e.version })));
     cwd = repoPath;
@@ -219,10 +226,11 @@ export async function installWithVersionUpdates(
             await updateCatalogVersion(catalogRoot, entry.name, prev, entry.catalogName);
           }
         } else {
+          const target = entry.packageJsonDir ? join(repoPath, entry.packageJsonDir) : repoPath;
           if (prev === null || prev === "") {
-            await removePackageJsonDependency(repoPath, entry.name);
+            await removePackageJsonDependency(target, entry.name);
           } else {
-            await updatePackageJsonVersion(repoPath, entry.name, prev);
+            await updatePackageJsonVersion(target, entry.name, prev);
           }
         }
       }
@@ -399,7 +407,7 @@ export async function updateActiveRepos(
           const repoTasks = tasks.filter((t) => t.repoIdx === r);
           const entries = repo.packages.map(e => {
             const link = repo.state.packages[e.name];
-            return { name: e.name, version: e.version, catalogName: link?.catalogName };
+            return { name: e.name, version: e.version, catalogName: link?.catalogName, packageJsonDir: link?.packageJsonDir };
           });
           const catalogRoot = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : undefined;
 
@@ -427,7 +435,7 @@ export async function updateActiveRepos(
       work.map(async (repo) => {
         const entries = repo.packages.map(e => {
           const link = repo.state.packages[e.name];
-          return { name: e.name, version: e.version, catalogName: link?.catalogName };
+          return { name: e.name, version: e.version, catalogName: link?.catalogName, packageJsonDir: link?.packageJsonDir };
         });
         const catalogRoot = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : undefined;
 

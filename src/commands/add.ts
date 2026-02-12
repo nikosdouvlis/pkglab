@@ -21,7 +21,7 @@ import {
   listPackageNames,
 } from "../lib/registry";
 import { sanitizeTag, ispkglabVersion, extractTag } from "../lib/version";
-import { join } from "node:path";
+import { join, resolve, relative } from "node:path";
 import { detectPackageManager } from "../lib/pm-detect";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
@@ -90,10 +90,13 @@ async function batchInstallPackages(
   repoPath: string,
   packages: ResolvedPackage[],
   catalog?: boolean,
+  packagejson?: string,
 ): Promise<void> {
   let effectivePath = repoPath;
   let catalogRoot: string | undefined;
   const catalogNames = new Map<string, string>(); // pkg name -> catalogName
+  const packageJsonDir = packagejson ? resolve(repoPath, packagejson) : undefined;
+  const pkgJsonTarget = packageJsonDir ?? repoPath;
 
   // Phase 1: Branch-specific prep
   if (catalog) {
@@ -117,7 +120,7 @@ async function batchInstallPackages(
   } else {
     // Detect stale pkglab deps in consumer's package.json that aren't in the current batch
     const batchNames = new Set(packages.map((p) => p.name));
-    const pkgJson = await Bun.file(join(repoPath, "package.json")).json();
+    const pkgJson = await Bun.file(join(pkgJsonTarget, "package.json")).json();
     const staleDeps: { name: string; version: string }[] = [];
 
     for (const field of ["dependencies", "devDependencies"] as const) {
@@ -170,11 +173,15 @@ async function batchInstallPackages(
   }
 
   // Phase 3: Build version entries and install
+  const relPackageJsonDir = packageJsonDir ? relative(effectivePath, packageJsonDir) : undefined;
   const entries: VersionEntry[] = packages.map(pkg => {
     const catalogName = catalogNames.get(pkg.name);
-    return catalogName
-      ? { name: pkg.name, version: pkg.version, catalogName }
-      : { name: pkg.name, version: pkg.version };
+    return {
+      name: pkg.name,
+      version: pkg.version,
+      ...(catalogName && { catalogName }),
+      ...(relPackageJsonDir && { packageJsonDir: relPackageJsonDir }),
+    };
   });
 
   const pm = await detectPackageManager(effectivePath);
@@ -202,11 +209,13 @@ async function batchInstallPackages(
         current: pkg.version,
         tag: pkg.tag,
         ...(catalogName && { catalogName }),
+        ...(relPackageJsonDir && { packageJsonDir: relPackageJsonDir }),
       };
     } else {
       repoState.packages[pkg.name].current = pkg.version;
       repoState.packages[pkg.name].tag = pkg.tag;
       if (catalogName) repoState.packages[pkg.name].catalogName = catalogName;
+      if (relPackageJsonDir) repoState.packages[pkg.name].packageJsonDir = relPackageJsonDir;
     }
   }
 
@@ -297,11 +306,17 @@ export default defineCommand({
       description: "Update the workspace catalog instead of individual package.json",
       default: false,
     },
+    packagejson: {
+      type: "string",
+      alias: "p",
+      description: "Path to directory containing the target package.json (relative to cwd)",
+    },
   },
   async run({ args }) {
     const config = await loadConfig();
     const names = ((args as any)._ as string[] | undefined) ?? [];
     const catalog = args.catalog as boolean;
+    const packagejson = args.packagejson as string | undefined;
 
     const [, repoPath] = await Promise.all([
       ensureDaemonRunning(),
@@ -318,7 +333,7 @@ export default defineCommand({
     }
 
     if (resolved.length > 0) {
-      await batchInstallPackages(config, repoPath, resolved, catalog);
+      await batchInstallPackages(config, repoPath, resolved, catalog, packagejson);
       await ensureNpmrcForActiveRepos(config.port);
     }
   },

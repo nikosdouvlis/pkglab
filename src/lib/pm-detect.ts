@@ -12,30 +12,37 @@ const LOCKFILES: Record<string, PackageManager> = {
 };
 
 export async function detectPackageManager(
-  repoPath: string
+  startDir: string
 ): Promise<PackageManager> {
   const entries = Object.entries(LOCKFILES);
-  const results = await Promise.all(
-    entries.map(([lockfile]) => Bun.file(join(repoPath, lockfile)).exists())
-  );
+  let dir = startDir;
 
-  const found: PackageManager[] = [];
-  for (let i = 0; i < entries.length; i++) {
-    if (results[i]) {
-      const pm = entries[i][1];
-      if (!found.includes(pm)) found.push(pm);
+  while (true) {
+    const results = await Promise.all(
+      entries.map(([lockfile]) => Bun.file(join(dir, lockfile)).exists())
+    );
+
+    const found: PackageManager[] = [];
+    for (let i = 0; i < entries.length; i++) {
+      if (results[i]) {
+        const pm = entries[i][1];
+        if (!found.includes(pm)) found.push(pm);
+      }
     }
-  }
 
-  if (found.length === 0) return "npm";
-  if (found.length === 1) return found[0];
+    if (found.length === 1) return found[0];
+    if (found.length > 1) {
+      // Multiple lockfiles: prefer pnpm > yarn > bun > npm
+      for (const preferred of ["pnpm", "yarn", "bun", "npm"] as const) {
+        if (found.includes(preferred)) return preferred;
+      }
+      return found[0];
+    }
 
-  // Multiple lockfiles — prefer the one that matches a known priority
-  // (pnpm > yarn > bun > npm) rather than erroring
-  for (const preferred of ["pnpm", "yarn", "bun", "npm"] as const) {
-    if (found.includes(preferred)) return preferred;
+    const parent = join(dir, "..");
+    if (parent === dir) return "npm";
+    dir = parent;
   }
-  return found[0];
 }
 
 export function packageManagerFromTool(tool: WorkspaceTool): PackageManager {
