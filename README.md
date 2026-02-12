@@ -206,7 +206,35 @@ Standalone Verdaccio - gives you the registry, but you still have to manage the 
 
 **Why not publish the full connected component?** The obvious fix is to publish every package connected through the dependency graph. But in a monorepo where a shared utility connects everything, publishing any one package would publish the entire repo. For Clerk, that's ~15 packages when you only changed one.
 
-**Content-aware publishing.** Instead of giving every package a new version, pkglab fingerprints each package by globbing the publishable file set (the `files` field, always-included files like package.json/README/LICENSE, and entry points from main/module/types/bin/exports) and SHA-256 hashing their contents. Packages are classified in topological order: "changed" if the content hash differs from the previous publish, "propagated" if the content is the same but a dependency got a new version, or "unchanged" if nothing is different. Unchanged packages keep their existing version and are skipped entirely. This means publishing `@clerk/react` when `@clerk/shared` hasn't changed only publishes react and its direct dependents, not shared, not backend, not the entire monorepo. Consumers get one version of shared because it was never given a new one.
+**Content-aware publishing.** Instead of giving every package a new version, pkglab fingerprints each package by globbing the publishable file set (the `files` field, always-included files like package.json/README/LICENSE, and entry points from main/module/types/bin/exports) and SHA-256 hashing their contents. Packages are classified in topological order: "changed" if the content hash differs from the previous publish, "propagated" if the content is the same but a dependency got a new version, or "unchanged" if nothing is different. Unchanged packages keep their existing version and are skipped entirely.
+
+**Two-phase cascade.** The cascade doesn't compute all dependents upfront. Instead, it works in two phases: first fingerprint, then expand. This matters because expanding dependents from an unchanged package is pointless (it kept its old version, so nothing downstream needs updating). Consider this workspace:
+
+```
+pkgA (shared utility)
+  ├── pkgB ── pkgD (target)
+  └── pkgC
+```
+
+You run `pkglab pub` from pkgD. Phase one pulls in pkgD's transitive deps (pkgB, pkgA) and fingerprints them. What happens next depends on what actually changed:
+
+Scenario 1: you edited pkgA.
+```
+pkgA (shared utility)    ← changed
+  ├── pkgB ── pkgD       ← propagated, propagated
+  └── pkgC               ← pulled in as dependent of pkgA
+```
+pkgA is classified as "changed," so phase two expands its dependents. pkgC gets pulled into scope because it depends on the package that changed. All four packages are published with new versions, so consumers see a consistent set.
+
+Scenario 2: pkgA is unchanged.
+```
+pkgA (shared utility)    ← unchanged, skipped
+  ├── pkgB ── pkgD       ← changed (you edited pkgB or pkgD)
+  └── pkgC               ← not in scope, stays on old version
+```
+pkgA keeps its existing version and pkgC is never pulled in. The cascade stays narrow: only pkgB and pkgD get new versions. Consumers already have a working pkgA, so there's no inconsistency.
+
+This two-phase approach gives you the best of both worlds. Narrow publishes when nothing upstream changed, automatic expansion when a shared dependency did change. The loop repeats until no new packages are added (a fixpoint), so deeply nested dependency changes propagate correctly through the entire graph.
 
 **Consumer-aware filtering.** When active consumer repos exist, the cascade skips dependents that no consumer has installed (via `pkglab add`). If you have consumers using `@clerk/react` and `@clerk/nextjs` but not `@clerk/vue`, publishing a shared dependency won't cascade to vue. This keeps publishes focused on what's actually being tested. If no consumers are registered, all dependents are included as before. Trade-off: adding a previously-skipped package via `pkglab add` gives the last-published version until the next `pkglab pub`.
 
