@@ -5,12 +5,11 @@ import {
   addRegistryToNpmrc,
   applySkipWorktree,
   ensureNpmrcForActiveRepos,
-  updatePackageJsonVersion,
-  removePackageJsonDependency,
+  installWithVersionUpdates,
   findCatalogRoot,
   findCatalogEntry,
-  updateCatalogVersion,
 } from "../lib/consumer";
+import type { VersionEntry } from "../lib/consumer";
 import {
   canonicalRepoPath,
   repoFileName,
@@ -23,8 +22,7 @@ import {
 } from "../lib/registry";
 import { sanitizeTag, ispkglabVersion, extractTag } from "../lib/version";
 import { join } from "node:path";
-import { detectPackageManager, batchInstallCommand } from "../lib/pm-detect";
-import { run } from "../lib/proc";
+import { detectPackageManager } from "../lib/pm-detect";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import type { pkglabConfig, RepoState } from "../types";
@@ -81,210 +79,144 @@ function resolveFromDistTags(
   return { name: pkgName, version, tag };
 }
 
+const NPMRC_NOTICE =
+  "notice: pkglab added registry entries to .npmrc\n" +
+  "These entries point to localhost and will break CI if committed.\n" +
+  "pkglab has applied --skip-worktree to prevent accidental commits.\n" +
+  "Run pkglab restore --all to restore your .npmrc.";
+
 async function batchInstallPackages(
   config: pkglabConfig,
   repoPath: string,
   packages: ResolvedPackage[],
   catalog?: boolean,
 ): Promise<void> {
-  // Catalog mode: find workspace root, update catalog entries, run bun install
+  let effectivePath = repoPath;
+  let catalogRoot: string | undefined;
+  const catalogNames = new Map<string, string>(); // pkg name -> catalogName
+
+  // Phase 1: Branch-specific prep
   if (catalog) {
-    const catalogRoot = await findCatalogRoot(repoPath);
-    if (!catalogRoot) {
+    const root = await findCatalogRoot(repoPath);
+    if (!root) {
       log.error("No catalog found. The workspace root package.json needs a 'catalog' or 'catalogs' field.");
       process.exit(1);
     }
+    catalogRoot = root;
+    effectivePath = root;
 
-    const rootPkgJson = await Bun.file(join(catalogRoot, "package.json")).json();
-
-    // Validate all packages exist in the catalog before making changes
-    const entries: { name: string; version: string; catalogName: string }[] = [];
+    const rootPkgJson = await Bun.file(join(root, "package.json")).json();
     for (const pkg of packages) {
       const entry = findCatalogEntry(rootPkgJson, pkg.name);
       if (!entry) {
         log.error(`${pkg.name} is not in any catalog. Add it to the catalog field in the workspace root package.json first.`);
         process.exit(1);
       }
-      entries.push({ name: pkg.name, version: pkg.version, catalogName: entry.catalogName });
+      catalogNames.set(pkg.name, entry.catalogName);
     }
+  } else {
+    // Detect stale pkglab deps in consumer's package.json that aren't in the current batch
+    const batchNames = new Set(packages.map((p) => p.name));
+    const pkgJson = await Bun.file(join(repoPath, "package.json")).json();
+    const staleDeps: { name: string; version: string }[] = [];
 
-    const { isFirstTime } = await addRegistryToNpmrc(catalogRoot, config.port);
-    if (isFirstTime) {
-      await applySkipWorktree(catalogRoot);
-      log.info(
-        "notice: pkglab added registry entries to .npmrc\n" +
-          "These entries point to localhost and will break CI if committed.\n" +
-          "pkglab has applied --skip-worktree to prevent accidental commits.\n" +
-          "Run pkglab restore --all to restore your .npmrc.",
-      );
-    }
-
-    // Update catalog entries, storing previous versions for rollback
-    const prevVersions: { name: string; version: string | null; catalogName: string }[] = [];
-    for (const entry of entries) {
-      const { previousVersion } = await updateCatalogVersion(catalogRoot, entry.name, entry.version, entry.catalogName);
-      prevVersions.push({ name: entry.name, version: previousVersion, catalogName: entry.catalogName });
-    }
-
-    // Run bun install at the workspace root (catalog changes are picked up automatically)
-    const pm = await detectPackageManager(catalogRoot);
-    const cmd = [pm, "install"];
-    log.dim(`  ${cmd.join(" ")}`);
-    const result = await run(cmd, { cwd: catalogRoot });
-    if (result.exitCode !== 0) {
-      for (const prev of prevVersions) {
-        if (prev.version !== null) {
-          await updateCatalogVersion(catalogRoot, prev.name, prev.version, prev.catalogName);
+    for (const field of ["dependencies", "devDependencies"] as const) {
+      const deps = pkgJson[field];
+      if (!deps) continue;
+      for (const [depName, depVersion] of Object.entries(deps)) {
+        if (
+          typeof depVersion === "string" &&
+          ispkglabVersion(depVersion) &&
+          !batchNames.has(depName)
+        ) {
+          staleDeps.push({ name: depName, version: depVersion });
         }
       }
-      const output = (result.stderr || result.stdout).trim();
-      throw new Error(`Install failed (${pm}): ${output}`);
     }
 
-    // Update repo state (use catalogRoot as the repo path)
-    const repoFile = await repoFileName(catalogRoot);
-    let repoState: RepoState = (await loadRepoState(repoFile)) || {
-      path: catalogRoot,
-      active: false,
-      packages: {},
-    };
+    if (staleDeps.length > 0) {
+      const unresolvable: string[] = [];
 
-    for (let i = 0; i < packages.length; i++) {
-      const { name, version, tag } = packages[i];
-      const catalogName = entries[i].catalogName;
-      if (!repoState.packages[name]) {
-        repoState.packages[name] = {
-          original: prevVersions[i].version ?? "",
-          current: version,
-          tag,
-          catalogName,
-        };
-      } else {
-        repoState.packages[name].current = version;
-        repoState.packages[name].tag = tag;
-        repoState.packages[name].catalogName = catalogName;
+      for (const dep of staleDeps) {
+        const distTags = await getDistTags(dep.name);
+        const tag = extractTag(dep.version);
+        const distTagKey = tag ?? "pkglab";
+        const latestVersion = distTags[distTagKey];
+
+        if (latestVersion) {
+          packages.push({ name: dep.name, version: latestVersion, tag: tag ?? undefined });
+          log.dim(`  Upgrading stale ${dep.name}@${dep.version} to ${latestVersion}`);
+        } else {
+          unresolvable.push(dep.name);
+        }
+      }
+
+      if (unresolvable.length > 0) {
+        log.error(
+          `These pkglab packages have stale versions in package.json but no matching version on the registry:\n` +
+            unresolvable.map((n) => `  ${n}`).join("\n") +
+            `\nRun pkglab restore for these packages first: pkglab restore ${unresolvable.join(" ")}`,
+        );
+        process.exit(1);
       }
     }
-
-    repoState.active = true;
-    repoState.lastUsed = Date.now();
-    await saveRepoState(repoFile, repoState);
-    for (const { name, version } of packages) {
-      log.success(`Installed ${name}@${version} (catalog)`);
-    }
-    return;
   }
 
-  // Standard mode: update individual package.json deps
-  const { isFirstTime } = await addRegistryToNpmrc(repoPath, config.port);
+  // Phase 2: npmrc setup (shared)
+  const { isFirstTime } = await addRegistryToNpmrc(effectivePath, config.port);
   if (isFirstTime) {
-    await applySkipWorktree(repoPath);
-    log.info(
-      "notice: pkglab added registry entries to .npmrc\n" +
-        "These entries point to localhost and will break CI if committed.\n" +
-        "pkglab has applied --skip-worktree to prevent accidental commits.\n" +
-        "Run pkglab restore --all to restore your .npmrc.",
-    );
+    await applySkipWorktree(effectivePath);
+    log.info(NPMRC_NOTICE);
   }
 
-  // Detect stale pkglab deps in consumer's package.json that aren't in the current batch
-  const batchNames = new Set(packages.map((p) => p.name));
-  const pkgJson = await Bun.file(join(repoPath, "package.json")).json();
-  const staleDeps: { name: string; version: string }[] = [];
+  // Phase 3: Build version entries and install
+  const entries: VersionEntry[] = packages.map(pkg => {
+    const catalogName = catalogNames.get(pkg.name);
+    return catalogName
+      ? { name: pkg.name, version: pkg.version, catalogName }
+      : { name: pkg.name, version: pkg.version };
+  });
 
-  for (const field of ["dependencies", "devDependencies"] as const) {
-    const deps = pkgJson[field];
-    if (!deps) continue;
-    for (const [depName, depVersion] of Object.entries(deps)) {
-      if (
-        typeof depVersion === "string" &&
-        ispkglabVersion(depVersion) &&
-        !batchNames.has(depName)
-      ) {
-        staleDeps.push({ name: depName, version: depVersion });
-      }
-    }
-  }
+  const pm = await detectPackageManager(effectivePath);
+  const previousVersions = await installWithVersionUpdates({
+    repoPath: effectivePath,
+    catalogRoot,
+    entries,
+    pm,
+    onCommand: (cmd) => log.dim(`  ${cmd.join(" ")}`),
+  });
 
-  if (staleDeps.length > 0) {
-    const unresolvable: string[] = [];
-
-    for (const dep of staleDeps) {
-      const distTags = await getDistTags(dep.name);
-      const tag = extractTag(dep.version);
-      const distTagKey = tag ?? "pkglab";
-      const latestVersion = distTags[distTagKey];
-
-      if (latestVersion) {
-        packages.push({ name: dep.name, version: latestVersion, tag: tag ?? undefined });
-        log.dim(`  Upgrading stale ${dep.name}@${dep.version} to ${latestVersion}`);
-      } else {
-        unresolvable.push(dep.name);
-      }
-    }
-
-    if (unresolvable.length > 0) {
-      log.error(
-        `These pkglab packages have stale versions in package.json but no matching version on the registry:\n` +
-          unresolvable.map((n) => `  ${n}`).join("\n") +
-          `\nRun pkglab restore for these packages first: pkglab restore ${unresolvable.join(" ")}`,
-      );
-      process.exit(1);
-    }
-  }
-
-  // Update all package.json versions before installing
-  const prevVersions: { name: string; version: string | null }[] = [];
-  for (const { name, version } of packages) {
-    const { previousVersion } = await updatePackageJsonVersion(repoPath, name, version);
-    prevVersions.push({ name, version: previousVersion });
-  }
-
-  // One batch install for all packages
-  const pm = await detectPackageManager(repoPath);
-  const cmd = batchInstallCommand(pm, packages.map((p) => ({ name: p.name, version: p.version })));
-  log.dim(`  ${cmd.join(" ")}`);
-  const result = await run(cmd, { cwd: repoPath });
-  if (result.exitCode !== 0) {
-    // Revert package.json so it stays consistent with node_modules
-    for (const prev of prevVersions) {
-      if (prev.version !== null) {
-        await updatePackageJsonVersion(repoPath, prev.name, prev.version);
-      } else {
-        await removePackageJsonDependency(repoPath, prev.name);
-      }
-    }
-    const output = (result.stderr || result.stdout).trim();
-    throw new Error(`Install failed (${pm}): ${output}`);
-  }
-
-  // Update repo state
-  const repoFile = await repoFileName(repoPath);
+  // Phase 4: Repo state update (shared)
+  const repoFile = await repoFileName(effectivePath);
   let repoState: RepoState = (await loadRepoState(repoFile)) || {
-    path: repoPath,
+    path: effectivePath,
     active: false,
     packages: {},
   };
 
-  for (const { name, version, tag } of packages) {
-    if (!repoState.packages[name]) {
-      const prev = prevVersions.find((p) => p.name === name);
-      repoState.packages[name] = {
-        original: prev?.version ?? "",
-        current: version,
-        tag,
+  for (const pkg of packages) {
+    const catalogName = catalogNames.get(pkg.name);
+    if (!repoState.packages[pkg.name]) {
+      repoState.packages[pkg.name] = {
+        original: previousVersions.get(pkg.name) ?? "",
+        current: pkg.version,
+        tag: pkg.tag,
+        ...(catalogName && { catalogName }),
       };
     } else {
-      repoState.packages[name].current = version;
-      repoState.packages[name].tag = tag;
+      repoState.packages[pkg.name].current = pkg.version;
+      repoState.packages[pkg.name].tag = pkg.tag;
+      if (catalogName) repoState.packages[pkg.name].catalogName = catalogName;
     }
   }
 
   repoState.active = true;
   repoState.lastUsed = Date.now();
   await saveRepoState(repoFile, repoState);
+
+  // Phase 5: Success logging
   for (const { name, version } of packages) {
-    log.success(`Installed ${name}@${version}`);
+    log.success(`Installed ${name}@${version}${catalog ? " (catalog)" : ""}`);
   }
 }
 
