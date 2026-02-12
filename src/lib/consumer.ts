@@ -7,7 +7,7 @@ import { run } from "./proc";
 import { getActiveRepos, saveRepoState } from "./repo-state";
 import { createMultiSpinner } from "./spinner";
 import type { SpinnerLine } from "./spinner";
-import type { PublishPlan, PublishEntry, RepoState } from "../types";
+import type { PublishPlan } from "../types";
 
 const MARKER_START = "# pkglab-start";
 const MARKER_END = "# pkglab-end";
@@ -151,6 +151,93 @@ export async function removePackageJsonDependency(
   await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
 }
 
+export interface VersionEntry {
+  name: string;
+  version: string;
+  catalogName?: string;
+}
+
+interface InstallWithVersionUpdatesOpts {
+  repoPath: string;
+  catalogRoot?: string;
+  entries: VersionEntry[];
+  pm: PackageManager;
+  onCommand?: (cmd: string[], cwd: string) => void;
+}
+
+/**
+ * Write version updates to package.json or catalog, run install, and
+ * rollback on failure. Returns a map of package name to previous version.
+ */
+export async function installWithVersionUpdates(
+  opts: InstallWithVersionUpdatesOpts,
+): Promise<Map<string, string | null>> {
+  const { repoPath, catalogRoot, entries, pm, onCommand } = opts;
+  const previousVersions = new Map<string, string | null>();
+
+  // Step 1: write version updates
+  for (const entry of entries) {
+    if (entry.catalogName && catalogRoot) {
+      const { previousVersion } = await updateCatalogVersion(catalogRoot, entry.name, entry.version, entry.catalogName);
+      previousVersions.set(entry.name, previousVersion);
+    } else {
+      const { previousVersion } = await updatePackageJsonVersion(repoPath, entry.name, entry.version);
+      previousVersions.set(entry.name, previousVersion);
+    }
+  }
+
+  // Step 2: determine install command
+  const hasCatalog = catalogRoot != null && entries.some(e => e.catalogName);
+  let cmd: string[];
+  let cwd: string;
+  if (hasCatalog) {
+    cmd = [pm, "install"];
+    cwd = catalogRoot ?? repoPath;
+  } else {
+    cmd = batchInstallCommand(pm, entries.map(e => ({ name: e.name, version: e.version })));
+    cwd = repoPath;
+  }
+
+  // Step 3: disable bun manifest cache if needed
+  const restoreBunfig = pm === "bun"
+    ? await disableBunManifestCache(cwd)
+    : null;
+
+  try {
+    // Step 4: notify caller
+    onCommand?.(cmd, cwd);
+
+    // Step 5: run install
+    const result = await run(cmd, { cwd });
+
+    // Step 6: rollback on failure
+    if (result.exitCode !== 0) {
+      for (const entry of entries) {
+        const prev = previousVersions.get(entry.name) ?? null;
+        if (entry.catalogName && catalogRoot) {
+          if (prev !== null) {
+            await updateCatalogVersion(catalogRoot, entry.name, prev, entry.catalogName);
+          }
+        } else {
+          if (prev === null || prev === "") {
+            await removePackageJsonDependency(repoPath, entry.name);
+          } else {
+            await updatePackageJsonVersion(repoPath, entry.name, prev);
+          }
+        }
+      }
+      const output = (result.stderr || result.stdout).trim();
+      throw new Error(`Install failed (${pm}): ${output}`);
+    }
+  } finally {
+    // Step 7: restore bunfig
+    await restoreBunfig?.();
+  }
+
+  // Step 8: return previous versions
+  return previousVersions;
+}
+
 /**
  * Walk up from startDir to find the nearest package.json with a catalog or catalogs field.
  */
@@ -237,65 +324,6 @@ export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
   }
 }
 
-interface RepoRollback {
-  catalogEntries: { name: string; version: string | null; catalogName: string; rootDir: string }[];
-  directEntries: { name: string; version: string | null }[];
-}
-
-async function updateRepoVersions(
-  state: RepoState,
-  packages: PublishEntry[],
-): Promise<RepoRollback> {
-  const rollback: RepoRollback = { catalogEntries: [], directEntries: [] };
-
-  for (const entry of packages) {
-    const link = state.packages[entry.name];
-    if (link?.catalogName) {
-      const catalogRoot = await findCatalogRoot(state.path);
-      if (catalogRoot) {
-        const { previousVersion } = await updateCatalogVersion(catalogRoot, entry.name, entry.version, link.catalogName);
-        rollback.catalogEntries.push({ name: entry.name, version: previousVersion, catalogName: link.catalogName, rootDir: catalogRoot });
-      }
-    } else {
-      const { previousVersion } = await updatePackageJsonVersion(state.path, entry.name, entry.version);
-      rollback.directEntries.push({ name: entry.name, version: previousVersion });
-    }
-  }
-
-  return rollback;
-}
-
-async function rollbackRepoVersions(state: RepoState, rollback: RepoRollback): Promise<void> {
-  for (const prev of rollback.catalogEntries) {
-    if (prev.version !== null) {
-      await updateCatalogVersion(prev.rootDir, prev.name, prev.version, prev.catalogName);
-    }
-  }
-  for (const prev of rollback.directEntries) {
-    if (prev.version === "" || prev.version === null) {
-      await removePackageJsonDependency(state.path, prev.name);
-    } else {
-      await updatePackageJsonVersion(state.path, prev.name, prev.version);
-    }
-  }
-}
-
-function repoInstallCommand(
-  pm: PackageManager,
-  packages: PublishEntry[],
-  state: RepoState,
-): { cmd: string[]; cwd: string } {
-  // If any package is catalog-linked, use plain install (catalog entries already updated)
-  const hasCatalog = packages.some((e) => state.packages[e.name]?.catalogName);
-  if (hasCatalog) {
-    return { cmd: [pm, "install"], cwd: state.path };
-  }
-  return {
-    cmd: batchInstallCommand(pm, packages.map((e) => ({ name: e.name, version: e.version }))),
-    cwd: state.path,
-  };
-}
-
 const BUNFIG_MARKER = "\n# pkglab-manifest-override\n";
 
 /**
@@ -369,22 +397,18 @@ export async function updateActiveRepos(
       await Promise.all(
         work.map(async (repo, r) => {
           const repoTasks = tasks.filter((t) => t.repoIdx === r);
-          const rollback = await updateRepoVersions(repo.state, repo.packages);
+          const entries = repo.packages.map(e => {
+            const link = repo.state.packages[e.name];
+            return { name: e.name, version: e.version, catalogName: link?.catalogName };
+          });
+          const catalogRoot = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : undefined;
 
-          const { cmd, cwd } = repoInstallCommand(repo.pm, repo.packages, repo.state);
-          const restoreBunfig = repo.pm === "bun"
-            ? await disableBunManifestCache(cwd)
-            : null;
-          try {
-            const result = await run(cmd, { cwd });
-            if (result.exitCode !== 0) {
-              await rollbackRepoVersions(repo.state, rollback);
-              const output = (result.stderr || result.stdout).trim();
-              throw new Error(`Install failed (${repo.pm}): ${output}`);
-            }
-          } finally {
-            await restoreBunfig?.();
-          }
+          await installWithVersionUpdates({
+            repoPath: repo.state.path,
+            catalogRoot: catalogRoot ?? undefined,
+            entries,
+            pm: repo.pm,
+          });
 
           // Mark all tasks complete and update state
           for (let i = 0; i < repo.packages.length; i++) {
@@ -401,23 +425,19 @@ export async function updateActiveRepos(
     log.info("\nUpdating active repos:");
     await Promise.all(
       work.map(async (repo) => {
-        const rollback = await updateRepoVersions(repo.state, repo.packages);
+        const entries = repo.packages.map(e => {
+          const link = repo.state.packages[e.name];
+          return { name: e.name, version: e.version, catalogName: link?.catalogName };
+        });
+        const catalogRoot = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : undefined;
 
-        const { cmd, cwd } = repoInstallCommand(repo.pm, repo.packages, repo.state);
-        log.dim(`  ${cmd.join(" ")}`);
-        const restoreBunfig = repo.pm === "bun"
-          ? await disableBunManifestCache(cwd)
-          : null;
-        try {
-          const result = await run(cmd, { cwd });
-          if (result.exitCode !== 0) {
-            await rollbackRepoVersions(repo.state, rollback);
-            const output = (result.stderr || result.stdout).trim();
-            throw new Error(`Install failed (${repo.pm}): ${output}`);
-          }
-        } finally {
-          await restoreBunfig?.();
-        }
+        await installWithVersionUpdates({
+          repoPath: repo.state.path,
+          catalogRoot: catalogRoot ?? undefined,
+          entries,
+          pm: repo.pm,
+          onCommand: (cmd, _cwd) => log.dim(`  ${cmd.join(" ")}`),
+        });
 
         for (const entry of repo.packages) {
           repo.state.packages[entry.name].current = entry.version;
