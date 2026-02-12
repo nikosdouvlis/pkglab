@@ -9,7 +9,7 @@ Colors: `Bun.color()` via `src/lib/color.ts` (no picocolors)
 ## CLI commands
 
 Top-level:
-- `pkglab up` — start the local Verdaccio registry
+- `pkglab up` — start the local Verdaccio registry (pub and add auto-start if down)
 - `pkglab down` — stop the registry
 - `pkglab status` — show registry status
 - `pkglab logs` — show registry logs

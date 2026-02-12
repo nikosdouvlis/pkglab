@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { getDaemonStatus } from "../lib/daemon";
+import { ensureDaemonRunning } from "../lib/daemon";
 import { loadConfig } from "../lib/config";
 import {
   addRegistryToNpmrc,
@@ -26,7 +26,6 @@ import { detectPackageManager, batchInstallCommand } from "../lib/pm-detect";
 import { run } from "../lib/proc";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
-import { DaemonNotRunningError } from "../lib/errors";
 import type { pkglabConfig, RepoState } from "../types";
 
 function parsePackageArg(input: string): { name: string; tag?: string } {
@@ -365,11 +364,10 @@ export default defineCommand({
     const names = ((args as any)._ as string[] | undefined) ?? [];
     const catalog = args.catalog as boolean;
 
-    const [status, repoPath] = await Promise.all([
-      getDaemonStatus(),
+    const [, repoPath] = await Promise.all([
+      ensureDaemonRunning(),
       canonicalRepoPath(process.cwd()),
     ]);
-    if (!status?.running) throw new DaemonNotRunningError();
 
     let resolved: ResolvedPackage[];
     if (names.length === 0) {

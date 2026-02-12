@@ -276,6 +276,31 @@ function repoInstallCommand(
   };
 }
 
+const BUNFIG_MARKER = "\n# pkglab-manifest-override\n";
+
+/**
+ * Temporarily append [install.cache] disableManifest = true to the consumer's
+ * bunfig.toml so bun skips its 5-minute metadata cache and sees freshly
+ * published versions. Returns a restore function.
+ */
+async function disableBunManifestCache(dir: string): Promise<() => Promise<void>> {
+  const path = join(dir, "bunfig.toml");
+  const file = Bun.file(path);
+  const original = (await file.exists()) ? await file.text() : null;
+
+  const override = `${BUNFIG_MARKER}[install.cache]\ndisableManifest = true\n`;
+  await Bun.write(path, (original ?? "") + override);
+
+  return async () => {
+    if (original === null) {
+      const { unlink } = await import("node:fs/promises");
+      await unlink(path).catch(() => {});
+    } else {
+      await Bun.write(path, original);
+    }
+  };
+}
+
 export async function updateActiveRepos(
   plan: PublishPlan,
   verbose: boolean,
@@ -327,11 +352,18 @@ export async function updateActiveRepos(
           const rollback = await updateRepoVersions(repo.state, repo.packages);
 
           const { cmd, cwd } = repoInstallCommand(repo.pm, repo.packages, repo.state);
-          const result = await run(cmd, { cwd });
-          if (result.exitCode !== 0) {
-            await rollbackRepoVersions(repo.state, rollback);
-            const output = (result.stderr || result.stdout).trim();
-            throw new Error(`Install failed (${repo.pm}): ${output}`);
+          const restoreBunfig = repo.pm === "bun"
+            ? await disableBunManifestCache(cwd)
+            : null;
+          try {
+            const result = await run(cmd, { cwd });
+            if (result.exitCode !== 0) {
+              await rollbackRepoVersions(repo.state, rollback);
+              const output = (result.stderr || result.stdout).trim();
+              throw new Error(`Install failed (${repo.pm}): ${output}`);
+            }
+          } finally {
+            await restoreBunfig?.();
           }
 
           // Mark all tasks complete and update state
@@ -353,11 +385,18 @@ export async function updateActiveRepos(
 
         const { cmd, cwd } = repoInstallCommand(repo.pm, repo.packages, repo.state);
         log.dim(`  ${cmd.join(" ")}`);
-        const result = await run(cmd, { cwd });
-        if (result.exitCode !== 0) {
-          await rollbackRepoVersions(repo.state, rollback);
-          const output = (result.stderr || result.stdout).trim();
-          throw new Error(`Install failed (${repo.pm}): ${output}`);
+        const restoreBunfig = repo.pm === "bun"
+          ? await disableBunManifestCache(cwd)
+          : null;
+        try {
+          const result = await run(cmd, { cwd });
+          if (result.exitCode !== 0) {
+            await rollbackRepoVersions(repo.state, rollback);
+            const output = (result.stderr || result.stdout).trim();
+            throw new Error(`Install failed (${repo.pm}): ${output}`);
+          }
+        } finally {
+          await restoreBunfig?.();
         }
 
         for (const entry of repo.packages) {

@@ -178,6 +178,8 @@ Named catalogs (`catalogs.react19`, etc.) are also supported. pkglab finds which
 
 When `pkglab pub` auto-updates consumer repos, catalog-linked packages are updated in the catalog (not in individual package.json files), preserving the `catalog:` references.
 
+Bun caveat: bun caches registry metadata for up to 5 minutes, so freshly published versions are invisible to a plain `bun install`. pkglab works around this by temporarily setting `disableManifest = true` in `bunfig.toml` during consumer updates, then restoring it. This will become unnecessary once bun supports catalogs in `bun add` directly, at which point pkglab can use the non-catalog install path for bun.
+
 ## How versioning works
 
 **`pkglab`** generates versions in the format `0.0.0-pkglab.{timestamp}` (untagged) or `0.0.0-pkglab-{tag}.{timestamp}` (tagged). The monotonic timestamp ensures versions always increment, even across rapid publishes. The `0.0.0-pkglab` prefix makes these versions instantly recognizable and ensures they sort below any real release.

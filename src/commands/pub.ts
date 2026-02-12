@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { getDaemonStatus } from "../lib/daemon";
+import { ensureDaemonRunning } from "../lib/daemon";
 import { loadConfig } from "../lib/config";
 import { discoverWorkspace, findPackage, loadCatalogs } from "../lib/workspace";
 import { buildDependencyGraph, computeCascade } from "../lib/graph";
@@ -11,7 +11,7 @@ import { getActiveRepos } from "../lib/repo-state";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import { createMultiSpinner } from "../lib/spinner";
-import { DaemonNotRunningError, pkglabError } from "../lib/errors";
+import { pkglabError } from "../lib/errors";
 import { fingerprintPackages } from "../lib/fingerprint";
 import { loadFingerprintState, saveFingerprintState } from "../lib/fingerprint-state";
 import type { WorkspacePackage } from "../types";
@@ -106,10 +106,7 @@ export default defineCommand({
       log.info(`Publishing with tag: ${tag}`);
     }
 
-    const status = await getDaemonStatus();
-    if (!status?.running) {
-      throw new DaemonNotRunningError();
-    }
+    await ensureDaemonRunning();
 
     const config = await loadConfig();
     const workspace = await discoverWorkspace(process.cwd());

@@ -3,6 +3,7 @@ import { loadConfig } from "./config";
 import { DaemonAlreadyRunningError } from "./errors";
 import type { DaemonInfo } from "../types";
 import { isProcessAlive, run } from "./proc";
+import { log } from "./log";
 
 export async function startDaemon(): Promise<DaemonInfo> {
   const existing = await getDaemonStatus();
@@ -56,6 +57,21 @@ export async function startDaemon(): Promise<DaemonInfo> {
   proc.unref();
 
   return { pid: proc.pid, port: config.port, running: true };
+}
+
+/**
+ * Return existing daemon status or start one automatically.
+ * Used by pub/add so the user doesn't have to run `pkglab up` manually
+ * after the daemon stops or crashes.
+ */
+export async function ensureDaemonRunning(): Promise<DaemonInfo> {
+  const existing = await getDaemonStatus();
+  if (existing?.running) return existing;
+
+  log.info("Starting Verdaccio...");
+  const info = await startDaemon();
+  log.success(`pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
+  return info;
 }
 
 export async function stopDaemon(): Promise<void> {
