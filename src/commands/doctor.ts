@@ -60,7 +60,7 @@ export default defineCommand({
 
     // Check .npmrc and skip-worktree on linked repos
     const repos = await loadAllRepos();
-    for (const [name, state] of Object.entries(repos)) {
+    for (const { displayName, state } of repos) {
       if (Object.keys(state.packages).length === 0) continue;
 
       // Check .npmrc has pkglab registry block
@@ -70,16 +70,16 @@ export default defineCommand({
         const hasBlock = exists && (await npmrcFile.text()).includes(MARKER_START);
 
         if (hasBlock) {
-          log.line(`  ${c.green("✓")} ${name}: .npmrc OK`);
+          log.line(`  ${c.green("✓")} ${displayName}: .npmrc OK`);
         } else {
           log.line(
-            `  ${c.yellow("!")} ${name}: .npmrc ${exists ? "missing registry block" : "missing"}, repairing...`,
+            `  ${c.yellow("!")} ${displayName}: .npmrc ${exists ? "missing registry block" : "missing"}, repairing...`,
           );
           await addRegistryToNpmrc(state.path, config.port);
-          log.line(`  ${c.green("✓")} ${name}: .npmrc repaired`);
+          log.line(`  ${c.green("✓")} ${displayName}: .npmrc repaired`);
         }
       } catch (err) {
-        log.line(`  ${c.red("✗")} ${name}: could not check .npmrc (${err instanceof Error ? err.message : err})`);
+        log.line(`  ${c.red("✗")} ${displayName}: could not check .npmrc (${err instanceof Error ? err.message : err})`);
         issues++;
       }
 
@@ -87,16 +87,16 @@ export default defineCommand({
       try {
         const hasFlag = await isSkipWorktreeSet(state.path);
         if (hasFlag) {
-          log.line(`  ${c.green("✓")} ${name}: skip-worktree OK`);
+          log.line(`  ${c.green("✓")} ${displayName}: skip-worktree OK`);
         } else {
           log.line(
-            `  ${c.yellow("!")} ${name}: skip-worktree missing, repairing...`,
+            `  ${c.yellow("!")} ${displayName}: skip-worktree missing, repairing...`,
           );
           await applySkipWorktree(state.path);
-          log.line(`  ${c.green("✓")} ${name}: skip-worktree repaired`);
+          log.line(`  ${c.green("✓")} ${displayName}: skip-worktree repaired`);
         }
       } catch {
-        log.line(`  ${c.red("✗")} ${name}: could not check skip-worktree`);
+        log.line(`  ${c.red("✗")} ${displayName}: could not check skip-worktree`);
         issues++;
       }
     }

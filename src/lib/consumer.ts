@@ -1,10 +1,11 @@
 import { join } from "node:path";
 import { log } from "./log";
+import { c } from "./color";
 import { NpmrcConflictError } from "./errors";
 import { detectPackageManager, installCommand, batchInstallCommand } from "./pm-detect";
 import type { PackageManager } from "./pm-detect";
 import { run } from "./proc";
-import { getActiveRepos, saveRepoState } from "./repo-state";
+import { getActiveRepos, saveRepoByPath } from "./repo-state";
 import { createMultiSpinner } from "./spinner";
 import type { SpinnerLine } from "./spinner";
 import type { PublishPlan } from "../types";
@@ -315,7 +316,7 @@ export async function updateCatalogVersion(
 
 export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
   const activeRepos = await getActiveRepos();
-  for (const { name, state } of activeRepos) {
+  for (const { displayName, state } of activeRepos) {
     if (Object.keys(state.packages).length === 0) continue;
     const npmrcFile = Bun.file(join(state.path, ".npmrc"));
     const exists = await npmrcFile.exists();
@@ -324,9 +325,9 @@ export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
       try {
         await addRegistryToNpmrc(state.path, port);
         await applySkipWorktree(state.path);
-        log.dim(`  Repaired .npmrc for ${name}`);
+        log.dim(`  Repaired .npmrc for ${displayName}`);
       } catch {
-        log.warn(`Could not repair .npmrc for ${name}`);
+        log.warn(`Could not repair .npmrc for ${displayName}`);
       }
     }
   }
@@ -368,7 +369,7 @@ export async function updateActiveRepos(
   // Build per-repo work items: which packages to update and the install command
   const pubTag = tag ?? null;
   const repoWork = await Promise.all(
-    activeRepos.map(async ({ name, state }) => {
+    activeRepos.map(async ({ displayName, state }) => {
       const pm = await detectPackageManager(state.path);
       const packages = plan.packages.filter((e) => {
         const link = state.packages[e.name];
@@ -377,7 +378,7 @@ export async function updateActiveRepos(
         const linkTag = link.tag ?? null;
         return linkTag === pubTag;
       });
-      return { name, state, pm, packages };
+      return { displayName, state, pm, packages };
     }),
   );
   const work = repoWork.filter((r) => r.packages.length > 0);
@@ -390,8 +391,8 @@ export async function updateActiveRepos(
     const tasks: { repoIdx: number; spinnerIdx: number }[] = [];
 
     for (let r = 0; r < work.length; r++) {
-      const { name, packages } = work[r];
-      spinnerLines.push({ text: `${name}:`, header: true });
+      const { displayName, state, packages } = work[r];
+      spinnerLines.push({ text: `${displayName} ${c.dim(state.path)}`, header: true });
       for (const entry of packages) {
         tasks.push({ repoIdx: r, spinnerIdx: spinnerLines.length });
         spinnerLines.push(`updated ${entry.name}`);
@@ -423,7 +424,7 @@ export async function updateActiveRepos(
             repo.state.packages[repo.packages[i].name].current = repo.packages[i].version;
             repoSpinner.complete(repoTasks[i].spinnerIdx);
           }
-          await saveRepoState(repo.name, repo.state);
+          await saveRepoByPath(repo.state.path, repo.state);
         }),
       );
     } finally {
@@ -450,8 +451,8 @@ export async function updateActiveRepos(
         for (const entry of repo.packages) {
           repo.state.packages[entry.name].current = entry.version;
         }
-        await saveRepoState(repo.name, repo.state);
-        log.success(`  ${repo.name}: updated ${repo.packages.map((e) => e.name).join(", ")}`);
+        await saveRepoByPath(repo.state.path, repo.state);
+        log.success(`  ${repo.displayName}: updated ${repo.packages.map((e) => e.name).join(", ")}`);
       }),
     );
   }

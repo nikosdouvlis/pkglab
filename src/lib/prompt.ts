@@ -22,7 +22,7 @@ import { c } from "./color";
 import type { RepoState } from "../types";
 
 export interface RepoChoice {
-  name: string;
+  displayName: string;
   state: RepoState;
 }
 
@@ -179,9 +179,8 @@ export async function selectRepos(opts: {
   preSelect?: Set<string>;
 }): Promise<RepoChoice[]> {
   const all = await loadAllRepos();
-  const entries = Object.entries(all);
 
-  if (entries.length === 0) {
+  if (all.length === 0) {
     log.info(
       opts.emptyMessage ?? "No repos linked. Use pkglab add in a consumer repo.",
     );
@@ -190,9 +189,9 @@ export async function selectRepos(opts: {
 
   const filtered = (
     opts.filter
-      ? entries.filter(([_, state]) => opts.filter!(state))
-      : entries
-  ).sort(([, a], [, b]) => (b.lastUsed ?? 0) - (a.lastUsed ?? 0));
+      ? all.filter((entry) => opts.filter!(entry.state))
+      : all
+  ).sort((a, b) => (b.state.lastUsed ?? 0) - (a.state.lastUsed ?? 0));
 
   if (filtered.length === 0) {
     log.info(opts.emptyMessage ?? "No matching repos.");
@@ -203,14 +202,14 @@ export async function selectRepos(opts: {
   try {
     selected = await filterableCheckbox({
       message: opts.message,
-      choices: filtered.map(([name, state]) => {
+      choices: filtered.map(({ displayName, state }) => {
         const pkgs = Object.keys(state.packages);
         const description = pkgs.length > 0 ? pkgs.join(", ") : "no packages";
         return {
-          value: name,
-          name: `${name} ${state.path}`,
+          value: state.path,
+          name: `${displayName} ${c.dim(state.path)}`,
           description,
-          checked: opts.preSelect?.has(name) ?? false,
+          checked: opts.preSelect?.has(state.path) ?? false,
         };
       }),
     });
@@ -221,5 +220,8 @@ export async function selectRepos(opts: {
 
   process.stdin.unref();
 
-  return selected.map((name) => ({ name, state: all[name] }));
+  const selectedPaths = new Set(selected);
+  return filtered
+    .filter((entry) => selectedPaths.has(entry.state.path))
+    .map(({ displayName, state }) => ({ displayName, state }));
 }

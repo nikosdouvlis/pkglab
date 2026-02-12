@@ -29,21 +29,20 @@ export default defineCommand({
       await import("../lib/repo-state");
 
     const previouslyActive = new Set(
-      (await getActiveRepos()).map((r) => r.name),
+      (await getActiveRepos()).map((r) => r.state.path),
     );
     await deactivateAllRepos();
 
     const repos = await loadAllRepos();
-    const entries = Object.entries(repos);
-    if (entries.length > 0) {
+    if (repos.length > 0) {
       // Propagate port to .npmrc in linked repos
       const { addRegistryToNpmrc, applySkipWorktree } = await import("../lib/consumer");
-      for (const [name, state] of entries) {
+      for (const { displayName, state } of repos) {
         if (Object.keys(state.packages).length > 0) {
           try {
             await addRegistryToNpmrc(state.path, info.port);
           } catch {
-            log.warn(`Could not update .npmrc for ${name}`);
+            log.warn(`Could not update .npmrc for ${displayName}`);
           }
         }
       }
@@ -55,14 +54,14 @@ export default defineCommand({
       });
 
       if (selected.length > 0) {
-        const { saveRepoState } = await import("../lib/repo-state");
-        for (const { name, state } of selected) {
+        const { saveRepoByPath } = await import("../lib/repo-state");
+        for (const { displayName, state } of selected) {
           await addRegistryToNpmrc(state.path, info.port);
           await applySkipWorktree(state.path);
           state.active = true;
           state.lastUsed = Date.now();
-          await saveRepoState(name, state);
-          log.success(`Activated ${name}`);
+          await saveRepoByPath(state.path, state);
+          log.success(`Activated ${displayName}`);
         }
       }
     }

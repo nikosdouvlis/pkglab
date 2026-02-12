@@ -12,9 +12,8 @@ import {
 import type { VersionEntry } from "../lib/consumer";
 import {
   canonicalRepoPath,
-  repoFileName,
-  loadRepoState,
-  saveRepoState,
+  loadRepoByPath,
+  saveRepoByPath,
 } from "../lib/repo-state";
 import {
   getDistTags,
@@ -194,8 +193,7 @@ async function batchInstallPackages(
   });
 
   // Phase 4: Repo state update (shared)
-  const repoFile = await repoFileName(effectivePath);
-  let repoState: RepoState = (await loadRepoState(repoFile)) || {
+  let repoState: RepoState = (await loadRepoByPath(effectivePath)) || {
     path: effectivePath,
     active: false,
     packages: {},
@@ -221,7 +219,7 @@ async function batchInstallPackages(
 
   repoState.active = true;
   repoState.lastUsed = Date.now();
-  await saveRepoState(repoFile, repoState);
+  await saveRepoByPath(effectivePath, repoState);
 
   // Phase 5: Success logging
   for (const { name, version } of packages) {

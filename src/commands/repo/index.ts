@@ -7,6 +7,5 @@ export default defineCommand({
     on: () => import("./activate").then((m) => m.default),
     off: () => import("./deactivate").then((m) => m.default),
     reset: () => import("./reset").then((m) => m.default),
-    rename: () => import("./rename").then((m) => m.default),
   },
 });

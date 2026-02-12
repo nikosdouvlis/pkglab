@@ -11,7 +11,7 @@ import {
 import {
   canonicalRepoPath,
   findRepoByPath,
-  saveRepoState,
+  saveRepoByPath,
 } from "../lib/repo-state";
 import { detectPackageManager } from "../lib/pm-detect";
 import { run } from "../lib/proc";
@@ -70,7 +70,7 @@ export default defineCommand({
         await restorePackage(repoPath, name, link.original, link.catalogName, link.packageJsonDir);
         delete repo.state.packages[name];
       }
-      await saveRepoState(repo.name, repo.state);
+      await saveRepoByPath(repo.state.path, repo.state);
       await removeRegistryFromNpmrc(repoPath);
       await removeSkipWorktree(repoPath);
 
@@ -99,7 +99,7 @@ export default defineCommand({
     const link = repo.state.packages[pkgName];
     await restorePackage(repoPath, pkgName, link.original, link.catalogName, link.packageJsonDir);
     delete repo.state.packages[pkgName];
-    await saveRepoState(repo.name, repo.state);
+    await saveRepoByPath(repo.state.path, repo.state);
 
     if (Object.keys(repo.state.packages).length === 0) {
       await removeRegistryFromNpmrc(repoPath);
