@@ -10,15 +10,6 @@ const version = rootPkg.version;
 
 console.log(`Publishing pkglab@${version}`);
 
-// Write .npmrc for auth
-const npmToken = process.env.NPM_TOKEN;
-if (!npmToken) {
-  console.error("ERROR: NPM_TOKEN environment variable is not set");
-  process.exit(1);
-}
-await Bun.write(`${ROOT}/.npmrc`, `//registry.npmjs.org/:_authToken=\${NPM_TOKEN}\n`);
-console.log("Wrote .npmrc for npm auth");
-
 const platforms = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] as const;
 
 // Cross-compile binaries
