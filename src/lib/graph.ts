@@ -28,45 +28,48 @@ export function buildDependencyGraph(
   return graph;
 }
 
-export interface CascadeResult {
-  packages: WorkspacePackage[];
-  // Per-target: direct workspace dependencies
-  dependencies: Record<string, string[]>;
-  // Per-target: transitive dependents (packages that depend on the target)
-  dependents: Record<string, string[]>;
-  // Dependents removed by consumer-aware filtering (empty when no filter applied)
-  skippedDependents: string[];
-}
-
-export function computeCascade(
+// Phase 1: targets + their transitive deps (no dependents)
+export function computeInitialScope(
   graph: DepGraph<WorkspacePackage>,
-  changedPackages: string[],
-  consumedPackages?: Set<string>,
-): CascadeResult {
+  targets: string[],
+): { scope: Set<string>; dependencies: Record<string, string[]> } {
+  const scope = new Set<string>();
   const dependencies: Record<string, string[]> = {};
-  const dependents: Record<string, string[]> = {};
-  const closure = new Set<string>();
-  // Track all possible dependents so we can report which ones were filtered
-  const allPossibleDependents = consumedPackages ? new Set<string>() : null;
 
-  for (const name of changedPackages) {
-    closure.add(name);
+  for (const name of targets) {
+    scope.add(name);
 
     try {
       const directDeps = graph.directDependenciesOf(name).filter(
         (dep) => dep !== name
       );
       dependencies[name] = directDeps;
-      // Include transitive dependencies in the publish set so that
-      // workspace deps are published at the same pkglab version
+      // Include transitive dependencies so workspace deps are published together
       const allDeps = graph.dependenciesOf(name);
       for (const dep of allDeps) {
-        closure.add(dep);
+        scope.add(dep);
       }
     } catch {
       dependencies[name] = [];
     }
+  }
 
+  return { scope, dependencies };
+}
+
+// Phase 2: from specific "changed" packages, compute their dependents.
+// Apply consumer filter. Only return packages not already in currentScope.
+export function expandDependents(
+  graph: DepGraph<WorkspacePackage>,
+  changedPackages: string[],
+  currentScope: Set<string>,
+  consumedPackages?: Set<string>,
+): { newPackages: string[]; dependents: Record<string, string[]>; skippedDependents: string[] } {
+  const dependents: Record<string, string[]> = {};
+  const newPackages = new Set<string>();
+  const allPossibleDependents = consumedPackages ? new Set<string>() : null;
+
+  for (const name of changedPackages) {
     try {
       const transitiveDependents = graph.dependantsOf(name);
       if (allPossibleDependents) {
@@ -74,19 +77,22 @@ export function computeCascade(
       }
 
       if (consumedPackages) {
-        // Keep dependents that are consumed by active repos OR already in the
-        // closure (targets and their deps that happen to also be dependents)
+        // Keep dependents that are consumed by active repos OR already in scope
         const filtered = transitiveDependents.filter(
-          (d) => closure.has(d) || consumedPackages.has(d),
+          (d) => currentScope.has(d) || consumedPackages.has(d),
         );
         dependents[name] = filtered;
         for (const dep of filtered) {
-          closure.add(dep);
+          if (!currentScope.has(dep)) {
+            newPackages.add(dep);
+          }
         }
       } else {
         dependents[name] = transitiveDependents;
         for (const dep of transitiveDependents) {
-          closure.add(dep);
+          if (!currentScope.has(dep)) {
+            newPackages.add(dep);
+          }
         }
       }
     } catch (err: any) {
@@ -99,64 +105,47 @@ export function computeCascade(
     }
   }
 
-  // Close under deps: every publishable package in the set must have its workspace deps in the set.
-  // Skip private packages: they'll be filtered out later and shouldn't drag in their sibling deps.
+  // Skipped dependents: those that would have been included without the filter
+  // but are not in scope and not in the new packages set
+  const allIncluded = new Set([...currentScope, ...newPackages]);
+  const skippedDependents = allPossibleDependents
+    ? [...allPossibleDependents]
+        .filter((d) => !allIncluded.has(d))
+        .filter((d) => !graph.getNodeData(d).packageJson.private)
+        .sort()
+    : [];
+
+  return { newPackages: [...newPackages], dependents, skippedDependents };
+}
+
+// Phase 3: ensure every publishable package in scope has its workspace deps in scope.
+// Returns the expanded scope (may add new packages). Skips private packages.
+export function closeUnderDeps(
+  graph: DepGraph<WorkspacePackage>,
+  scope: Set<string>,
+): Set<string> {
+  const result = new Set(scope);
   let changed = true;
   while (changed) {
     changed = false;
-    for (const name of [...closure]) {
+    for (const name of [...result]) {
       const pkg = graph.getNodeData(name);
       if (pkg.packageJson.private) continue;
       try {
         const deps = graph.dependenciesOf(name);
         for (const dep of deps) {
-          if (!closure.has(dep)) {
-            closure.add(dep);
+          if (!result.has(dep)) {
+            result.add(dep);
             changed = true;
           }
         }
       } catch {}
     }
   }
-
-  // Populate dependencies record for any packages added by the close-under-deps pass
-  for (const name of closure) {
-    if (!dependencies[name]) {
-      try {
-        dependencies[name] = graph.directDependenciesOf(name).filter(
-          (dep) => dep !== name
-        );
-      } catch {
-        dependencies[name] = [];
-      }
-    }
-  }
-
-  // Compute skipped dependents: those that would have been included without the filter
-  // but ended up outside the closure (even after close-under-deps may have re-added some)
-  const skippedDependents = allPossibleDependents
-    ? [...allPossibleDependents]
-        .filter((d) => !closure.has(d))
-        .filter((d) => !graph.getNodeData(d).packageJson.private)
-        .sort()
-    : [];
-
-  // Deterministic toposort with lexical tie-breaking
-  const ordered = deterministicToposort(graph, closure);
-  if (ordered.length !== closure.size) {
-    throw new CycleDetectedError(
-      `Dependency cycle detected: toposort returned ${ordered.length} nodes but expected ${closure.size}`
-    );
-  }
-  return {
-    packages: ordered.map((name) => graph.getNodeData(name)),
-    dependencies,
-    dependents,
-    skippedDependents,
-  };
+  return result;
 }
 
-function deterministicToposort(
+export function deterministicToposort(
   graph: DepGraph<WorkspacePackage>,
   subset: Set<string>
 ): string[] {

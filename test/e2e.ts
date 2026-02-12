@@ -323,19 +323,22 @@ try {
     assert(lsR.stdout.includes("feat-test-branch"), "worktree tag sanitized correctly");
   }
 
-  // 12. Single-package pub includes dependencies
-  heading("12. pub single package includes deps");
+  // 12. Single-package pub includes deps and cascades to dependents of changed deps
+  heading("12. pub single package includes deps + dependent cascade");
   {
     // Touch files so fingerprinting detects changes
     await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 12\n");
     await Bun.write(join(producerDir, "packages/pkg-b/index.js"), "// updated for test 12\n");
+    await Bun.write(join(producerDir, "packages/pkg-c/index.js"), "// updated for test 12\n");
 
     const r = await pkglab(["pub", "@test/pkg-b"], { cwd: producerDir });
     assert(r.code === 0, "pkglab pub @test/pkg-b succeeds");
-    // pkg-b depends on pkg-a, so both should be published
+    // pkg-b depends on pkg-a, so pkg-a is in scope as a dependency.
+    // Two-phase cascade: pkg-a is changed, so its dependent pkg-c is also included.
     assert(r.stdout.includes("@test/pkg-a"), "dependency @test/pkg-a included in publish");
     assert(r.stdout.includes("@test/pkg-b"), "@test/pkg-b included in publish");
-    assert(r.stdout.includes("2 packages"), "publishes 2 packages total");
+    assert(r.stdout.includes("@test/pkg-c"), "dependent @test/pkg-c included via changed dep");
+    assert(r.stdout.includes("3 packages"), "publishes 3 packages (target + dep + dependent)");
   }
 
   // 13. Single-package pub includes dependents

@@ -72,12 +72,16 @@ Config and state live in `~/.pkglab/`. Verdaccio storage at `~/.pkglab/verdaccio
 
 ## Cascade and fingerprinting
 
-`pkglab pub` computes a cascade: target + transitive deps + transitive dependents, closed under deps (every published package has its workspace deps in the set). Private packages are excluded from the closure.
+`pkglab pub` uses a two-phase cascade to determine the publish scope. Private packages are excluded from the closure.
 
-Before publishing, each package is fingerprinted using `Bun.Glob` + `Bun.CryptoHasher` (SHA-256) to hash the publishable file set (the `files` field, always-included files, and entry points from main/module/types/bin/exports). Falls back to `npm pack --dry-run --json` for packages with bundledDependencies. Packages are classified in topological order:
+Phase 1 (initial scope): targets + their transitive workspace deps, closed under deps (every publishable package has its workspace deps in the set).
+
+Fingerprinting: each package in scope is fingerprinted using `Bun.Glob` + `Bun.CryptoHasher` (SHA-256) to hash the publishable file set (the `files` field, always-included files, and entry points from main/module/types/bin/exports). Falls back to `npm pack --dry-run --json` for packages with bundledDependencies. Packages are classified in topological order:
 - "changed": content hash differs from previous publish
 - "propagated": content same, but a workspace dep was changed/propagated
 - "unchanged": content same, no deps changed (skipped, keeps existing version)
+
+Phase 2 (dependent expansion): for each package classified as "changed" or "propagated," expand its transitive dependents into the scope. New packages are fingerprinted and classified, and the loop repeats until no new changed packages are found. This ensures that if a dependency (like `@clerk/shared`) changes, all its dependents (like `@clerk/express`) are included even if they weren't in the original targets.
 
 Fingerprint state is stored per workspace, per package, per tag in `~/.pkglab/fingerprints.json`. Treated as a cache: missing/corrupt state triggers a full republish. State is saved after consumer updates succeed.
 
@@ -88,7 +92,7 @@ When active consumer repos exist, the cascade filters dependents: only dependent
 
 ## Pub command output
 
-Default output shows a color-coded scope summary (package list with scope/change reasons), then spinners for publishing. `--verbose`/`-v` adds the detailed cascade breakdown (dependency lists, cascading-up graph) and private-package warnings.
+Default output shows a color-coded scope summary (package list with scope/change reasons), then spinners for publishing. Scope reasons show "target", "dependency", or "dependent (via X)" with change status. `--verbose`/`-v` adds the initial scope, expansion steps, and private-package warnings.
 Pruning runs in a detached subprocess (`src/lib/prune-worker.ts`) to avoid blocking exit.
 
 ## Version format

@@ -2,7 +2,13 @@ import { defineCommand } from "citty";
 import { ensureDaemonRunning } from "../lib/daemon";
 import { loadConfig } from "../lib/config";
 import { discoverWorkspace, findPackage, loadCatalogs } from "../lib/workspace";
-import { buildDependencyGraph, computeCascade } from "../lib/graph";
+import {
+  buildDependencyGraph,
+  computeInitialScope,
+  expandDependents,
+  closeUnderDeps,
+  deterministicToposort,
+} from "../lib/graph";
 import { buildPublishPlan, executePublish } from "../lib/publisher";
 import { setDistTag } from "../lib/registry";
 import { generateVersion, sanitizeTag } from "../lib/version";
@@ -173,10 +179,123 @@ export default defineCommand({
       }
     }
 
-    const cascade = computeCascade(graph, targets, consumedPackages);
-    let cascadePackages = cascade.packages;
+    // Phase 1: targets + transitive deps (no dependents yet)
+    const { scope: initialScope } = computeInitialScope(graph, targets);
+    const scope = new Set(initialScope);
 
-    // Skip private packages pulled in by cascade (they're dependents, not deps)
+    // Track scope reasons: why each package is in scope
+    const targetSet = new Set(targets);
+    // Maps dependent name to the package that triggered its inclusion
+    const expandedFrom = new Map<string, string>();
+    // All skipped dependents across iterations
+    let allSkippedDependents: string[] = [];
+
+    // Load previous fingerprint state (--force uses empty state to republish all)
+    const previousState = args.force
+      ? {}
+      : await loadFingerprintState(workspace.root, tag ?? null);
+
+    // Cache fingerprints across iterations
+    const fingerprints = new Map<string, { hash: string; fileCount: number }>();
+    // Track which changed packages we've already expanded dependents from
+    const expandedSet = new Set<string>();
+    // Track reason and existingVersions across iterations
+    let reason = new Map<string, ChangeReason>();
+    let existingVersions = new Map<string, string>();
+
+    // Verbose: log initial scope
+    const verboseExpansions: { source: string; newPackages: string[] }[] = [];
+
+    // Two-phase cascade loop
+    while (true) {
+      // Close under deps: ensure every publishable package has its workspace deps in scope
+      const closed = closeUnderDeps(graph, scope);
+      for (const name of closed) scope.add(name);
+
+      // Fingerprint any packages not yet fingerprinted
+      const toFingerprint: { name: string; dir: string }[] = [];
+      for (const name of scope) {
+        if (!fingerprints.has(name)) {
+          const pkg = graph.getNodeData(name);
+          toFingerprint.push({ name: pkg.name, dir: pkg.dir });
+        }
+      }
+      if (toFingerprint.length > 0) {
+        if (verbose) {
+          log.info(`Fingerprinting ${toFingerprint.length} packages...`);
+        }
+        const newFps = await fingerprintPackages(toFingerprint);
+        for (const [name, fp] of newFps) {
+          fingerprints.set(name, fp);
+        }
+      }
+
+      // Toposort the full scope for detectChanges
+      const ordered = deterministicToposort(graph, scope);
+      const scopePackages = ordered.map((name) => graph.getNodeData(name));
+
+      // Classify all packages in topo order
+      ({ reason, existingVersions } = detectChanges(
+        scopePackages, fingerprints, previousState, graph,
+      ));
+
+      // Find changed packages we haven't expanded from yet
+      const toExpand: string[] = [];
+      for (const [name, r] of reason) {
+        if ((r === "changed" || r === "propagated") && !expandedSet.has(name)) {
+          toExpand.push(name);
+        }
+      }
+
+      if (toExpand.length === 0) break;
+
+      // Expand dependents from newly changed packages
+      const expansion = expandDependents(graph, toExpand, scope, consumedPackages);
+      for (const name of toExpand) expandedSet.add(name);
+
+      // Track which package triggered each dependent's inclusion
+      for (const source of toExpand) {
+        for (const dep of expansion.dependents[source] || []) {
+          if (!scope.has(dep) && !expandedFrom.has(dep)) {
+            expandedFrom.set(dep, source);
+          }
+        }
+      }
+
+      // Collect skipped dependents
+      if (expansion.skippedDependents.length > 0) {
+        allSkippedDependents = allSkippedDependents.concat(expansion.skippedDependents);
+      }
+
+      if (expansion.newPackages.length === 0) break;
+
+      // Log expansion for verbose output
+      if (verbose) {
+        for (const source of toExpand) {
+          const newFromSource = (expansion.dependents[source] || [])
+            .filter((d) => !scope.has(d));
+          if (newFromSource.length > 0) {
+            verboseExpansions.push({ source, newPackages: newFromSource });
+          }
+        }
+      }
+
+      // Add new packages to scope
+      for (const name of expansion.newPackages) {
+        scope.add(name);
+      }
+    }
+
+    // Deduplicate skipped dependents
+    allSkippedDependents = [...new Set(allSkippedDependents)]
+      .filter((d) => !scope.has(d))
+      .sort();
+
+    // Final toposort of the complete scope
+    const finalOrdered = deterministicToposort(graph, scope);
+    let cascadePackages = finalOrdered.map((name) => graph.getNodeData(name));
+
+    // Skip private packages pulled in by cascade
     const skippedPrivate = cascadePackages.filter((p) => !p.publishable);
     if (skippedPrivate.length > 0) {
       if (verbose) {
@@ -187,28 +306,18 @@ export default defineCommand({
       cascadePackages = cascadePackages.filter((p) => p.publishable);
     }
 
-    // Log cascade breakdown per target (verbose only)
+    // Verbose cascade breakdown
     if (verbose) {
-      for (const target of targets) {
-        const deps = cascade.dependencies[target] || [];
-        const depts = cascade.dependents[target] || [];
-
-        if (deps.length > 0) {
-          log.info(`${target} dependencies:`);
-          for (const d of deps) log.line(`  - ${d}`);
-        }
-
-        if (depts.length > 0) {
-          log.info(`${target} cascading up:`);
-          for (const d of depts) {
-            const dDeps = graph.directDependenciesOf(d)
-              .filter((dep) => cascade.packages.some((p) => p.name === dep));
-            log.line(`  - ${d} -> ${dDeps.join(", ")}`);
-          }
-        }
+      const initialNames = [...initialScope].sort();
+      const depsInInitial = initialNames.filter((n) => !targetSet.has(n));
+      const initialParts = targets.concat(depsInInitial.map((n) => `${n} (dep)`));
+      log.info(`Initial scope: ${initialParts.join(", ")}`);
+      for (const { source, newPackages } of verboseExpansions) {
+        const sourceReason = reason.get(source) === "changed" ? "changed" : "dep changed";
+        log.info(`Expanded from ${source} (${sourceReason}):`);
+        for (const d of newPackages) log.line(`  - ${d}`);
       }
     }
-
 
     // Validate no non-publishable dependencies in the cascade set
     for (const pkg of cascadePackages) {
@@ -225,38 +334,11 @@ export default defineCommand({
       }
     }
 
-    // Fingerprint all packages in the cascade
-    if (verbose) {
-      log.info("Fingerprinting packages...");
-    }
-    const fingerprints = await fingerprintPackages(
-      cascadePackages.map((p) => ({ name: p.name, dir: p.dir })),
-    );
-
-    // Load previous fingerprint state (--force uses empty state to republish all)
-    const previousState = args.force
-      ? {}
-      : await loadFingerprintState(workspace.root, tag ?? null);
-
-    // Determine change status in topological order
-    const { reason, existingVersions } = detectChanges(
-      cascadePackages, fingerprints, previousState, graph,
-    );
-
     const publishSet = cascadePackages.filter((p) => {
       const r = reason.get(p.name);
       return r === "changed" || r === "propagated";
     });
     const unchangedSet = cascadePackages.filter((p) => reason.get(p.name) === "unchanged");
-
-    // Build scope reason lookup: target / dependency / dependent
-    const targetSet = new Set(targets);
-    const depSet = new Set<string>();
-    const deptSet = new Set<string>();
-    for (const target of targets) {
-      for (const d of cascade.dependencies[target] || []) depSet.add(d);
-      for (const d of cascade.dependents[target] || []) deptSet.add(d);
-    }
 
     // Scope summary
     const toPublish = publishSet.length;
@@ -269,7 +351,19 @@ export default defineCommand({
     for (const pkg of cascadePackages) {
       const r = reason.get(pkg.name)!;
       const willPublish = r === "changed" || r === "propagated";
-      const scopeReason = targetSet.has(pkg.name) ? "target" : depSet.has(pkg.name) ? "dependency" : "dependent";
+
+      // Scope reason: target, dependency (transitive dep of target), or dependent (via X)
+      let scopeReason: string;
+      if (targetSet.has(pkg.name)) {
+        scopeReason = "target";
+      } else if (expandedFrom.has(pkg.name)) {
+        scopeReason = `dependent (via ${expandedFrom.get(pkg.name)})`;
+      } else if (initialScope.has(pkg.name)) {
+        scopeReason = "dependency";
+      } else {
+        scopeReason = "dependency";
+      }
+
       const changeReason = r === "changed" ? "changed" : r === "propagated" ? "dep changed" : "unchanged";
       if (willPublish) {
         log.line(`  ${c.green("\u25B2")} ${pkg.name}  ${scopeReason}, ${changeReason}`);
@@ -277,7 +371,7 @@ export default defineCommand({
         log.line(`  ${c.dim("\u00B7")} ${c.dim(pkg.name)}  ${c.dim(`${scopeReason}, ${changeReason}`)}`);
       }
     }
-    for (const name of cascade.skippedDependents) {
+    for (const name of allSkippedDependents) {
       log.line(`  ${c.dim("\u00B7")} ${c.dim(name)}  ${c.dim("dependent, no consumers")}`);
     }
 
