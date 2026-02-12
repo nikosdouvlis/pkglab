@@ -1,9 +1,9 @@
 import { defineCommand } from "citty";
-import { join } from "node:path";
 import {
   removeRegistryFromNpmrc,
   removeSkipWorktree,
   updatePackageJsonVersion,
+  removePackageJsonDependency,
   findCatalogRoot,
   updateCatalogVersion,
 } from "../lib/consumer";
@@ -15,20 +15,6 @@ import {
 import { detectPackageManager } from "../lib/pm-detect";
 import { run } from "../lib/proc";
 import { log } from "../lib/log";
-
-async function removeDependency(
-  repoPath: string,
-  pkgName: string,
-): Promise<void> {
-  const pkgJsonPath = join(repoPath, "package.json");
-  const pkgJson = await Bun.file(pkgJsonPath).json();
-  for (const field of ["dependencies", "devDependencies"]) {
-    if (pkgJson[field]?.[pkgName]) {
-      delete pkgJson[field][pkgName];
-    }
-  }
-  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
-}
 
 async function restorePackage(
   repoPath: string,
@@ -51,7 +37,7 @@ async function restorePackage(
     await updatePackageJsonVersion(repoPath, pkgName, original);
     log.info(`Restored ${pkgName} to ${original}`);
   } else {
-    await removeDependency(repoPath, pkgName);
+    await removePackageJsonDependency(repoPath, pkgName);
     log.info(`Removed ${pkgName} (was added by pkglab, no original version)`);
   }
 }

@@ -6,6 +6,7 @@ import {
   applySkipWorktree,
   ensureNpmrcForActiveRepos,
   updatePackageJsonVersion,
+  removePackageJsonDependency,
   findCatalogRoot,
   findCatalogEntry,
   updateCatalogVersion,
@@ -119,7 +120,7 @@ async function batchInstallPackages(
     }
 
     // Update catalog entries, storing previous versions for rollback
-    const prevVersions: { name: string; version: string; catalogName: string }[] = [];
+    const prevVersions: { name: string; version: string | null; catalogName: string }[] = [];
     for (const entry of entries) {
       const { previousVersion } = await updateCatalogVersion(catalogRoot, entry.name, entry.version, entry.catalogName);
       prevVersions.push({ name: entry.name, version: previousVersion, catalogName: entry.catalogName });
@@ -132,7 +133,9 @@ async function batchInstallPackages(
     const result = await run(cmd, { cwd: catalogRoot });
     if (result.exitCode !== 0) {
       for (const prev of prevVersions) {
-        await updateCatalogVersion(catalogRoot, prev.name, prev.version, prev.catalogName);
+        if (prev.version !== null) {
+          await updateCatalogVersion(catalogRoot, prev.name, prev.version, prev.catalogName);
+        }
       }
       const output = (result.stderr || result.stdout).trim();
       throw new Error(`Install failed (${pm}): ${output}`);
@@ -151,7 +154,7 @@ async function batchInstallPackages(
       const catalogName = entries[i].catalogName;
       if (!repoState.packages[name]) {
         repoState.packages[name] = {
-          original: prevVersions[i].version,
+          original: prevVersions[i].version ?? "",
           current: version,
           tag,
           catalogName,
@@ -231,7 +234,7 @@ async function batchInstallPackages(
   }
 
   // Update all package.json versions before installing
-  const prevVersions: { name: string; version: string }[] = [];
+  const prevVersions: { name: string; version: string | null }[] = [];
   for (const { name, version } of packages) {
     const { previousVersion } = await updatePackageJsonVersion(repoPath, name, version);
     prevVersions.push({ name, version: previousVersion });
@@ -245,7 +248,11 @@ async function batchInstallPackages(
   if (result.exitCode !== 0) {
     // Revert package.json so it stays consistent with node_modules
     for (const prev of prevVersions) {
-      await updatePackageJsonVersion(repoPath, prev.name, prev.version);
+      if (prev.version !== null) {
+        await updatePackageJsonVersion(repoPath, prev.name, prev.version);
+      } else {
+        await removePackageJsonDependency(repoPath, prev.name);
+      }
     }
     const output = (result.stderr || result.stdout).trim();
     throw new Error(`Install failed (${pm}): ${output}`);

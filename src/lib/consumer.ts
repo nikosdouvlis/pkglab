@@ -121,11 +121,11 @@ export async function updatePackageJsonVersion(
   repoPath: string,
   pkgName: string,
   version: string,
-): Promise<{ previousVersion: string }> {
+): Promise<{ previousVersion: string | null }> {
   const pkgJsonPath = join(repoPath, "package.json");
   const pkgJson = await Bun.file(pkgJsonPath).json();
 
-  let previousVersion = "";
+  let previousVersion: string | null = null;
   for (const field of ["dependencies", "devDependencies"]) {
     if (pkgJson[field]?.[pkgName]) {
       previousVersion = pkgJson[field][pkgName];
@@ -135,6 +135,20 @@ export async function updatePackageJsonVersion(
 
   await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
   return { previousVersion };
+}
+
+export async function removePackageJsonDependency(
+  repoPath: string,
+  pkgName: string,
+): Promise<void> {
+  const pkgJsonPath = join(repoPath, "package.json");
+  const pkgJson = await Bun.file(pkgJsonPath).json();
+  for (const field of ["dependencies", "devDependencies"]) {
+    if (pkgJson[field]?.[pkgName]) {
+      delete pkgJson[field][pkgName];
+    }
+  }
+  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
 }
 
 /**
@@ -183,11 +197,11 @@ export async function updateCatalogVersion(
   pkgName: string,
   version: string,
   catalogName: string,
-): Promise<{ previousVersion: string }> {
+): Promise<{ previousVersion: string | null }> {
   const pkgJsonPath = join(rootDir, "package.json");
   const pkgJson = await Bun.file(pkgJsonPath).json();
 
-  let previousVersion = "";
+  let previousVersion: string | null = null;
   if (catalogName === "default") {
     if (pkgJson.catalog?.[pkgName] !== undefined) {
       previousVersion = pkgJson.catalog[pkgName];
@@ -224,8 +238,8 @@ export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
 }
 
 interface RepoRollback {
-  catalogEntries: { name: string; version: string; catalogName: string; rootDir: string }[];
-  directEntries: { name: string; version: string }[];
+  catalogEntries: { name: string; version: string | null; catalogName: string; rootDir: string }[];
+  directEntries: { name: string; version: string | null }[];
 }
 
 async function updateRepoVersions(
@@ -253,10 +267,16 @@ async function updateRepoVersions(
 
 async function rollbackRepoVersions(state: RepoState, rollback: RepoRollback): Promise<void> {
   for (const prev of rollback.catalogEntries) {
-    await updateCatalogVersion(prev.rootDir, prev.name, prev.version, prev.catalogName);
+    if (prev.version !== null) {
+      await updateCatalogVersion(prev.rootDir, prev.name, prev.version, prev.catalogName);
+    }
   }
   for (const prev of rollback.directEntries) {
-    await updatePackageJsonVersion(state.path, prev.name, prev.version);
+    if (prev.version === "" || prev.version === null) {
+      await removePackageJsonDependency(state.path, prev.name);
+    } else {
+      await updatePackageJsonVersion(state.path, prev.name, prev.version);
+    }
   }
 }
 

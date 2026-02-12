@@ -4,6 +4,7 @@ import {
   removeRegistryFromNpmrc,
   removeSkipWorktree,
   updatePackageJsonVersion,
+  removePackageJsonDependency,
 } from "../../lib/consumer";
 import { log } from "../../lib/log";
 import type { RepoState } from "../../types";
@@ -65,14 +66,7 @@ export default defineCommand({
           log.dim(`  ${pkgName} -> ${link.original}`);
         } else {
           // No original — remove the dependency
-          const pkgJsonPath = join(state.path, "package.json");
-          const pkgJson = await Bun.file(pkgJsonPath).json();
-          for (const field of ["dependencies", "devDependencies"]) {
-            if (pkgJson[field]?.[pkgName]) {
-              delete pkgJson[field][pkgName];
-            }
-          }
-          await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+          await removePackageJsonDependency(state.path, pkgName);
           log.dim(`  ${pkgName} removed (no original version)`);
         }
       }
