@@ -513,8 +513,7 @@ async function publishPackages(
     }
 
     // Auto-prune old versions in detached subprocess
-    const pruneEntry = new URL("../lib/prune-worker.ts", import.meta.url).pathname;
-    Bun.spawn(["bun", "run", pruneEntry, String(config.port), String(config.prune_keep), ...(tag ? [tag] : [])], {
+    Bun.spawn([process.execPath, "--__prune", String(config.port), String(config.prune_keep), ...(tag ? [tag] : [])], {
       stdout: "ignore",
       stderr: "ignore",
       stdin: "ignore",

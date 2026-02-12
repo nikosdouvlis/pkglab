@@ -8,6 +8,17 @@ if (process.argv.includes("--__worker")) {
   await new Promise(() => {});
 }
 
+// Hidden flag: detached prune subprocess
+if (process.argv.includes("--__prune")) {
+  const { pruneAll } = await import("./lib/prune");
+  const idx = process.argv.indexOf("--__prune");
+  const port = Number(process.argv[idx + 1]);
+  const pruneKeep = Number(process.argv[idx + 2]);
+  const tag = process.argv[idx + 3];
+  await pruneAll({ port, prune_keep: pruneKeep }, tag || undefined).catch(() => {});
+  process.exit(0);
+}
+
 import { join } from "node:path";
 import { defineCommand, runMain } from "citty";
 import { ensurepkglabDirs } from "./lib/config";
