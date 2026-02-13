@@ -84,11 +84,9 @@ export default defineCommand({
     force: { type: "boolean", description: "Ignore fingerprints (republish all)", default: false, alias: "f" },
     tag: { type: "string", description: "Publish with a tag", alias: "t" },
     worktree: { type: "boolean", description: "Auto-detect tag from git branch", default: false, alias: "w" },
-    "set-latest": { type: "boolean", description: "Also set the 'latest' dist-tag", default: false },
   },
   async run({ args }) {
     const verbose = args.verbose as boolean;
-    const setLatest = args["set-latest"] as boolean;
 
     // Resolve tag from --tag or --worktree
     if (args.tag && args.worktree) {
@@ -162,7 +160,7 @@ export default defineCommand({
         .map((name) => findPackage(workspace.packages, name))
         .filter(Boolean) as typeof workspace.packages;
 
-      await publishPackages(publishSet, [], workspace.root, config, tag, verbose, args["dry-run"] as boolean, setLatest);
+      await publishPackages(publishSet, [], workspace.root, config, tag, verbose, args["dry-run"] as boolean);
       return;
     }
 
@@ -398,7 +396,6 @@ export default defineCommand({
       tag,
       verbose,
       args["dry-run"] as boolean,
-      setLatest,
       existingVersions,
       reason,
       fingerprints,
@@ -415,7 +412,6 @@ async function publishPackages(
   tag: string | undefined,
   verbose: boolean,
   dryRun: boolean,
-  setLatest: boolean,
   existingVersions: Map<string, string> = new Map(),
   reason?: Map<string, ChangeReason>,
   fingerprints?: Map<string, { hash: string; fileCount: number }>,
@@ -497,13 +493,6 @@ async function publishPackages(
     await Promise.all(
       plan.packages.map((e) => setDistTag(config, e.name, e.version, distTag)),
     );
-
-    // Also set 'latest' dist-tag if requested (needed for * resolution in consumer package.json)
-    if (setLatest && distTag !== "latest") {
-      await Promise.all(
-        plan.packages.map((e) => setDistTag(config, e.name, e.version, "latest")),
-      );
-    }
 
     // Auto-update active consumer repos
     const { updateActiveRepos } = await import("../lib/consumer");
