@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { log } from "./log";
 import { c } from "./color";
 import { NpmrcConflictError } from "./errors";
-import { detectPackageManager, installCommand, batchInstallCommand } from "./pm-detect";
+import { detectPackageManager } from "./pm-detect";
 import type { PackageManager } from "./pm-detect";
 import { run } from "./proc";
 import { getActiveRepos, saveRepoByPath } from "./repo-state";
@@ -100,24 +100,6 @@ export async function isSkipWorktreeSet(repoPath: string): Promise<boolean> {
   return result.stdout.startsWith("S ");
 }
 
-export async function scopedInstall(
-  repoPath: string,
-  pkgName: string,
-  version: string,
-  pm?: PackageManager,
-  quiet?: boolean,
-): Promise<void> {
-  const detectedPm = pm || (await detectPackageManager(repoPath));
-  const cmd = installCommand(detectedPm, pkgName, version);
-
-  if (!quiet) log.dim(`  ${cmd.join(" ")}`);
-  const result = await run(cmd, { cwd: repoPath });
-  if (result.exitCode !== 0) {
-    const output = (result.stderr || result.stdout).trim();
-    throw new Error(`Install failed (${detectedPm}): ${output}`);
-  }
-}
-
 export async function updatePackageJsonVersion(
   repoPath: string,
   pkgName: string,
@@ -127,11 +109,19 @@ export async function updatePackageJsonVersion(
   const pkgJson = await Bun.file(pkgJsonPath).json();
 
   let previousVersion: string | null = null;
+  let found = false;
   for (const field of ["dependencies", "devDependencies"]) {
     if (pkgJson[field]?.[pkgName]) {
       previousVersion = pkgJson[field][pkgName];
       pkgJson[field][pkgName] = version;
+      found = true;
     }
+  }
+
+  // Upsert: if not found in any field, add to dependencies
+  if (!found) {
+    if (!pkgJson.dependencies) pkgJson.dependencies = {};
+    pkgJson.dependencies[pkgName] = version;
   }
 
   await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
@@ -175,7 +165,6 @@ export async function installWithVersionUpdates(
   opts: InstallWithVersionUpdatesOpts,
 ): Promise<Map<string, string | null>> {
   const { repoPath, catalogRoot, entries, pm, onCommand } = opts;
-  const hasCustomTarget = entries.some(e => e.packageJsonDir);
   const previousVersions = new Map<string, string | null>();
 
   // Step 1: write version updates
@@ -190,21 +179,11 @@ export async function installWithVersionUpdates(
     }
   }
 
-  // Step 2: determine install command
-  const hasCatalog = catalogRoot != null && entries.some(e => e.catalogName);
-  let cmd: string[];
-  let cwd: string;
-  if (hasCatalog) {
-    cmd = [pm, "install"];
-    cwd = catalogRoot ?? repoPath;
-  } else if (hasCustomTarget) {
-    // Versions already written to target package.json(s), just sync
-    cmd = [pm, "install"];
-    cwd = repoPath;
-  } else {
-    cmd = batchInstallCommand(pm, entries.map(e => ({ name: e.name, version: e.version })));
-    cwd = repoPath;
-  }
+  // Step 2: determine install command - always use pm install
+  // Versions are already written to package.json/catalog in step 1.
+  // pm install syncs node_modules from the updated manifests.
+  const cmd: string[] = [pm, "install"];
+  const cwd: string = catalogRoot ?? repoPath;
 
   // Step 3: disable bun manifest cache if needed
   const restoreBunfig = pm === "bun"
