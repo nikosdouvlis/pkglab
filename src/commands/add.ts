@@ -227,9 +227,9 @@ async function batchInstallPackages(
           break; // found in this package, no need to check devDependencies too
         }
       }
-      if (found.length > 1) {
-        const dirs = found.map(t => t.dir).join(", ");
-        log.dim(`  found ${pkg.name} in ${dirs}`);
+      if (found.length > 0) {
+        const dirs = found.map(t => t.dir === "." ? "(root)" : t.dir).join(", ");
+        log.dim(`  ${pkg.name} -> ${dirs}`);
       }
       targets = found.length > 0 ? found : [{ dir: "." }];
     } else {
@@ -442,7 +442,7 @@ async function resolveScopePackages(
     process.exit(1);
   }
 
-  log.info(`Found ${resolved.length} packages matching ${prefix.slice(0, -1)}`);
+  log.info(`Found ${resolved.length} packages matching ${prefix}*`);
   for (const pkg of resolved) {
     log.dim(`  ${pkg.name}@${pkg.version}`);
   }

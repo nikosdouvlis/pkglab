@@ -972,8 +972,8 @@ try {
 
     const combined = addR.stdout + addR.stderr;
     assert(
-      combined.includes("Found 2 packages matching @test"),
-      "output mentions Found 2 packages matching @test",
+      combined.includes("Found 2 packages matching @test/*"),
+      "output mentions Found 2 packages matching @test/*",
     );
 
     // Verify both packages updated in both sub-packages
