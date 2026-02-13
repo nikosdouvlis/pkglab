@@ -14,7 +14,7 @@ Top-level:
 - `pkglab status` — show registry status
 - `pkglab logs` — show registry logs
 - `pkglab pub [name...]` — publish workspace packages to local registry, auto-updates active consumer repos. Accepts multiple names. Fingerprints packages and skips unchanged ones. Flags: `--single` skip cascade/fingerprinting, `--shallow` targets + deps only (no dependent expansion), `--force`/`-f` ignore fingerprints (republish all), `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--dry-run`, `--verbose`/`-v`
-- `pkglab add [name[@tag]...]` — add pkglab packages to the current repo. Accepts multiple names. No args for interactive picker. Batch installs in one command. `--catalog` updates the workspace root catalog instead of individual package.json (for repos using `catalog:` protocol). `--packagejson`/`-p` targets a nested package.json directory (e.g. `-p apps/dashboard` from monorepo root). Path is remembered for restore.
+- `pkglab add [name[@tag]...]` — add pkglab packages to the current repo. Accepts multiple names. No args for interactive picker. Batch installs in one command. `--catalog` updates the workspace root catalog instead of individual package.json (for repos using `catalog:` protocol). Supports both bun/npm catalogs (package.json) and pnpm catalogs (pnpm-workspace.yaml). `--packagejson`/`-p` targets a nested package.json directory (e.g. `-p apps/dashboard` from monorepo root). Path is remembered for restore.
 - `pkglab restore <name>` — restore a pkglab package to its original version, runs pm install to sync node_modules. `--all` restores all packages in the repo.
 - `pkglab doctor` — diagnose issues
 - `pkglab check` — check package status

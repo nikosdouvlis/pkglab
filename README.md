@@ -156,14 +156,16 @@ If your consumer repo uses the `catalog:` protocol (Bun or pnpm workspaces), use
 
 ```bash
 # Without --catalog: overwrites "catalog:" with a plain version (breaks catalog setup)
-# With --catalog: updates the version in the root package.json catalog field
+# With --catalog: updates the version in the catalog source
 pkglab add --catalog @clerk/backend @clerk/shared
 
 # Restore puts the original catalog versions back
 pkglab restore --all
 ```
 
-The workspace root package.json must have a `catalog` or `catalogs` field, and the package must already be listed in it:
+pkglab auto-detects which catalog format your workspace uses:
+
+For bun/npm workspaces, catalogs live in the root package.json:
 
 ```json
 {
@@ -174,7 +176,15 @@ The workspace root package.json must have a `catalog` or `catalogs` field, and t
 }
 ```
 
-Named catalogs (`catalogs.react19`, etc.) are also supported. pkglab finds which catalog contains each package automatically.
+For pnpm workspaces, catalogs live in pnpm-workspace.yaml:
+
+```yaml
+catalog:
+  "@clerk/backend": "^3.0.0"
+  "@clerk/shared": "^2.0.0"
+```
+
+Named catalogs (`catalogs.react19`, etc.) are also supported in both formats. pkglab finds which catalog contains each package automatically.
 
 When `pkglab pub` auto-updates consumer repos, catalog-linked packages are updated in the catalog (not in individual package.json files), preserving the `catalog:` references.
 

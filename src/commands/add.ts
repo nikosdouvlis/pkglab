@@ -8,8 +8,9 @@ import {
   installWithVersionUpdates,
   findCatalogRoot,
   findCatalogEntry,
+  loadCatalogData,
 } from "../lib/consumer";
-import type { VersionEntry } from "../lib/consumer";
+import type { VersionEntry, CatalogFormat } from "../lib/consumer";
 import {
   canonicalRepoPath,
   loadRepoByPath,
@@ -93,25 +94,28 @@ async function batchInstallPackages(
 ): Promise<void> {
   let effectivePath = repoPath;
   let catalogRoot: string | undefined;
+  let catalogFormat: CatalogFormat | undefined;
   const catalogNames = new Map<string, string>(); // pkg name -> catalogName
   const packageJsonDir = packagejson ? resolve(repoPath, packagejson) : undefined;
   const pkgJsonTarget = packageJsonDir ?? repoPath;
 
   // Phase 1: Branch-specific prep
   if (catalog) {
-    const root = await findCatalogRoot(repoPath);
-    if (!root) {
-      log.error("No catalog found. The workspace root package.json needs a 'catalog' or 'catalogs' field.");
+    const found = await findCatalogRoot(repoPath);
+    if (!found) {
+      log.error("No catalog found. The workspace root needs a 'catalog' or 'catalogs' field in package.json or pnpm-workspace.yaml.");
       process.exit(1);
     }
-    catalogRoot = root;
-    effectivePath = root;
+    catalogRoot = found.root;
+    catalogFormat = found.format;
+    effectivePath = found.root;
 
-    const rootPkgJson = await Bun.file(join(root, "package.json")).json();
+    const data = await loadCatalogData(found.root, found.format);
     for (const pkg of packages) {
-      const entry = findCatalogEntry(rootPkgJson, pkg.name);
+      const entry = findCatalogEntry(data, pkg.name);
       if (!entry) {
-        log.error(`${pkg.name} is not in any catalog. Add it to the catalog field in the workspace root package.json first.`);
+        const source = found.format === "pnpm-workspace" ? "pnpm-workspace.yaml" : "workspace root package.json";
+        log.error(`${pkg.name} is not in any catalog. Add it to the catalog field in ${source} first.`);
         process.exit(1);
       }
       catalogNames.set(pkg.name, entry.catalogName);
@@ -179,6 +183,7 @@ async function batchInstallPackages(
       name: pkg.name,
       version: pkg.version,
       ...(catalogName && { catalogName }),
+      ...(catalogFormat && { catalogFormat }),
       ...(relPackageJsonDir && { packageJsonDir: relPackageJsonDir }),
     };
   });
@@ -207,12 +212,14 @@ async function batchInstallPackages(
         current: pkg.version,
         tag: pkg.tag,
         ...(catalogName && { catalogName }),
+        ...(catalogFormat && { catalogFormat }),
         ...(relPackageJsonDir && { packageJsonDir: relPackageJsonDir }),
       };
     } else {
       repoState.packages[pkg.name].current = pkg.version;
       repoState.packages[pkg.name].tag = pkg.tag;
       if (catalogName) repoState.packages[pkg.name].catalogName = catalogName;
+      if (catalogFormat) repoState.packages[pkg.name].catalogFormat = catalogFormat;
       if (relPackageJsonDir) repoState.packages[pkg.name].packageJsonDir = relPackageJsonDir;
     }
   }

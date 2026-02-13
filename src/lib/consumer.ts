@@ -142,10 +142,13 @@ export async function removePackageJsonDependency(
   await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
 }
 
+export type CatalogFormat = "package-json" | "pnpm-workspace";
+
 export interface VersionEntry {
   name: string;
   version: string;
   catalogName?: string;
+  catalogFormat?: CatalogFormat;
   packageJsonDir?: string; // relative path from repoPath to the dir containing the target package.json
 }
 
@@ -170,7 +173,9 @@ export async function installWithVersionUpdates(
   // Step 1: write version updates
   for (const entry of entries) {
     if (entry.catalogName && catalogRoot) {
-      const { previousVersion } = await updateCatalogVersion(catalogRoot, entry.name, entry.version, entry.catalogName);
+      const { previousVersion } = await updateCatalogVersion(
+        catalogRoot, entry.name, entry.version, entry.catalogName, entry.catalogFormat,
+      );
       previousVersions.set(entry.name, previousVersion);
     } else {
       const target = entry.packageJsonDir ? join(repoPath, entry.packageJsonDir) : repoPath;
@@ -203,7 +208,7 @@ export async function installWithVersionUpdates(
         const prev = previousVersions.get(entry.name) ?? null;
         if (entry.catalogName && catalogRoot) {
           if (prev !== null) {
-            await updateCatalogVersion(catalogRoot, entry.name, prev, entry.catalogName);
+            await updateCatalogVersion(catalogRoot, entry.name, prev, entry.catalogName, entry.catalogFormat);
           }
         } else {
           const target = entry.packageJsonDir ? join(repoPath, entry.packageJsonDir) : repoPath;
@@ -227,16 +232,29 @@ export async function installWithVersionUpdates(
 }
 
 /**
- * Walk up from startDir to find the nearest package.json with a catalog or catalogs field.
+ * Walk up from startDir to find the nearest catalog definition.
+ * Checks pnpm-workspace.yaml first, then package.json.
  */
-export async function findCatalogRoot(startDir: string): Promise<string | null> {
+export async function findCatalogRoot(startDir: string): Promise<{ root: string; format: CatalogFormat } | null> {
   let dir = startDir;
   while (true) {
+    // Check pnpm-workspace.yaml first
+    const wsFile = Bun.file(join(dir, "pnpm-workspace.yaml"));
+    if (await wsFile.exists()) {
+      const { parse } = await import("yaml");
+      const content = parse(await wsFile.text());
+      if (content?.catalog || content?.catalogs) {
+        return { root: dir, format: "pnpm-workspace" };
+      }
+    }
+
+    // Check package.json catalogs (bun/npm)
     const file = Bun.file(join(dir, "package.json"));
     if (await file.exists()) {
       const pkgJson = await file.json();
-      if (pkgJson.catalog || pkgJson.catalogs) return dir;
+      if (pkgJson.catalog || pkgJson.catalogs) return { root: dir, format: "package-json" };
     }
+
     const parent = join(dir, "..");
     if (parent === dir) return null;
     dir = parent;
@@ -244,18 +262,32 @@ export async function findCatalogRoot(startDir: string): Promise<string | null> 
 }
 
 /**
+ * Load catalog data from either package.json or pnpm-workspace.yaml.
+ */
+export async function loadCatalogData(rootDir: string, format: CatalogFormat): Promise<any> {
+  if (format === "pnpm-workspace") {
+    const { parse } = await import("yaml");
+    const text = await Bun.file(join(rootDir, "pnpm-workspace.yaml")).text();
+    return parse(text);
+  }
+  return Bun.file(join(rootDir, "package.json")).json();
+}
+
+/**
  * Find which catalog (default or named) contains a given package.
+ * Works for both package.json and pnpm-workspace.yaml data since they
+ * share the same catalog/catalogs structure.
  * Returns null if the package isn't in any catalog.
  */
 export function findCatalogEntry(
-  rootPkgJson: any,
+  data: any,
   pkgName: string,
 ): { catalogName: string; version: string } | null {
-  if (rootPkgJson.catalog?.[pkgName] !== undefined) {
-    return { catalogName: "default", version: rootPkgJson.catalog[pkgName] };
+  if (data?.catalog?.[pkgName] !== undefined) {
+    return { catalogName: "default", version: data.catalog[pkgName] };
   }
-  if (rootPkgJson.catalogs) {
-    for (const [name, entries] of Object.entries(rootPkgJson.catalogs)) {
+  if (data?.catalogs) {
+    for (const [name, entries] of Object.entries(data.catalogs)) {
       if (entries && typeof entries === "object" && (entries as any)[pkgName] !== undefined) {
         return { catalogName: name, version: (entries as any)[pkgName] };
       }
@@ -266,8 +298,22 @@ export function findCatalogEntry(
 
 /**
  * Update a version in the workspace root catalog (or named catalog).
+ * Dispatches to the right file format based on the format parameter.
  */
 export async function updateCatalogVersion(
+  rootDir: string,
+  pkgName: string,
+  version: string,
+  catalogName: string,
+  format: CatalogFormat = "package-json",
+): Promise<{ previousVersion: string | null }> {
+  if (format === "pnpm-workspace") {
+    return updatePnpmCatalogVersion(rootDir, pkgName, version, catalogName);
+  }
+  return updatePackageJsonCatalogVersion(rootDir, pkgName, version, catalogName);
+}
+
+async function updatePackageJsonCatalogVersion(
   rootDir: string,
   pkgName: string,
   version: string,
@@ -290,6 +336,34 @@ export async function updateCatalogVersion(
   }
 
   await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+  return { previousVersion };
+}
+
+async function updatePnpmCatalogVersion(
+  rootDir: string,
+  pkgName: string,
+  version: string,
+  catalogName: string,
+): Promise<{ previousVersion: string | null }> {
+  const { parse, stringify } = await import("yaml");
+  const wsPath = join(rootDir, "pnpm-workspace.yaml");
+  const text = await Bun.file(wsPath).text();
+  const ws = parse(text);
+
+  let previousVersion: string | null = null;
+  if (catalogName === "default") {
+    if (ws.catalog?.[pkgName] !== undefined) {
+      previousVersion = ws.catalog[pkgName];
+      ws.catalog[pkgName] = version;
+    }
+  } else {
+    if (ws.catalogs?.[catalogName]?.[pkgName] !== undefined) {
+      previousVersion = ws.catalogs[catalogName][pkgName];
+      ws.catalogs[catalogName][pkgName] = version;
+    }
+  }
+
+  await Bun.write(wsPath, stringify(ws));
   return { previousVersion };
 }
 
@@ -387,13 +461,19 @@ export async function updateActiveRepos(
           const repoTasks = tasks.filter((t) => t.repoIdx === r);
           const entries = repo.packages.map(e => {
             const link = repo.state.packages[e.name];
-            return { name: e.name, version: e.version, catalogName: link?.catalogName, packageJsonDir: link?.packageJsonDir };
+            return {
+              name: e.name,
+              version: e.version,
+              catalogName: link?.catalogName,
+              catalogFormat: link?.catalogFormat,
+              packageJsonDir: link?.packageJsonDir,
+            };
           });
-          const catalogRoot = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : undefined;
+          const catalogResult = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : null;
 
           await installWithVersionUpdates({
             repoPath: repo.state.path,
-            catalogRoot: catalogRoot ?? undefined,
+            catalogRoot: catalogResult?.root,
             entries,
             pm: repo.pm,
           });
@@ -415,13 +495,19 @@ export async function updateActiveRepos(
       work.map(async (repo) => {
         const entries = repo.packages.map(e => {
           const link = repo.state.packages[e.name];
-          return { name: e.name, version: e.version, catalogName: link?.catalogName, packageJsonDir: link?.packageJsonDir };
+          return {
+            name: e.name,
+            version: e.version,
+            catalogName: link?.catalogName,
+            catalogFormat: link?.catalogFormat,
+            packageJsonDir: link?.packageJsonDir,
+          };
         });
-        const catalogRoot = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : undefined;
+        const catalogResult = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : null;
 
         await installWithVersionUpdates({
           repoPath: repo.state.path,
-          catalogRoot: catalogRoot ?? undefined,
+          catalogRoot: catalogResult?.root,
           entries,
           pm: repo.pm,
           onCommand: (cmd, _cwd) => log.dim(`  ${cmd.join(" ")}`),

@@ -15,6 +15,7 @@ export interface PackageLink {
   current: string;
   tag?: string;
   catalogName?: string; // "default" for catalog field, other string for catalogs[name]
+  catalogFormat?: "package-json" | "pnpm-workspace";
   packageJsonDir?: string; // relative path from repo root to the dir containing the target package.json
 }
 
