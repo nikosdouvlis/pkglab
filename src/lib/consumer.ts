@@ -149,7 +149,7 @@ export interface VersionEntry {
   version: string;
   catalogName?: string;
   catalogFormat?: CatalogFormat;
-  packageJsonDir?: string; // relative path from repoPath to the dir containing the target package.json
+  targets: Array<{ dir: string }>;
 }
 
 interface InstallWithVersionUpdatesOpts {
@@ -162,13 +162,13 @@ interface InstallWithVersionUpdatesOpts {
 
 /**
  * Write version updates to package.json or catalog, run install, and
- * rollback on failure. Returns a map of package name to previous version.
+ * rollback on failure. Returns a map of package name to targets with previous versions.
  */
 export async function installWithVersionUpdates(
   opts: InstallWithVersionUpdatesOpts,
-): Promise<Map<string, string | null>> {
+): Promise<Map<string, Array<{ dir: string; original: string }>>> {
   const { repoPath, catalogRoot, entries, pm, onCommand } = opts;
-  const previousVersions = new Map<string, string | null>();
+  const previousVersions = new Map<string, Array<{ dir: string; original: string }>>();
 
   // Step 1: write version updates
   for (const entry of entries) {
@@ -176,11 +176,18 @@ export async function installWithVersionUpdates(
       const { previousVersion } = await updateCatalogVersion(
         catalogRoot, entry.name, entry.version, entry.catalogName, entry.catalogFormat,
       );
-      previousVersions.set(entry.name, previousVersion);
+      previousVersions.set(entry.name, entry.targets.map(t => ({
+        dir: t.dir,
+        original: previousVersion ?? "",
+      })));
     } else {
-      const target = entry.packageJsonDir ? join(repoPath, entry.packageJsonDir) : repoPath;
-      const { previousVersion } = await updatePackageJsonVersion(target, entry.name, entry.version);
-      previousVersions.set(entry.name, previousVersion);
+      const targets: Array<{ dir: string; original: string }> = [];
+      for (const t of entry.targets) {
+        const targetPath = join(repoPath, t.dir);
+        const { previousVersion } = await updatePackageJsonVersion(targetPath, entry.name, entry.version);
+        targets.push({ dir: t.dir, original: previousVersion ?? "" });
+      }
+      previousVersions.set(entry.name, targets);
     }
   }
 
@@ -205,17 +212,20 @@ export async function installWithVersionUpdates(
     // Step 6: rollback on failure
     if (result.exitCode !== 0) {
       for (const entry of entries) {
-        const prev = previousVersions.get(entry.name) ?? null;
+        const prevTargets = previousVersions.get(entry.name) ?? [];
         if (entry.catalogName && catalogRoot) {
+          const prev = prevTargets[0]?.original ?? null;
           if (prev !== null) {
             await updateCatalogVersion(catalogRoot, entry.name, prev, entry.catalogName, entry.catalogFormat);
           }
         } else {
-          const target = entry.packageJsonDir ? join(repoPath, entry.packageJsonDir) : repoPath;
-          if (prev === null || prev === "") {
-            await removePackageJsonDependency(target, entry.name);
-          } else {
-            await updatePackageJsonVersion(target, entry.name, prev);
+          for (const t of prevTargets) {
+            const targetPath = join(repoPath, t.dir);
+            if (t.original === "") {
+              await removePackageJsonDependency(targetPath, entry.name);
+            } else {
+              await updatePackageJsonVersion(targetPath, entry.name, t.original);
+            }
           }
         }
       }
@@ -459,14 +469,14 @@ export async function updateActiveRepos(
       await Promise.all(
         work.map(async (repo, r) => {
           const repoTasks = tasks.filter((t) => t.repoIdx === r);
-          const entries = repo.packages.map(e => {
+          const entries: VersionEntry[] = repo.packages.map(e => {
             const link = repo.state.packages[e.name];
             return {
               name: e.name,
               version: e.version,
               catalogName: link?.catalogName,
               catalogFormat: link?.catalogFormat,
-              packageJsonDir: link?.packageJsonDir,
+              targets: link?.targets.map(t => ({ dir: t.dir })) ?? [{ dir: "." }],
             };
           });
           const catalogResult = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : null;
@@ -493,14 +503,14 @@ export async function updateActiveRepos(
     log.info("\nUpdating active repos:");
     await Promise.all(
       work.map(async (repo) => {
-        const entries = repo.packages.map(e => {
+        const entries: VersionEntry[] = repo.packages.map(e => {
           const link = repo.state.packages[e.name];
           return {
             name: e.name,
             version: e.version,
             catalogName: link?.catalogName,
             catalogFormat: link?.catalogFormat,
-            packageJsonDir: link?.packageJsonDir,
+            targets: link?.targets.map(t => ({ dir: t.dir })) ?? [{ dir: "." }],
           };
         });
         const catalogResult = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : null;

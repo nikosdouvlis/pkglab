@@ -20,28 +20,37 @@ import { log } from "../lib/log";
 async function restorePackage(
   repoPath: string,
   pkgName: string,
-  original: string,
+  targets: Array<{ dir: string; original: string }>,
   catalogName?: string,
   catalogFormat?: "package-json" | "pnpm-workspace",
-  packageJsonDir?: string,
 ): Promise<void> {
-  const targetDir = packageJsonDir ? join(repoPath, packageJsonDir) : repoPath;
   if (catalogName) {
     const catalogResult = await findCatalogRoot(repoPath);
+    const original = targets[0]?.original ?? "";
     if (catalogResult && original) {
       await updateCatalogVersion(catalogResult.root, pkgName, original, catalogName, catalogFormat ?? catalogResult.format);
       log.info(`Restored ${pkgName} to ${original} (catalog)`);
     } else if (!catalogResult) {
       log.warn(`Could not find catalog root for ${pkgName}, restoring in package.json`);
-      if (original) await updatePackageJsonVersion(targetDir, pkgName, original);
+      if (original) {
+        const targetDir = join(repoPath, targets[0]?.dir ?? ".");
+        await updatePackageJsonVersion(targetDir, pkgName, original);
+      }
     }
     return;
   }
-  if (original) {
-    await updatePackageJsonVersion(targetDir, pkgName, original);
-    log.info(`Restored ${pkgName} to ${original}`);
+  for (const t of targets) {
+    const targetDir = join(repoPath, t.dir);
+    if (t.original) {
+      await updatePackageJsonVersion(targetDir, pkgName, t.original);
+    } else {
+      await removePackageJsonDependency(targetDir, pkgName);
+    }
+  }
+  const firstOriginal = targets[0]?.original;
+  if (firstOriginal) {
+    log.info(`Restored ${pkgName} to ${firstOriginal}`);
   } else {
-    await removePackageJsonDependency(targetDir, pkgName);
     log.info(`Removed ${pkgName} (was added by pkglab, no original version)`);
   }
 }
@@ -68,7 +77,7 @@ export default defineCommand({
       const names = Object.keys(repo.state.packages);
       for (const name of names) {
         const link = repo.state.packages[name];
-        await restorePackage(repoPath, name, link.original, link.catalogName, link.catalogFormat, link.packageJsonDir);
+        await restorePackage(repoPath, name, link.targets, link.catalogName, link.catalogFormat);
         delete repo.state.packages[name];
       }
       await saveRepoByPath(repo.state.path, repo.state);
@@ -98,7 +107,7 @@ export default defineCommand({
     }
 
     const link = repo.state.packages[pkgName];
-    await restorePackage(repoPath, pkgName, link.original, link.catalogName, link.catalogFormat, link.packageJsonDir);
+    await restorePackage(repoPath, pkgName, link.targets, link.catalogName, link.catalogFormat);
     delete repo.state.packages[pkgName];
     await saveRepoByPath(repo.state.path, repo.state);
 

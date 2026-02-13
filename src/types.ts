@@ -11,12 +11,11 @@ export interface RepoState {
 }
 
 export interface PackageLink {
-  original: string;
   current: string;
   tag?: string;
   catalogName?: string; // "default" for catalog field, other string for catalogs[name]
   catalogFormat?: "package-json" | "pnpm-workspace";
-  packageJsonDir?: string; // relative path from repo root to the dir containing the target package.json
+  targets: Array<{ dir: string; original: string }>;
 }
 
 export interface WorkspacePackage {

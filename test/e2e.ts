@@ -611,6 +611,255 @@ try {
     await pkglab(["repo", "reset", "--stale"]).catch(() => {});
   }
 
+  heading("20. Multi-target auto-detection (no -p flag)");
+  {
+    // Create a bun workspace consumer with 2 sub-packages that both depend on @test/pkg-a
+    const multiDir = join(testDir, "multi-consumer");
+    await mkdir(join(multiDir, "apps/one"), { recursive: true });
+    await mkdir(join(multiDir, "apps/two"), { recursive: true });
+
+    // Workspace root (no direct dep on @test/pkg-a)
+    await writeJson(join(multiDir, "package.json"), {
+      name: "multi-consumer",
+      private: true,
+      workspaces: ["apps/*"],
+    });
+
+    // Sub-package one
+    await writeJson(join(multiDir, "apps/one/package.json"), {
+      name: "app-one",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "0.0.0",
+      },
+    });
+
+    // Sub-package two
+    await writeJson(join(multiDir, "apps/two/package.json"), {
+      name: "app-two",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "0.0.0",
+      },
+    });
+
+    // bun install to create lockfile
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: multiDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    // Add @test/pkg-a from workspace root WITHOUT -p (should auto-detect both sub-packages)
+    const addR = await pkglab(["add", "@test/pkg-a"], { cwd: multiDir });
+    assert(addR.code === 0, "pkglab add (multi-target) succeeds");
+
+    // Verify BOTH sub-packages were updated
+    const onePkg = await readPkgJson(join(multiDir, "apps/one"));
+    const twoPkg = await readPkgJson(join(multiDir, "apps/two"));
+    const oneVer = getDep(onePkg, "@test/pkg-a");
+    const twoVer = getDep(twoPkg, "@test/pkg-a");
+
+    assert(!!oneVer, "apps/one has @test/pkg-a");
+    assert(oneVer!.includes("0.0.0-pkglab."), "apps/one has pkglab version");
+    assert(!!twoVer, "apps/two has @test/pkg-a");
+    assert(twoVer!.includes("0.0.0-pkglab."), "apps/two has pkglab version");
+
+    // Root should NOT have @test/pkg-a
+    const rootPkg = await readPkgJson(multiDir);
+    assert(!getDep(rootPkg, "@test/pkg-a"), "root does NOT have @test/pkg-a");
+
+    // Verify restore restores both sub-packages
+    const restoreR = await pkglab(["restore", "--all"], { cwd: multiDir });
+    assert(restoreR.code === 0, "restore --all succeeds");
+
+    const oneAfterRestore = await readPkgJson(join(multiDir, "apps/one"));
+    const twoAfterRestore = await readPkgJson(join(multiDir, "apps/two"));
+    assert(
+      getDep(oneAfterRestore, "@test/pkg-a") === "0.0.0",
+      "apps/one restored to original version",
+    );
+    assert(
+      getDep(twoAfterRestore, "@test/pkg-a") === "0.0.0",
+      "apps/two restored to original version",
+    );
+
+    // Clean up
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
+  heading("21. Opt-out with -p (single target)");
+  {
+    // Same workspace structure as test 20
+    const optOutDir = join(testDir, "optout-consumer");
+    await mkdir(join(optOutDir, "apps/one"), { recursive: true });
+    await mkdir(join(optOutDir, "apps/two"), { recursive: true });
+
+    // Workspace root
+    await writeJson(join(optOutDir, "package.json"), {
+      name: "optout-consumer",
+      private: true,
+      workspaces: ["apps/*"],
+    });
+
+    // Sub-package one
+    await writeJson(join(optOutDir, "apps/one/package.json"), {
+      name: "optout-one",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "*",
+      },
+    });
+
+    // Sub-package two (also depends on @test/pkg-a, should NOT be updated by -p)
+    await writeJson(join(optOutDir, "apps/two/package.json"), {
+      name: "optout-two",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "*",
+      },
+    });
+
+    // bun install to create lockfile
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: optOutDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    // Add @test/pkg-a with -p apps/one (should ONLY update apps/one)
+    const addR = await pkglab(["add", "@test/pkg-a", "-p", "apps/one"], { cwd: optOutDir });
+    assert(addR.code === 0, "pkglab add -p apps/one succeeds");
+
+    // Verify apps/one was updated
+    const onePkg = await readPkgJson(join(optOutDir, "apps/one"));
+    const oneVer = getDep(onePkg, "@test/pkg-a");
+    assert(!!oneVer, "apps/one has @test/pkg-a");
+    assert(oneVer!.includes("0.0.0-pkglab."), "apps/one has pkglab version");
+
+    // Verify apps/two was NOT updated
+    const twoPkg = await readPkgJson(join(optOutDir, "apps/two"));
+    const twoVer = getDep(twoPkg, "@test/pkg-a");
+    assert(twoVer === "*", "apps/two still has original version (not updated)");
+
+    // Restore and verify
+    const restoreR = await pkglab(["restore", "--all"], { cwd: optOutDir });
+    assert(restoreR.code === 0, "restore succeeds");
+
+    const oneAfterRestore = await readPkgJson(join(optOutDir, "apps/one"));
+    assert(
+      getDep(oneAfterRestore, "@test/pkg-a") === "*",
+      "apps/one restored to original version",
+    );
+
+    // Clean up
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
+  heading("22. Catalog + multi-target coexistence");
+  {
+    // Workspace where root has a catalog with @test/pkg-a,
+    // and sub-packages reference it via "catalog:" protocol.
+    const coexistDir = join(testDir, "coexist-consumer");
+    await mkdir(join(coexistDir, "apps/one"), { recursive: true });
+    await mkdir(join(coexistDir, "apps/two"), { recursive: true });
+
+    // First create workspace root WITHOUT catalog deps so bun install can create a lockfile.
+    // The catalog references @test/pkg-a which only exists on the local registry,
+    // and bun install can't resolve it without an .npmrc pointing there.
+    await writeJson(join(coexistDir, "package.json"), {
+      name: "coexist-consumer",
+      private: true,
+      workspaces: ["apps/*"],
+    });
+
+    // Sub-packages with no deps initially
+    await writeJson(join(coexistDir, "apps/one/package.json"), {
+      name: "coexist-one",
+      version: "1.0.0",
+      dependencies: {},
+    });
+
+    await writeJson(join(coexistDir, "apps/two/package.json"), {
+      name: "coexist-two",
+      version: "1.0.0",
+      dependencies: {},
+    });
+
+    // bun install to create lockfile (for PM detection)
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: coexistDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    // Now write the real package.json files with catalog and catalog: protocol
+    await writeJson(join(coexistDir, "package.json"), {
+      name: "coexist-consumer",
+      private: true,
+      workspaces: ["apps/*"],
+      catalog: {
+        "@test/pkg-a": "0.0.0",
+      },
+    });
+
+    await writeJson(join(coexistDir, "apps/one/package.json"), {
+      name: "coexist-one",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "catalog:",
+      },
+    });
+
+    await writeJson(join(coexistDir, "apps/two/package.json"), {
+      name: "coexist-two",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "catalog:",
+      },
+    });
+
+    // Add @test/pkg-a without flags (should auto-detect catalog)
+    const addR = await pkglab(["add", "@test/pkg-a"], { cwd: coexistDir });
+    assert(addR.code === 0, "pkglab add (catalog coexist) succeeds");
+    assert(addR.stdout.includes("auto-detected catalog"), "output mentions auto-detected catalog");
+
+    // Verify catalog entry was updated in root package.json
+    const rootPkg = await readPkgJson(coexistDir);
+    assert(
+      rootPkg.catalog["@test/pkg-a"].includes("0.0.0-pkglab."),
+      "catalog entry updated to pkglab version",
+    );
+
+    // Verify sub-packages were NOT directly modified (still use "catalog:" protocol)
+    const onePkg = await readPkgJson(join(coexistDir, "apps/one"));
+    const twoPkg = await readPkgJson(join(coexistDir, "apps/two"));
+    assert(
+      getDep(onePkg, "@test/pkg-a") === "catalog:",
+      "apps/one still uses catalog: protocol (not modified)",
+    );
+    assert(
+      getDep(twoPkg, "@test/pkg-a") === "catalog:",
+      "apps/two still uses catalog: protocol (not modified)",
+    );
+
+    // Restore and verify catalog is back to original
+    const restoreR = await pkglab(["restore", "--all"], { cwd: coexistDir });
+    assert(restoreR.code === 0, "restore succeeds");
+
+    const rootPkgRestored = await readPkgJson(coexistDir);
+    assert(
+      rootPkgRestored.catalog["@test/pkg-a"] === "0.0.0",
+      "catalog restored to original version",
+    );
+
+    // Clean up
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
   heading("Results");
   console.log(`  ${passed} passed, ${failed} failed`);
 } finally {

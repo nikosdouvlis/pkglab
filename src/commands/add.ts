@@ -23,6 +23,7 @@ import {
 import { sanitizeTag, ispkglabVersion, extractTag } from "../lib/version";
 import { join, resolve, relative } from "node:path";
 import { detectPackageManager } from "../lib/pm-detect";
+import { discoverWorkspace } from "../lib/workspace";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import type { pkglabConfig, RepoState } from "../types";
@@ -183,14 +184,65 @@ async function batchInstallPackages(
 
   // Phase 3: Build version entries and install
   const relPackageJsonDir = packageJsonDir ? relative(effectivePath, packageJsonDir) : undefined;
+
+  // When no -p flag, scan workspace packages to find all sub-packages that use each dep
+  let workspacePackageJsons: Array<{ dir: string; relDir: string; packageJson: Record<string, any> }> | undefined;
+  if (!packagejson) {
+    try {
+      const ws = await discoverWorkspace(effectivePath);
+      // Include root package.json plus all workspace packages
+      const rootPkgJson = await Bun.file(join(effectivePath, "package.json")).json();
+      workspacePackageJsons = [
+        { dir: effectivePath, relDir: ".", packageJson: rootPkgJson },
+        ...ws.packages
+          .filter(p => p.dir !== effectivePath && p.dir !== ws.root)
+          .map(p => ({
+            dir: p.dir,
+            relDir: relative(effectivePath, p.dir) || ".",
+            packageJson: p.packageJson,
+          })),
+      ];
+    } catch {
+      // Not a workspace (standalone project), fall back to root only
+    }
+  }
+
   const entries: VersionEntry[] = packages.map(pkg => {
     const catalogName = catalogNames.get(pkg.name);
+
+    let targets: Array<{ dir: string }>;
+    if (packagejson) {
+      // Explicit -p flag: single target, no scanning
+      targets = [{ dir: relPackageJsonDir ?? "." }];
+    } else if (workspacePackageJsons) {
+      // Scan workspace packages for this dep
+      const found: Array<{ dir: string }> = [];
+      for (const wsPkg of workspacePackageJsons) {
+        for (const field of ["dependencies", "devDependencies"] as const) {
+          const deps = wsPkg.packageJson[field];
+          if (!deps || !(pkg.name in deps)) continue;
+          const depVersion = deps[pkg.name];
+          if (typeof depVersion === "string" && depVersion.startsWith("catalog:")) continue;
+          found.push({ dir: wsPkg.relDir });
+          break; // found in this package, no need to check devDependencies too
+        }
+      }
+      if (found.length > 1) {
+        const dirs = found.map(t => t.dir).join(", ");
+        log.dim(`  found ${pkg.name} in ${dirs}`);
+      }
+      targets = found.length > 0 ? found : [{ dir: "." }];
+    } else {
+      // Standalone project, single target at root
+      targets = [{ dir: "." }];
+    }
+
     return {
       name: pkg.name,
       version: pkg.version,
       ...(catalogName && { catalogName }),
       ...(catalogName && catalogFormat && { catalogFormat }),
-      ...(relPackageJsonDir && { packageJsonDir: relPackageJsonDir }),
+      targets,
     };
   });
 
@@ -212,21 +264,21 @@ async function batchInstallPackages(
 
   for (const pkg of packages) {
     const catalogName = catalogNames.get(pkg.name);
+    const targets = previousVersions.get(pkg.name) ?? [{ dir: relPackageJsonDir ?? ".", original: "" }];
     if (!repoState.packages[pkg.name]) {
       repoState.packages[pkg.name] = {
-        original: previousVersions.get(pkg.name) ?? "",
         current: pkg.version,
         tag: pkg.tag,
         ...(catalogName && { catalogName }),
         ...(catalogFormat && { catalogFormat }),
-        ...(relPackageJsonDir && { packageJsonDir: relPackageJsonDir }),
+        targets,
       };
     } else {
       repoState.packages[pkg.name].current = pkg.version;
       repoState.packages[pkg.name].tag = pkg.tag;
       if (catalogName) repoState.packages[pkg.name].catalogName = catalogName;
       if (catalogFormat) repoState.packages[pkg.name].catalogFormat = catalogFormat;
-      if (relPackageJsonDir) repoState.packages[pkg.name].packageJsonDir = relPackageJsonDir;
+      repoState.packages[pkg.name].targets = targets;
     }
   }
 

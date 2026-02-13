@@ -69,12 +69,18 @@ export default defineCommand({
 
       log.info(`Resetting ${displayName}...`);
       for (const [pkgName, link] of Object.entries(state.packages)) {
-        if (link.original) {
-          await updatePackageJsonVersion(state.path, pkgName, link.original);
-          log.dim(`  ${pkgName} -> ${link.original}`);
+        for (const t of link.targets) {
+          const targetDir = join(state.path, t.dir);
+          if (t.original) {
+            await updatePackageJsonVersion(targetDir, pkgName, t.original);
+          } else {
+            await removePackageJsonDependency(targetDir, pkgName);
+          }
+        }
+        const firstOriginal = link.targets[0]?.original;
+        if (firstOriginal) {
+          log.dim(`  ${pkgName} -> ${firstOriginal}`);
         } else {
-          // No original, remove the dependency
-          await removePackageJsonDependency(state.path, pkgName);
           log.dim(`  ${pkgName} removed (no original version)`);
         }
       }
