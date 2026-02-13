@@ -546,6 +546,71 @@ try {
     await pkglab(["repo", "reset", "--stale"]).catch(() => {});
   }
 
+  heading("19. Catalog auto-detection (no --catalog flag)");
+  {
+    // Create a bun workspace consumer with catalog (same structure as test 18)
+    const autoCatDir = join(testDir, "autocat-consumer");
+    await mkdir(join(autoCatDir, "apps/main"), { recursive: true });
+
+    // Workspace root with catalog containing @test/pkg-a
+    await writeJson(join(autoCatDir, "package.json"), {
+      name: "autocat-consumer",
+      private: true,
+      workspaces: ["apps/*"],
+      catalog: {
+        "@test/pkg-a": "0.0.0",
+      },
+    });
+
+    // Sub-package
+    await writeJson(join(autoCatDir, "apps/main/package.json"), {
+      name: "autocat-app",
+      version: "1.0.0",
+      dependencies: {},
+    });
+
+    // bun install to create lockfile
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: autoCatDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    // Add @test/pkg-a WITHOUT --catalog flag (should auto-detect)
+    const addR = await pkglab(["add", "@test/pkg-a"], { cwd: autoCatDir });
+    assert(addR.code === 0, "pkglab add (auto-detect catalog) succeeds");
+    assert(addR.stdout.includes("auto-detected catalog"), "output mentions auto-detected catalog");
+    assert(addR.stdout.includes("(catalog)"), "output shows (catalog) in success message");
+
+    // Verify catalog was updated in root package.json (not sub-package)
+    const rootPkg = await readPkgJson(autoCatDir);
+    assert(
+      rootPkg.catalog["@test/pkg-a"].includes("0.0.0-pkglab."),
+      "catalog entry updated to pkglab version without --catalog flag",
+    );
+
+    // Verify sub-package was NOT modified
+    const subPkg = await readPkgJson(join(autoCatDir, "apps/main"));
+    assert(
+      !getDep(subPkg, "@test/pkg-a"),
+      "sub-package does NOT have @test/pkg-a (catalog handled it)",
+    );
+
+    // Restore and verify catalog is back to original
+    const restoreR = await pkglab(["restore", "--all"], { cwd: autoCatDir });
+    assert(restoreR.code === 0, "restore succeeds");
+
+    const rootPkgRestored = await readPkgJson(autoCatDir);
+    assert(
+      rootPkgRestored.catalog["@test/pkg-a"] === "0.0.0",
+      "catalog restored to original version",
+    );
+
+    // Clean up
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
   heading("Results");
   console.log(`  ${passed} passed, ${failed} failed`);
 } finally {

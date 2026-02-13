@@ -99,29 +99,35 @@ async function batchInstallPackages(
   const packageJsonDir = packagejson ? resolve(repoPath, packagejson) : undefined;
   const pkgJsonTarget = packageJsonDir ?? repoPath;
 
-  // Phase 1: Branch-specific prep
-  if (catalog) {
-    const found = await findCatalogRoot(repoPath);
-    if (!found) {
-      log.error("No catalog found. The workspace root needs a 'catalog' or 'catalogs' field in package.json or pnpm-workspace.yaml.");
-      process.exit(1);
-    }
-    catalogRoot = found.root;
-    catalogFormat = found.format;
-    effectivePath = found.root;
-
+  // Phase 1: Catalog detection (always try, --catalog makes it strict)
+  const found = await findCatalogRoot(repoPath);
+  if (found) {
     const data = await loadCatalogData(found.root, found.format);
     for (const pkg of packages) {
       const entry = findCatalogEntry(data, pkg.name);
-      if (!entry) {
+      if (entry) {
+        catalogNames.set(pkg.name, entry.catalogName);
+        if (!catalog) {
+          log.dim(`  auto-detected catalog for ${pkg.name}`);
+        }
+      } else if (catalog) {
         const source = found.format === "pnpm-workspace" ? "pnpm-workspace.yaml" : "workspace root package.json";
         log.error(`${pkg.name} is not in any catalog. Add it to the catalog field in ${source} first.`);
         process.exit(1);
       }
-      catalogNames.set(pkg.name, entry.catalogName);
     }
-  } else {
-    // Detect stale pkglab deps in consumer's package.json that aren't in the current batch
+    if (catalogNames.size > 0) {
+      catalogRoot = found.root;
+      catalogFormat = found.format;
+      effectivePath = found.root;
+    }
+  } else if (catalog) {
+    log.error("No catalog found. The workspace root needs a 'catalog' or 'catalogs' field in package.json or pnpm-workspace.yaml.");
+    process.exit(1);
+  }
+
+  // Stale deps detection: always scan the target package.json for stale pkglab versions
+  {
     const batchNames = new Set(packages.map((p) => p.name));
     const pkgJson = await Bun.file(join(pkgJsonTarget, "package.json")).json();
     const staleDeps: { name: string; version: string }[] = [];
@@ -183,7 +189,7 @@ async function batchInstallPackages(
       name: pkg.name,
       version: pkg.version,
       ...(catalogName && { catalogName }),
-      ...(catalogFormat && { catalogFormat }),
+      ...(catalogName && catalogFormat && { catalogFormat }),
       ...(relPackageJsonDir && { packageJsonDir: relPackageJsonDir }),
     };
   });
@@ -230,7 +236,8 @@ async function batchInstallPackages(
 
   // Phase 5: Success logging
   for (const { name, version } of packages) {
-    log.success(`Installed ${name}@${version}${catalog ? " (catalog)" : ""}`);
+    const isCatalog = catalogNames.has(name);
+    log.success(`Installed ${name}@${version}${isCatalog ? " (catalog)" : ""}`);
   }
 }
 

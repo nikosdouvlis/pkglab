@@ -152,11 +152,13 @@ Branch names are sanitized for use as tags: `feat/auth-rewrite` becomes `feat-au
 
 ## Catalog support
 
-If your consumer repo uses the `catalog:` protocol (Bun or pnpm workspaces), use `--catalog` so pkglab updates the catalog source instead of overwriting `catalog:` references in individual package.json files.
+If your consumer repo uses the `catalog:` protocol (Bun or pnpm workspaces), pkglab auto-detects catalog entries and updates the catalog source directly, preserving `catalog:` references in individual package.json files.
 
 ```bash
-# Without --catalog: overwrites "catalog:" with a plain version (breaks catalog setup)
-# With --catalog: updates the version in the catalog source
+# Auto-detects that these packages are in a catalog and updates the catalog source
+pkglab add @clerk/backend @clerk/shared
+
+# Use --catalog for strict mode (errors if a package is not in any catalog)
 pkglab add --catalog @clerk/backend @clerk/shared
 
 # Restore puts the original catalog versions back
