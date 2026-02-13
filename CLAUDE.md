@@ -23,10 +23,9 @@ Top-level:
 
 Subcommands:
 - `pkglab repo ls` — list consumer repos
-- `pkglab repo on` — activate a repo
-- `pkglab repo off` — deactivate a repo
-- `pkglab repo reset` — reset repo state
-- `pkglab repo rename` — rename a repo
+- `pkglab repo on [name...]` — activate repos (accepts multiple paths)
+- `pkglab repo off [name...]` — deactivate repos (accepts multiple paths)
+- `pkglab repo reset [name]` — reset repo state. `--all` to reset every repo, `--stale` to remove repos whose directories no longer exist
 - `pkglab pkg ls` — list published packages
 - `pkglab pkg rm <name...>` — remove packages from registry (also `--all`)
 

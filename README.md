@@ -41,18 +41,25 @@ Also available as `pkgl` for short (so efficient ✨).
 # Globally install the binaries
 npm install -g pkglab
 
-# Start the local registry
-pkglab up
-
-# Publish packaegs from your library monorep
+# Publish packages from your library monorepo
 pkglab pub # all (from workspace root), or current (if inside package)
 pkglab pub @clerk/backend # specific package and cascade
 
 # From a consumer repo, install a package from the local registry
-pkglab add <name> # or omit for interactive prompt
+# Run from workspace root to auto-update all sub-packages that use it
+pkglab add # interactive prompt
+pkglab add <name> # specific package
+pkglab add <name> -p apps/dashboard # target a single sub-package instead
+pkglab add --scope clerk # Or replace all packages of a scope at once
+
+# Manage which consumer repos receive auto-updates
+pkglab repo on              # interactive picker
+pkglab repo on <path>       # specific repo
+pkglab repo off             # interactive picker
 
 # Make changes to the library, then re-publish
-# Active consumer repos update automatically
+# Fingerprints each package, skips unchanged ones, cascades through deps and dependents
+# Active consumer repos update automatically (see Design decisions for details)
 pkglab pub
 
 # When done, restore original versions
@@ -112,9 +119,8 @@ On top of that, **`pkglab`** handles automatic consumer updates, dependency casc
 - `pkglab doctor` -diagnose your setup. Checks directory structure, daemon health, registry connectivity, and skip-worktree flags across all linked repos. Auto-repairs missing flags.
 - `pkglab pkg rm <name...>` -remove packages from the local registry entirely (API + storage). Accepts multiple names. `--all` removes every pkglab package and clears fingerprint state.
 - `pkglab repo ls` -list consumer repos with their active/inactive status and linked packages.
-- `pkglab repo on/off [name]` -activate or deactivate a consumer repo. Interactive picker if no name given.
-- `pkglab repo reset [name]` -clear all state for a repo. `--all` to reset every repo.
-- `pkglab repo rename <old> <new>` -rename a repo's display name.
+- `pkglab repo on/off [name...]` -activate or deactivate consumer repos. Accepts multiple paths. Interactive picker if no name given.
+- `pkglab repo reset [name]` -clear all state for a repo. `--all` to reset every repo. `--stale` to remove repos whose directories no longer exist.
 - `pkglab pkg ls` -list published packages in the local registry, grouped by tag with the latest version per tag.
 - `pkglab reset --hard` -wipe all pkglab data and Verdaccio storage. Stops the daemon if running.
 - `pkglab reset --fingerprints` -clear the fingerprint cache. Next `pub` will republish all packages regardless of content changes.
@@ -236,19 +242,23 @@ pkgA (shared utility)
 You run `pkglab pub` from pkgD. Phase one pulls in pkgD's transitive deps (pkgB, pkgA) and fingerprints them. What happens next depends on what actually changed:
 
 Scenario 1: you edited pkgA.
+
 ```
 pkgA (shared utility)    ← changed
   ├── pkgB ── pkgD       ← propagated, propagated
   └── pkgC               ← pulled in as dependent of pkgA
 ```
+
 pkgA is classified as "changed," so phase two expands its dependents. pkgC gets pulled into scope because it depends on the package that changed. All four packages are published with new versions, so consumers see a consistent set.
 
 Scenario 2: pkgA is unchanged.
+
 ```
 pkgA (shared utility)    ← unchanged, skipped
   ├── pkgB ── pkgD       ← changed (you edited pkgB or pkgD)
   └── pkgC               ← not in scope, stays on old version
 ```
+
 pkgA keeps its existing version and pkgC is never pulled in. The cascade stays narrow: only pkgB and pkgD get new versions. Consumers already have a working pkgA, so there's no inconsistency.
 
 This two-phase approach gives you the best of both worlds. Narrow publishes when nothing upstream changed, automatic expansion when a shared dependency did change. The loop repeats until no new packages are added (a fixpoint), so deeply nested dependency changes propagate correctly through the entire graph.

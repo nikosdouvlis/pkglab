@@ -37,9 +37,14 @@ export default defineCommand({
       return true;
     };
 
-    if (pathArg) {
-      const success = await activateRepo(pathArg);
-      if (!success) process.exit(1);
+    const paths = ((args as any)._ as string[] | undefined) ?? [];
+    if (pathArg) paths.unshift(pathArg);
+
+    if (paths.length > 0) {
+      for (const p of paths) {
+        const success = await activateRepo(p);
+        if (!success) process.exit(1);
+      }
     } else {
       // No arg provided, show interactive picker for inactive repos
       const { selectRepos } = await import("../../lib/prompt");

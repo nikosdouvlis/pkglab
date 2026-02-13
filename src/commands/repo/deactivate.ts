@@ -15,7 +15,10 @@ export default defineCommand({
   async run({ args }) {
     const pathArg = args.name as string | undefined;
 
-    if (!pathArg) {
+    const paths = ((args as any)._ as string[] | undefined) ?? [];
+    if (pathArg) paths.unshift(pathArg);
+
+    if (paths.length === 0) {
       // Interactive mode: select from active repos
       const { selectRepos } = await import("../../lib/prompt");
       const selected = await selectRepos({
@@ -35,18 +38,19 @@ export default defineCommand({
       return;
     }
 
-    // Direct path arg
-    const canonical = await canonicalRepoPath(pathArg);
-    const state = await loadRepoByPath(canonical);
+    for (const p of paths) {
+      const canonical = await canonicalRepoPath(p);
+      const state = await loadRepoByPath(canonical);
 
-    if (!state) {
-      log.error(`Repo not found at path: ${pathArg}`);
-      process.exit(1);
+      if (!state) {
+        log.error(`Repo not found at path: ${p}`);
+        process.exit(1);
+      }
+
+      state.active = false;
+      await saveRepoByPath(state.path, state);
+      const displayName = await getRepoDisplayName(state.path);
+      log.success(`Deactivated ${displayName}`);
     }
-
-    state.active = false;
-    await saveRepoByPath(state.path, state);
-    const displayName = await getRepoDisplayName(state.path);
-    log.success(`Deactivated ${displayName}`);
   },
 });
