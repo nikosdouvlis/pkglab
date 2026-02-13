@@ -416,6 +416,136 @@ try {
     await pkglab(["restore", "@test/pkg-b"], { cwd: consumer1Dir });
   }
 
+  heading("17. Nested package install with -p flag");
+  {
+    // Create a bun workspace consumer with apps/web sub-package
+    const wsConsumerDir = join(testDir, "ws-consumer");
+    await mkdir(join(wsConsumerDir, "apps/web"), { recursive: true });
+
+    // Workspace root
+    await writeJson(join(wsConsumerDir, "package.json"), {
+      name: "ws-consumer",
+      private: true,
+      workspaces: ["apps/*"],
+    });
+
+    // Sub-package (include @test/pkg-a so -p can update it)
+    await writeJson(join(wsConsumerDir, "apps/web/package.json"), {
+      name: "web-app",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "0.0.0",
+      },
+    });
+
+    // bun install to create lockfile
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: wsConsumerDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    // Add @test/pkg-a targeting the sub-package
+    const addR = await pkglab(["add", "@test/pkg-a", "-p", "apps/web"], { cwd: wsConsumerDir });
+    assert(addR.code === 0, "pkglab add -p apps/web succeeds");
+
+    // Verify version is in sub-package, not root
+    const webPkg = await readPkgJson(join(wsConsumerDir, "apps/web"));
+    const rootPkg = await readPkgJson(wsConsumerDir);
+    assert(!!getDep(webPkg, "@test/pkg-a"), "sub-package has @test/pkg-a");
+    assert(!getDep(rootPkg, "@test/pkg-a"), "root does NOT have @test/pkg-a");
+
+    // Touch a file and republish to trigger consumer update
+    await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 17\n");
+    const pubR = await pkglab(["pub", "@test/pkg-a"], { cwd: producerDir });
+    assert(pubR.code === 0, "pub succeeds");
+    assert(pubR.stdout.includes("ws-consumer"), "ws-consumer mentioned in update output");
+
+    // Verify sub-package was updated (different version now)
+    const webPkgAfter = await readPkgJson(join(wsConsumerDir, "apps/web"));
+    const verBefore = getDep(webPkg, "@test/pkg-a")!;
+    const verAfter = getDep(webPkgAfter, "@test/pkg-a")!;
+    assert(verAfter !== verBefore, "sub-package version updated after pub");
+    assert(verAfter.includes("0.0.0-pkglab."), "new version is pkglab format");
+
+    // Restore and verify
+    const restoreR = await pkglab(["restore", "--all"], { cwd: wsConsumerDir });
+    assert(restoreR.code === 0, "restore succeeds");
+
+    // Clean up ws-consumer from repo state
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
+  heading("18. Bun catalog support");
+  {
+    // Create a bun workspace consumer with catalog
+    const catConsumerDir = join(testDir, "cat-consumer");
+    await mkdir(join(catConsumerDir, "apps/main"), { recursive: true });
+
+    // Workspace root with catalog (use a real package for initial install)
+    await writeJson(join(catConsumerDir, "package.json"), {
+      name: "cat-consumer",
+      private: true,
+      workspaces: ["apps/*"],
+      catalog: {
+        "@test/pkg-a": "0.0.0",
+      },
+    });
+
+    // Sub-package (no deps that would fail to resolve)
+    await writeJson(join(catConsumerDir, "apps/main/package.json"), {
+      name: "main-app",
+      version: "1.0.0",
+      dependencies: {},
+    });
+
+    // bun install to create lockfile
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: catConsumerDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    // Add @test/pkg-a with --catalog flag
+    const addR = await pkglab(["add", "@test/pkg-a", "--catalog"], { cwd: catConsumerDir });
+    assert(addR.code === 0, "pkglab add --catalog succeeds");
+
+    // Verify catalog was updated in root package.json
+    const rootPkg = await readPkgJson(catConsumerDir);
+    assert(
+      rootPkg.catalog["@test/pkg-a"].includes("0.0.0-pkglab."),
+      "catalog entry updated to pkglab version",
+    );
+
+    // Touch a file and republish to trigger consumer update
+    await Bun.write(join(producerDir, "packages/pkg-a/index.js"), "// updated for test 18\n");
+    const pubR = await pkglab(["pub", "@test/pkg-a"], { cwd: producerDir });
+    assert(pubR.code === 0, "pub succeeds");
+    assert(pubR.stdout.includes("cat-consumer"), "cat-consumer mentioned in update output");
+
+    // Verify catalog version was updated again
+    const rootPkgAfter = await readPkgJson(catConsumerDir);
+    assert(
+      rootPkgAfter.catalog["@test/pkg-a"] !== rootPkg.catalog["@test/pkg-a"],
+      "catalog version changed after pub",
+    );
+
+    // Restore and verify catalog is back to original
+    const restoreR = await pkglab(["restore", "--all"], { cwd: catConsumerDir });
+    assert(restoreR.code === 0, "restore succeeds");
+
+    const rootPkgRestored = await readPkgJson(catConsumerDir);
+    assert(
+      rootPkgRestored.catalog["@test/pkg-a"] === "0.0.0",
+      "catalog restored to original version",
+    );
+
+    // Clean up
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
   heading("Results");
   console.log(`  ${passed} passed, ${failed} failed`);
 } finally {
