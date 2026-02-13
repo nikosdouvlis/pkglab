@@ -860,6 +860,271 @@ try {
     await pkglab(["repo", "reset", "--stale"]).catch(() => {});
   }
 
+  heading("23. --tag flag (basic)");
+  {
+    const tagConsumerDir = join(testDir, "tag-consumer");
+    await mkdir(tagConsumerDir, { recursive: true });
+
+    await writeJson(join(tagConsumerDir, "package.json"), {
+      name: "tag-consumer",
+      version: "1.0.0",
+      dependencies: {},
+    });
+
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: tagConsumerDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    // Add @test/pkg-a with --tag feat1 (no inline @ syntax)
+    const addR = await pkglab(["add", "@test/pkg-a", "--tag", "feat1"], { cwd: tagConsumerDir });
+    assert(addR.code === 0, "pkglab add --tag feat1 succeeds");
+
+    const pkg = await readPkgJson(tagConsumerDir);
+    const ver = getDep(pkg, "@test/pkg-a");
+    assert(!!ver, "consumer has @test/pkg-a in deps");
+    assert(ver!.includes("0.0.0-pkglab-feat1."), "version is tagged pkglab-feat1 format");
+
+    // Restore and clean up
+    const restoreR = await pkglab(["restore", "--all"], { cwd: tagConsumerDir });
+    assert(restoreR.code === 0, "restore succeeds");
+
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
+  heading("24. --tag conflict with inline @tag");
+  {
+    const conflictDir = join(testDir, "tag-conflict-consumer");
+    await mkdir(conflictDir, { recursive: true });
+
+    await writeJson(join(conflictDir, "package.json"), {
+      name: "tag-conflict-consumer",
+      version: "1.0.0",
+      dependencies: {},
+    });
+
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: conflictDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    const r = await pkglab(["add", "@test/pkg-a@feat1", "--tag", "feat1"], { cwd: conflictDir });
+    assert(r.code !== 0, "pkglab add with --tag and inline @tag fails");
+
+    const combined = r.stdout + r.stderr;
+    assert(
+      combined.includes("Cannot combine --tag with inline @tag"),
+      "error mentions Cannot combine --tag with inline @tag",
+    );
+
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
+  heading("25. --scope basic");
+  {
+    // Workspace consumer with two sub-packages, both using @test/pkg-a and @test/pkg-b
+    const scopeDir = join(testDir, "scope-consumer");
+    await mkdir(join(scopeDir, "apps/one"), { recursive: true });
+    await mkdir(join(scopeDir, "apps/two"), { recursive: true });
+
+    // Workspace root (no direct deps)
+    await writeJson(join(scopeDir, "package.json"), {
+      name: "scope-consumer",
+      private: true,
+      workspaces: ["apps/*"],
+    });
+
+    // Sub-package one
+    await writeJson(join(scopeDir, "apps/one/package.json"), {
+      name: "scope-one",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "*",
+        "@test/pkg-b": "*",
+      },
+    });
+
+    // Sub-package two
+    await writeJson(join(scopeDir, "apps/two/package.json"), {
+      name: "scope-two",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "*",
+        "@test/pkg-b": "*",
+      },
+    });
+
+    // bun install BEFORE adding the real deps (same pattern as test 22)
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: scopeDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    // Run pkglab add --scope test (without @, to test normalization)
+    const addR = await pkglab(["add", "--scope", "test"], { cwd: scopeDir });
+    assert(addR.code === 0, "pkglab add --scope test succeeds");
+
+    const combined = addR.stdout + addR.stderr;
+    assert(
+      combined.includes("Found 2 packages matching @test"),
+      "output mentions Found 2 packages matching @test",
+    );
+
+    // Verify both packages updated in both sub-packages
+    const onePkg = await readPkgJson(join(scopeDir, "apps/one"));
+    const twoPkg = await readPkgJson(join(scopeDir, "apps/two"));
+
+    const oneA = getDep(onePkg, "@test/pkg-a");
+    const oneB = getDep(onePkg, "@test/pkg-b");
+    const twoA = getDep(twoPkg, "@test/pkg-a");
+    const twoB = getDep(twoPkg, "@test/pkg-b");
+
+    assert(!!oneA && oneA.includes("0.0.0-pkglab."), "apps/one @test/pkg-a has pkglab version");
+    assert(!!oneB && oneB.includes("0.0.0-pkglab."), "apps/one @test/pkg-b has pkglab version");
+    assert(!!twoA && twoA.includes("0.0.0-pkglab."), "apps/two @test/pkg-a has pkglab version");
+    assert(!!twoB && twoB.includes("0.0.0-pkglab."), "apps/two @test/pkg-b has pkglab version");
+
+    // Restore and verify both packages in both sub-packages are restored
+    const restoreR = await pkglab(["restore", "--all"], { cwd: scopeDir });
+    assert(restoreR.code === 0, "restore --all succeeds");
+
+    const oneAfter = await readPkgJson(join(scopeDir, "apps/one"));
+    const twoAfter = await readPkgJson(join(scopeDir, "apps/two"));
+
+    assert(getDep(oneAfter, "@test/pkg-a") === "*", "apps/one @test/pkg-a restored");
+    assert(getDep(oneAfter, "@test/pkg-b") === "*", "apps/one @test/pkg-b restored");
+    assert(getDep(twoAfter, "@test/pkg-a") === "*", "apps/two @test/pkg-a restored");
+    assert(getDep(twoAfter, "@test/pkg-b") === "*", "apps/two @test/pkg-b restored");
+
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
+  heading("26. --scope with unpublished package");
+  {
+    const scopeUnpubDir = join(testDir, "scope-unpub-consumer");
+    await mkdir(join(scopeUnpubDir, "apps/main"), { recursive: true });
+
+    await writeJson(join(scopeUnpubDir, "package.json"), {
+      name: "scope-unpub-consumer",
+      private: true,
+      workspaces: ["apps/*"],
+    });
+
+    await writeJson(join(scopeUnpubDir, "apps/main/package.json"), {
+      name: "scope-unpub-app",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "*",
+        "@test/nonexistent": "*",
+      },
+    });
+
+    // bun install to create lockfile
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: scopeUnpubDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    // Record @test/pkg-a version before the command
+    const pkgBefore = await readPkgJson(join(scopeUnpubDir, "apps/main"));
+    const verBefore = getDep(pkgBefore, "@test/pkg-a");
+
+    const r = await pkglab(["add", "--scope", "test"], { cwd: scopeUnpubDir });
+    assert(r.code !== 0, "pkglab add --scope with unpublished package fails");
+
+    const combined = r.stdout + r.stderr;
+    assert(combined.includes("not published"), "error mentions not published");
+
+    // Verify @test/pkg-a was NOT modified (atomic: nothing touched on failure)
+    const pkgAfter = await readPkgJson(join(scopeUnpubDir, "apps/main"));
+    const verAfter = getDep(pkgAfter, "@test/pkg-a");
+    assert(verAfter === verBefore, "@test/pkg-a was not modified on failure");
+
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
+  heading("27. --scope + --tag");
+  {
+    const scopeTagDir = join(testDir, "scope-tag-consumer");
+    await mkdir(join(scopeTagDir, "apps/main"), { recursive: true });
+
+    await writeJson(join(scopeTagDir, "package.json"), {
+      name: "scope-tag-consumer",
+      private: true,
+      workspaces: ["apps/*"],
+    });
+
+    await writeJson(join(scopeTagDir, "apps/main/package.json"), {
+      name: "scope-tag-app",
+      version: "1.0.0",
+      dependencies: {
+        "@test/pkg-a": "*",
+      },
+    });
+
+    // bun install to create lockfile
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: scopeTagDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    // Run pkglab add --scope test --tag feat1
+    const addR = await pkglab(["add", "--scope", "test", "--tag", "feat1"], { cwd: scopeTagDir });
+    assert(addR.code === 0, "pkglab add --scope test --tag feat1 succeeds");
+
+    // Verify version is tagged pkglab-feat1 format
+    const mainPkg = await readPkgJson(join(scopeTagDir, "apps/main"));
+    const ver = getDep(mainPkg, "@test/pkg-a");
+    assert(!!ver, "apps/main has @test/pkg-a in deps");
+    assert(ver!.includes("0.0.0-pkglab-feat1."), "version is tagged pkglab-feat1 format");
+
+    // Restore and clean up
+    const restoreR = await pkglab(["restore", "--all"], { cwd: scopeTagDir });
+    assert(restoreR.code === 0, "restore succeeds");
+
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
+  heading("28. --scope + positional args conflict");
+  {
+    const scopeArgsDir = join(testDir, "scope-args-consumer");
+    await mkdir(scopeArgsDir, { recursive: true });
+
+    await writeJson(join(scopeArgsDir, "package.json"), {
+      name: "scope-args-consumer",
+      version: "1.0.0",
+      dependencies: {},
+    });
+
+    const bunInit = Bun.spawn(["bun", "install"], {
+      cwd: scopeArgsDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await bunInit.exited;
+
+    const r = await pkglab(["add", "@test/pkg-a", "--scope", "test"], { cwd: scopeArgsDir });
+    assert(r.code !== 0, "pkglab add with --scope and positional args fails");
+
+    const combined = r.stdout + r.stderr;
+    assert(
+      combined.includes("Cannot combine --scope with package names"),
+      "error mentions Cannot combine --scope with package names",
+    );
+
+    await pkglab(["repo", "reset", "--stale"]).catch(() => {});
+  }
+
   heading("Results");
   console.log(`  ${passed} passed, ${failed} failed`);
 } finally {

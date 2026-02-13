@@ -293,7 +293,7 @@ async function batchInstallPackages(
   }
 }
 
-async function interactivePick(): Promise<ResolvedPackage[]> {
+async function interactivePick(fixedTag?: string): Promise<ResolvedPackage[]> {
   const [packageNames, { filterableCheckbox }, { select }, { ExitPromptError }] =
     await Promise.all([
       listPackageNames(),
@@ -333,7 +333,14 @@ async function interactivePick(): Promise<ResolvedPackage[]> {
     if (tags.length === 0) {
       log.error(`No pkglab versions for ${pkgName}. Publish first.`);
       continue;
-    } else if (tags.length === 1) {
+    }
+
+    if (fixedTag) {
+      resolved.push(resolveFromDistTags(pkgName, distTags, fixedTag));
+      continue;
+    }
+
+    if (tags.length === 1) {
       selectedTag = tags[0] === "pkglab" ? undefined : tags[0];
     } else {
       try {
@@ -357,6 +364,92 @@ async function interactivePick(): Promise<ResolvedPackage[]> {
   return resolved;
 }
 
+function normalizeScope(input: string): string {
+  const stripped = input.startsWith("@") ? input.slice(1) : input;
+  if (!stripped || stripped.includes("/")) {
+    log.error(`Invalid scope: "${input}". Use a scope name like "clerk" or "@clerk".`);
+    process.exit(1);
+  }
+  return `@${stripped}/`;
+}
+
+async function resolveScopePackages(
+  repoPath: string,
+  scope: string,
+  tag: string | undefined,
+): Promise<ResolvedPackage[]> {
+  const prefix = normalizeScope(scope);
+
+  // Scan workspace
+  let allPackageJsons: Array<{ packageJson: Record<string, any> }>;
+  try {
+    const ws = await discoverWorkspace(repoPath);
+    const rootPkgJson = await Bun.file(join(ws.root, "package.json")).json();
+    allPackageJsons = [
+      { packageJson: rootPkgJson },
+      ...ws.packages
+        .filter(p => p.dir !== ws.root)
+        .map(p => ({ packageJson: p.packageJson })),
+    ];
+  } catch {
+    log.error("--scope requires a workspace. No workspace detected.");
+    process.exit(1);
+  }
+
+  // Collect unique dep names matching scope
+  const scopedDeps = new Set<string>();
+  for (const { packageJson } of allPackageJsons) {
+    for (const field of ["dependencies", "devDependencies"] as const) {
+      const deps = packageJson[field];
+      if (!deps) continue;
+      for (const depName of Object.keys(deps)) {
+        if (depName.startsWith(prefix)) {
+          const depVersion = deps[depName];
+          // Skip catalog: protocol entries (handled by catalog auto-detection)
+          if (typeof depVersion === "string" && depVersion.startsWith("catalog:")) continue;
+          scopedDeps.add(depName);
+        }
+      }
+    }
+  }
+
+  if (scopedDeps.size === 0) {
+    log.error(`No dependencies matching scope '${prefix.slice(0, -1)}' found in workspace.`);
+    process.exit(1);
+  }
+
+  // Check all are published, resolve versions
+  const missing: string[] = [];
+  const resolved: ResolvedPackage[] = [];
+
+  for (const depName of scopedDeps) {
+    const distTags = await getDistTags(depName);
+    const distTagKey = tag ? sanitizeTag(tag) : "pkglab";
+    const version = distTags[distTagKey];
+    if (!version) {
+      missing.push(depName);
+    } else {
+      resolved.push({ name: depName, version, tag: tag ? sanitizeTag(tag) : undefined });
+    }
+  }
+
+  if (missing.length > 0) {
+    log.error(
+      `These packages are not published in the local registry:\n` +
+      missing.map(n => `  ${n}`).join("\n") +
+      `\nPublish them first: pkglab pub ${missing.join(" ")}`,
+    );
+    process.exit(1);
+  }
+
+  log.info(`Found ${resolved.length} packages matching ${prefix.slice(0, -1)}`);
+  for (const pkg of resolved) {
+    log.dim(`  ${pkg.name}@${pkg.version}`);
+  }
+
+  return resolved;
+}
+
 export default defineCommand({
   meta: { name: "add", description: "Add a pkglab package to this repo" },
   args: {
@@ -375,12 +468,43 @@ export default defineCommand({
       alias: "p",
       description: "Path to directory containing the target package.json (relative to cwd)",
     },
+    tag: {
+      type: "string",
+      alias: "t",
+      description: "Tag for all packages",
+    },
+    scope: {
+      type: "string",
+      description: "Add all published packages matching a scope (e.g. clerk or @clerk)",
+    },
   },
   async run({ args }) {
     const config = await loadConfig();
     const names = ((args as any)._ as string[] | undefined) ?? [];
     const catalog = args.catalog as boolean;
     const packagejson = args.packagejson as string | undefined;
+    const scope = args.scope as string | undefined;
+    const tag = args.tag as string | undefined;
+
+    // Validation
+    if (scope && names.length > 0) {
+      log.error("Cannot combine --scope with package names. Use one or the other.");
+      process.exit(1);
+    }
+    if (scope && packagejson) {
+      log.error("Cannot combine --scope with -p. Scope scans the entire workspace.");
+      process.exit(1);
+    }
+    if (tag && names.length > 0) {
+      const hasInlineTag = names.some(n => {
+        const lastAt = n.lastIndexOf("@");
+        return lastAt > 0 && n.slice(lastAt + 1).length > 0;
+      });
+      if (hasInlineTag) {
+        log.error("Cannot combine --tag with inline @tag syntax. Use one or the other.");
+        process.exit(1);
+      }
+    }
 
     const [, repoPath] = await Promise.all([
       ensureDaemonRunning(),
@@ -388,12 +512,14 @@ export default defineCommand({
     ]);
 
     let resolved: ResolvedPackage[];
-    if (names.length === 0) {
-      resolved = await interactivePick();
+    if (scope) {
+      resolved = await resolveScopePackages(repoPath, scope, tag);
+    } else if (names.length === 0) {
+      resolved = await interactivePick(tag);
     } else {
       const parsed = names.map(parsePackageArg);
       const distTagResults = await Promise.all(parsed.map((p) => getDistTags(p.name)));
-      resolved = parsed.map((p, i) => resolveFromDistTags(p.name, distTagResults[i], p.tag));
+      resolved = parsed.map((p, i) => resolveFromDistTags(p.name, distTagResults[i], tag ?? p.tag));
     }
 
     if (resolved.length > 0) {
