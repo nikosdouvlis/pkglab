@@ -1,5 +1,11 @@
 # pkglab
 
+## 0.3.0
+
+### Minor Changes
+
+- be577d5: Support multiple paths in `pkglab repo on/off` and update README quickstart with scope, workspace scanning, and repo management examples
+
 ## 0.2.0
 
 ### Minor Changes
