@@ -315,7 +315,7 @@ Trade-off: adding a previously-skipped package via `pkglab add` gives the last-p
 
 **`pkglab`** stores its state in `~/.pkglab/`. The config file at `~/.pkglab/config.yaml` supports:
 
-- `port`: Verdaccio port (default: 4873)
+- `port`: Verdaccio port (default: 16180)
 - `prune_keep`: number of old versions to retain per package (default: 3)
 
 Logs are written to `/tmp/pkglab/verdaccio.log`.

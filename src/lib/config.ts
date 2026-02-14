@@ -10,7 +10,7 @@ const CURRENT_CONFIG_VERSION = 1;
 
 const DEFAULT_CONFIG: pkglabConfig = {
   version: CURRENT_CONFIG_VERSION,
-  port: 4873,
+  port: 16180,
   prune_keep: 3,
 };
 
