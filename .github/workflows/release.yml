@@ -52,7 +52,9 @@ jobs:
         id: tag-check
         run: |
           VERSION=$(jq -r .version package.json)
-          if git tag --list "v${VERSION}" | grep -q .; then
+          TAG="v${VERSION}"
+          # Only proceed if tag exists locally but not on the remote
+          if git tag --list "$TAG" | grep -q . && ! git ls-remote --tags origin "$TAG" | grep -q .; then
             echo "tagged=true" >> "$GITHUB_OUTPUT"
             echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           fi
