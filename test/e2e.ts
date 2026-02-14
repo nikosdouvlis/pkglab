@@ -24,6 +24,11 @@ async function pkglab(
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
+  if (code !== 0) {
+    console.log(`  [cmd: pkglab ${args.join(" ")}] exit=${code}`);
+    if (stdout.trim()) console.log(`  stdout: ${stdout.trim()}`);
+    if (stderr.trim()) console.log(`  stderr: ${stderr.trim()}`);
+  }
   return { stdout, stderr, code };
 }
 
@@ -31,9 +36,11 @@ async function readPkgJson(dir: string): Promise<Record<string, any>> {
   return Bun.file(join(dir, "package.json")).json();
 }
 
-function assert(condition: boolean, msg: string): void {
+function assert(condition: boolean, msg: string, context?: { stdout?: string; stderr?: string }): void {
   if (!condition) {
     console.log(`  FAIL: ${msg}`);
+    if (context?.stdout) console.log(`  stdout: ${context.stdout.trim()}`);
+    if (context?.stderr) console.log(`  stderr: ${context.stderr.trim()}`);
     failed++;
     throw new Error(msg);
   }
