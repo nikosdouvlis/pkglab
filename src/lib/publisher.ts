@@ -183,11 +183,19 @@ async function publishSinglePackage(
     const tag = extractTag(entry.version);
     const distTag = tag ? `pkglab-${tag}` : "pkglab";
 
-    const result = await run(
-      ["bun", "publish", "--registry", registryUrl, "--tag", distTag, "--access", "public"],
-      { cwd: entry.dir },
-    );
-    if (result.exitCode !== 0) {
+    const cmd = ["bun", "publish", "--registry", registryUrl, "--tag", distTag, "--access", "public"];
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const result = await run(cmd, { cwd: entry.dir });
+      if (result.exitCode === 0) break;
+
+      if (attempt < maxAttempts) {
+        log.warn(`Publish attempt ${attempt}/${maxAttempts} failed for ${entry.name}, retrying...`);
+        await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+        continue;
+      }
+
       throw new Error(`bun publish failed for ${entry.name}: ${result.stderr}`);
     }
   } finally {
