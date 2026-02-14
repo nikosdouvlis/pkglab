@@ -1,42 +1,44 @@
-import { defineCommand } from "citty";
+import { defineCommand } from 'citty';
+import { exists } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import type { RepoState } from '../../types';
+
+import { removeRegistryFromNpmrc, removeSkipWorktree, restorePackage } from '../../lib/consumer';
+import { log } from '../../lib/log';
+import { runInstall } from '../../lib/pm-detect';
 import {
   loadRepoByPath,
   deleteRepoByPath,
   getRepoDisplayName,
   loadAllRepos,
   canonicalRepoPath,
-} from "../../lib/repo-state";
-import {
-  removeRegistryFromNpmrc,
-  removeSkipWorktree,
-  restorePackage,
-} from "../../lib/consumer";
-import { runInstall } from "../../lib/pm-detect";
-import { log } from "../../lib/log";
-import type { RepoState } from "../../types";
-import { exists } from "node:fs/promises";
-import { join } from "node:path";
+} from '../../lib/repo-state';
 
 export default defineCommand({
-  meta: { name: "reset", description: "Reset repo to original versions" },
+  meta: { name: 'reset', description: 'Reset repo to original versions' },
   args: {
-    name: { type: "positional", description: "Repo path", required: false },
-    all: { type: "boolean", description: "Reset all repos", default: false },
-    stale: { type: "boolean", description: "Remove repos whose directories no longer exist", default: false },
+    name: { type: 'positional', description: 'Repo path', required: false },
+    all: { type: 'boolean', description: 'Reset all repos', default: false },
+    stale: {
+      type: 'boolean',
+      description: 'Remove repos whose directories no longer exist',
+      default: false,
+    },
   },
   async run({ args }) {
     if (args.stale) {
       const allRepos = await loadAllRepos();
       let removed = 0;
       for (const { displayName, state } of allRepos) {
-        if (!(await exists(join(state.path, "package.json")))) {
+        if (!(await exists(join(state.path, 'package.json')))) {
           await deleteRepoByPath(state.path);
           log.success(`Removed stale repo: ${displayName} (${state.path})`);
           removed++;
         }
       }
       if (removed === 0) {
-        log.info("No stale repos found");
+        log.info('No stale repos found');
       }
       return;
     }
@@ -46,7 +48,7 @@ export default defineCommand({
     if (args.all) {
       targets = await loadAllRepos();
     } else if (args.name) {
-      const canonical = await canonicalRepoPath(args.name as string);
+      const canonical = await canonicalRepoPath(args.name);
       const state = await loadRepoByPath(canonical);
       if (!state) {
         log.error(`Repo not found at path: ${args.name}`);
@@ -55,12 +57,12 @@ export default defineCommand({
       const displayName = await getRepoDisplayName(state.path);
       targets = [{ displayName, state }];
     } else {
-      log.error("Specify a repo path, --all, or --stale");
+      log.error('Specify a repo path, --all, or --stale');
       process.exit(1);
     }
 
     for (const { displayName, state } of targets) {
-      const pkgJsonExists = await exists(join(state.path, "package.json"));
+      const pkgJsonExists = await exists(join(state.path, 'package.json'));
       if (!pkgJsonExists) {
         log.warn(`Skipping ${displayName}: directory or package.json no longer exists (${state.path})`);
         log.dim(`  Run --stale to remove it`);

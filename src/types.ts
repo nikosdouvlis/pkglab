@@ -34,7 +34,7 @@ export interface PackageLink {
   current: string;
   tag?: string;
   catalogName?: string; // "default" for catalog field, other string for catalogs[name]
-  catalogFormat?: "package-json" | "pnpm-workspace";
+  catalogFormat?: 'package-json' | 'pnpm-workspace';
   targets: Array<{ dir: string; original: string }>;
 }
 

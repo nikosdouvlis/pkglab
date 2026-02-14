@@ -1,38 +1,39 @@
-import { defineCommand } from "citty";
-import { getDaemonStatus } from "../../lib/daemon";
-import { loadConfig } from "../../lib/config";
-import { listPackageNames, removePackage } from "../../lib/registry";
-import { getPositionalArgs } from "../../lib/args";
-import { log } from "../../lib/log";
-import { DaemonNotRunningError } from "../../lib/errors";
+import { defineCommand } from 'citty';
+
+import { getPositionalArgs } from '../../lib/args';
+import { loadConfig } from '../../lib/config';
+import { getDaemonStatus } from '../../lib/daemon';
+import { DaemonNotRunningError } from '../../lib/errors';
+import { log } from '../../lib/log';
+import { listPackageNames, removePackage } from '../../lib/registry';
 
 export default defineCommand({
-  meta: { name: "rm", description: "Remove packages from the local registry" },
+  meta: { name: 'rm', description: 'Remove packages from the local registry' },
   args: {
-    name: { type: "positional", description: "Package name(s)", required: false },
-    all: { type: "boolean", description: "Remove all pkglab packages", default: false },
+    name: { type: 'positional', description: 'Package name(s)', required: false },
+    all: { type: 'boolean', description: 'Remove all pkglab packages', default: false },
   },
   async run({ args }) {
     const status = await getDaemonStatus();
-    if (!status?.running) throw new DaemonNotRunningError();
+    if (!status?.running) {
+      throw new DaemonNotRunningError();
+    }
 
     const config = await loadConfig();
-    const toRemove = args.all
-      ? await listPackageNames()
-      : getPositionalArgs(args);
+    const toRemove = args.all ? await listPackageNames() : getPositionalArgs(args);
 
     if (args.all && toRemove.length === 0) {
-      log.info("No pkglab packages in the registry");
+      log.info('No pkglab packages in the registry');
       return;
     }
 
     if (toRemove.length === 0) {
-      log.error("Specify package name(s) or use --all");
+      log.error('Specify package name(s) or use --all');
       process.exit(1);
     }
 
     const results = await Promise.all(
-      toRemove.map(async (name) => {
+      toRemove.map(async name => {
         const ok = await removePackage(config, name);
         return { name, ok };
       }),
@@ -46,13 +47,13 @@ export default defineCommand({
       }
     }
 
-    const removed = results.filter((r) => r.ok).length;
+    const removed = results.filter(r => r.ok).length;
     if (removed > 0) {
-      log.success(`Removed ${removed} package${removed !== 1 ? "s" : ""}`);
+      log.success(`Removed ${removed} package${removed !== 1 ? 's' : ''}`);
     }
 
     if (args.all) {
-      const { clearFingerprintState } = await import("../../lib/fingerprint-state");
+      const { clearFingerprintState } = await import('../../lib/fingerprint-state');
       await clearFingerprintState();
     }
   },

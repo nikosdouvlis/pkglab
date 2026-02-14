@@ -9,6 +9,7 @@ Colors: `Bun.color()` via `src/lib/color.ts` (no picocolors)
 ## CLI commands
 
 Top-level:
+
 - `pkglab up` — start the local Verdaccio registry (pub and add auto-start if down)
 - `pkglab down` — stop the registry
 - `pkglab status` — show registry status
@@ -23,6 +24,7 @@ Top-level:
 - `pkglab reset --fingerprints` — clear fingerprint cache, forces full republish on next pub
 
 Subcommands:
+
 - `pkglab repo ls` — list consumer repos
 - `pkglab repo on [name...]` — activate repos (accepts multiple paths). `--all` to activate every repo
 - `pkglab repo off [name...]` — deactivate repos (accepts multiple paths). `--all` to deactivate every repo
@@ -40,6 +42,7 @@ Subcommands:
 6. `pkglab down` — stop the registry
 
 For multi-worktree workflows, use tags to isolate version channels:
+
 - `pkglab pub -t feat1` or `pkglab pub -w` (auto-detect from branch)
 - `pkglab add pkg@feat1` (consumer pins to that tag)
 - Each tag's publishes only update consumers pinned to the same tag
@@ -77,6 +80,7 @@ Config and state live in `~/.pkglab/`. Verdaccio storage at `~/.pkglab/verdaccio
 Phase 1 (initial scope): targets + their transitive workspace deps, closed under deps (every publishable package has its workspace deps in the set).
 
 Fingerprinting: each package in scope is fingerprinted using `Bun.Glob` + `Bun.CryptoHasher` (SHA-256) to hash the publishable file set (the `files` field, always-included files, and entry points from main/module/types/bin/exports). Falls back to `npm pack --dry-run --json` for packages with bundledDependencies. Packages are classified in topological order:
+
 - "changed": content hash differs from previous publish
 - "propagated": content same, but a workspace dep was changed/propagated
 - "unchanged": content same, no deps changed (skipped, keeps existing version)

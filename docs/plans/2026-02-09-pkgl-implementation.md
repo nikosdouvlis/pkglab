@@ -121,35 +121,35 @@ export interface DaemonInfo {
 **Step 4: Create src/lib/paths.ts**
 
 ```typescript
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
-const pkglab_HOME = join(homedir(), ".pkglab");
+const pkglab_HOME = join(homedir(), '.pkglab');
 
 export const paths = {
   home: pkglab_HOME,
-  config: join(pkglab_HOME, "config.yaml"),
-  pid: join(pkglab_HOME, "pid"),
-  publishLock: join(pkglab_HOME, "publish.lock"),
-  reposDir: join(pkglab_HOME, "repos"),
-  verdaccioDir: join(pkglab_HOME, "verdaccio"),
-  verdaccioConfig: join(pkglab_HOME, "verdaccio", "config.yaml"),
-  verdaccioStorage: join(pkglab_HOME, "verdaccio", "storage"),
-  logFile: "/tmp/pkglab/verdaccio.log",
-  logDir: "/tmp/pkglab",
+  config: join(pkglab_HOME, 'config.yaml'),
+  pid: join(pkglab_HOME, 'pid'),
+  publishLock: join(pkglab_HOME, 'publish.lock'),
+  reposDir: join(pkglab_HOME, 'repos'),
+  verdaccioDir: join(pkglab_HOME, 'verdaccio'),
+  verdaccioConfig: join(pkglab_HOME, 'verdaccio', 'config.yaml'),
+  verdaccioStorage: join(pkglab_HOME, 'verdaccio', 'storage'),
+  logFile: '/tmp/pkglab/verdaccio.log',
+  logDir: '/tmp/pkglab',
 } as const;
 ```
 
 **Step 5: Create src/lib/log.ts**
 
 ```typescript
-import pc from "picocolors";
+import pc from 'picocolors';
 
 export const log = {
-  info: (msg: string) => console.log(pc.blue("info"), msg),
-  success: (msg: string) => console.log(pc.green("ok"), msg),
-  warn: (msg: string) => console.log(pc.yellow("warn"), msg),
-  error: (msg: string) => console.error(pc.red("error"), msg),
+  info: (msg: string) => console.log(pc.blue('info'), msg),
+  success: (msg: string) => console.log(pc.green('ok'), msg),
+  warn: (msg: string) => console.log(pc.yellow('warn'), msg),
+  error: (msg: string) => console.error(pc.red('error'), msg),
   dim: (msg: string) => console.log(pc.dim(msg)),
   line: (msg: string) => console.log(msg),
 };
@@ -161,56 +161,56 @@ export const log = {
 export class pkglabError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "pkglabError";
+    this.name = 'pkglabError';
   }
 }
 
 export class DaemonNotRunningError extends pkglabError {
-  constructor(msg = "Verdaccio is not running. Run: pkglab start") {
+  constructor(msg = 'Verdaccio is not running. Run: pkglab start') {
     super(msg);
-    this.name = "DaemonNotRunningError";
+    this.name = 'DaemonNotRunningError';
   }
 }
 
 export class DaemonAlreadyRunningError extends pkglabError {
   constructor(msg: string) {
     super(msg);
-    this.name = "DaemonAlreadyRunningError";
+    this.name = 'DaemonAlreadyRunningError';
   }
 }
 
 export class PortInUseError extends pkglabError {
   constructor(port: number) {
     super(`Port ${port} is already in use`);
-    this.name = "PortInUseError";
+    this.name = 'PortInUseError';
   }
 }
 
 export class LockAcquisitionError extends pkglabError {
   constructor(msg: string) {
     super(msg);
-    this.name = "LockAcquisitionError";
+    this.name = 'LockAcquisitionError';
   }
 }
 
 export class CycleDetectedError extends pkglabError {
   constructor(msg: string) {
     super(msg);
-    this.name = "CycleDetectedError";
+    this.name = 'CycleDetectedError';
   }
 }
 
 export class NpmrcConflictError extends pkglabError {
   constructor(msg: string) {
     super(msg);
-    this.name = "NpmrcConflictError";
+    this.name = 'NpmrcConflictError';
   }
 }
 
 export class PackageManagerAmbiguousError extends pkglabError {
   constructor(msg: string) {
     super(msg);
-    this.name = "PackageManagerAmbiguousError";
+    this.name = 'PackageManagerAmbiguousError';
   }
 }
 ```
@@ -218,10 +218,10 @@ export class PackageManagerAmbiguousError extends pkglabError {
 **Step 7: Create src/lib/config.ts**
 
 ```typescript
-import { mkdir } from "node:fs/promises";
-import { parse, stringify } from "yaml";
-import { paths } from "./paths";
-import type { pkglabConfig } from "../types";
+import { mkdir } from 'node:fs/promises';
+import { parse, stringify } from 'yaml';
+import { paths } from './paths';
+import type { pkglabConfig } from '../types';
 
 const DEFAULT_CONFIG: pkglabConfig = {
   port: 4873,
@@ -295,12 +295,12 @@ Each command stub follows this pattern (showing start.ts as example, repeat for 
 
 ```typescript
 // src/commands/start.ts
-import { defineCommand } from "citty";
+import { defineCommand } from 'citty';
 
 export default defineCommand({
-  meta: { name: "start", description: "Start Verdaccio daemon" },
+  meta: { name: 'start', description: 'Start Verdaccio daemon' },
   run() {
-    console.log("pkglab start: not implemented yet");
+    console.log('pkglab start: not implemented yet');
   },
 });
 ```
@@ -311,21 +311,21 @@ For pub.ts, include args in the stub:
 
 ```typescript
 // src/commands/pub.ts
-import { defineCommand } from "citty";
+import { defineCommand } from 'citty';
 
 export default defineCommand({
-  meta: { name: "pub", description: "Publish packages to local Verdaccio" },
+  meta: { name: 'pub', description: 'Publish packages to local Verdaccio' },
   args: {
-    name: { type: "positional", description: "Package name", required: false },
-    "dry-run": {
-      type: "boolean",
-      description: "Show what would be published",
+    name: { type: 'positional', description: 'Package name', required: false },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Show what would be published',
       default: false,
     },
-    fast: { type: "boolean", description: "Skip dep cascade", default: false },
+    fast: { type: 'boolean', description: 'Skip dep cascade', default: false },
   },
   run() {
-    console.log("pkglab pub: not implemented yet");
+    console.log('pkglab pub: not implemented yet');
   },
 });
 ```
@@ -334,15 +334,15 @@ For add.ts and rm.ts:
 
 ```typescript
 // src/commands/add.ts
-import { defineCommand } from "citty";
+import { defineCommand } from 'citty';
 
 export default defineCommand({
-  meta: { name: "add", description: "Add a pkglab package to this repo" },
+  meta: { name: 'add', description: 'Add a pkglab package to this repo' },
   args: {
-    name: { type: "positional", description: "Package name", required: true },
+    name: { type: 'positional', description: 'Package name', required: true },
   },
   run() {
-    console.log("pkglab add: not implemented yet");
+    console.log('pkglab add: not implemented yet');
   },
 });
 ```
@@ -351,20 +351,20 @@ For logs.ts:
 
 ```typescript
 // src/commands/logs.ts
-import { defineCommand } from "citty";
+import { defineCommand } from 'citty';
 
 export default defineCommand({
-  meta: { name: "logs", description: "Tail Verdaccio logs" },
+  meta: { name: 'logs', description: 'Tail Verdaccio logs' },
   args: {
     follow: {
-      type: "boolean",
-      alias: "f",
-      description: "Stream logs",
+      type: 'boolean',
+      alias: 'f',
+      description: 'Stream logs',
       default: false,
     },
   },
   run() {
-    console.log("pkglab logs: not implemented yet");
+    console.log('pkglab logs: not implemented yet');
   },
 });
 ```
@@ -373,16 +373,16 @@ For repos/reset.ts:
 
 ```typescript
 // src/commands/repos/reset.ts
-import { defineCommand } from "citty";
+import { defineCommand } from 'citty';
 
 export default defineCommand({
-  meta: { name: "reset", description: "Reset repo to original versions" },
+  meta: { name: 'reset', description: 'Reset repo to original versions' },
   args: {
-    name: { type: "positional", description: "Repo name", required: false },
-    all: { type: "boolean", description: "Reset all repos", default: false },
+    name: { type: 'positional', description: 'Repo name', required: false },
+    all: { type: 'boolean', description: 'Reset all repos', default: false },
   },
   run() {
-    console.log("pkglab repos reset: not implemented yet");
+    console.log('pkglab repos reset: not implemented yet');
   },
 });
 ```
@@ -391,16 +391,16 @@ export default defineCommand({
 
 ```typescript
 // src/commands/repos/index.ts
-import { defineCommand } from "citty";
+import { defineCommand } from 'citty';
 
 export default defineCommand({
-  meta: { name: "repos", description: "Manage linked consumer repos" },
+  meta: { name: 'repos', description: 'Manage linked consumer repos' },
   subCommands: {
-    ls: () => import("./ls").then((m) => m.default),
-    activate: () => import("./activate").then((m) => m.default),
-    deactivate: () => import("./deactivate").then((m) => m.default),
-    reset: () => import("./reset").then((m) => m.default),
-    rename: () => import("./rename").then((m) => m.default),
+    ls: () => import('./ls').then(m => m.default),
+    activate: () => import('./activate').then(m => m.default),
+    deactivate: () => import('./deactivate').then(m => m.default),
+    reset: () => import('./reset').then(m => m.default),
+    rename: () => import('./rename').then(m => m.default),
   },
 });
 ```
@@ -409,12 +409,12 @@ export default defineCommand({
 
 ```typescript
 // src/commands/pkgs/index.ts
-import { defineCommand } from "citty";
+import { defineCommand } from 'citty';
 
 export default defineCommand({
-  meta: { name: "pkgs", description: "Manage packages in Verdaccio" },
+  meta: { name: 'pkgs', description: 'Manage packages in Verdaccio' },
   subCommands: {
-    ls: () => import("./ls").then((m) => m.default),
+    ls: () => import('./ls').then(m => m.default),
   },
 });
 ```
@@ -424,28 +424,28 @@ export default defineCommand({
 ```typescript
 #!/usr/bin/env bun
 
-import { defineCommand, runMain } from "citty";
-import { ensurepkglabDirs } from "./lib/config";
+import { defineCommand, runMain } from 'citty';
+import { ensurepkglabDirs } from './lib/config';
 
 const main = defineCommand({
   meta: {
-    name: "pkglab",
-    version: "0.0.1",
-    description: "Local package development with Verdaccio",
+    name: 'pkglab',
+    version: '0.0.1',
+    description: 'Local package development with Verdaccio',
   },
   subCommands: {
-    start: () => import("./commands/start").then((m) => m.default),
-    stop: () => import("./commands/stop").then((m) => m.default),
-    status: () => import("./commands/status").then((m) => m.default),
-    logs: () => import("./commands/logs").then((m) => m.default),
-    pub: () => import("./commands/pub").then((m) => m.default),
-    add: () => import("./commands/add").then((m) => m.default),
-    rm: () => import("./commands/rm").then((m) => m.default),
-    repos: () => import("./commands/repos/index").then((m) => m.default),
-    pkgs: () => import("./commands/pkgs/index").then((m) => m.default),
-    doctor: () => import("./commands/doctor").then((m) => m.default),
-    prune: () => import("./commands/prune").then((m) => m.default),
-    check: () => import("./commands/check").then((m) => m.default),
+    start: () => import('./commands/start').then(m => m.default),
+    stop: () => import('./commands/stop').then(m => m.default),
+    status: () => import('./commands/status').then(m => m.default),
+    logs: () => import('./commands/logs').then(m => m.default),
+    pub: () => import('./commands/pub').then(m => m.default),
+    add: () => import('./commands/add').then(m => m.default),
+    rm: () => import('./commands/rm').then(m => m.default),
+    repos: () => import('./commands/repos/index').then(m => m.default),
+    pkgs: () => import('./commands/pkgs/index').then(m => m.default),
+    doctor: () => import('./commands/doctor').then(m => m.default),
+    prune: () => import('./commands/prune').then(m => m.default),
+    check: () => import('./commands/check').then(m => m.default),
   },
   async setup() {
     await ensurepkglabDirs();
@@ -496,8 +496,8 @@ git commit -m "feat: CLI skeleton with all command stubs"
 **Step 1: Create src/lib/verdaccio-config.ts**
 
 ```typescript
-import { paths } from "./paths";
-import type { pkglabConfig } from "../types";
+import { paths } from './paths';
+import type { pkglabConfig } from '../types';
 
 export function buildVerdaccioConfig(config: pkglabConfig) {
   return {
@@ -505,23 +505,23 @@ export function buildVerdaccioConfig(config: pkglabConfig) {
     storage: paths.verdaccioStorage,
     uplinks: {
       npmjs: {
-        url: "https://registry.npmjs.org/",
+        url: 'https://registry.npmjs.org/',
         cache: true,
       },
     },
     packages: {
-      "**": {
-        access: "$all",
-        publish: "$all",
-        unpublish: "$all",
-        proxy: "npmjs",
+      '**': {
+        access: '$all',
+        publish: '$all',
+        unpublish: '$all',
+        proxy: 'npmjs',
       },
     },
     server: { keepAliveTimeout: 60 },
-    logs: { type: "file", path: paths.logFile, level: "info" },
+    logs: { type: 'file', path: paths.logFile, level: 'info' },
     auth: {
       htpasswd: {
-        file: paths.verdaccioDir + "/htpasswd",
+        file: paths.verdaccioDir + '/htpasswd',
         max_users: -1,
       },
     },
@@ -536,11 +536,11 @@ This is spawned as a detached process. NOT imported by the main CLI.
 ```typescript
 #!/usr/bin/env bun
 
-import { runServer } from "verdaccio";
-import { buildVerdaccioConfig } from "./verdaccio-config";
-import { loadConfig, ensurepkglabDirs } from "./config";
-import { mkdir } from "node:fs/promises";
-import { paths } from "./paths";
+import { runServer } from 'verdaccio';
+import { buildVerdaccioConfig } from './verdaccio-config';
+import { loadConfig, ensurepkglabDirs } from './config';
+import { mkdir } from 'node:fs/promises';
+import { paths } from './paths';
 
 async function main() {
   await ensurepkglabDirs();
@@ -551,12 +551,12 @@ async function main() {
 
   const app = await runServer(verdaccioConfig);
 
-  app.listen(config.port, "127.0.0.1", () => {
-    process.stdout.write("READY\n");
+  app.listen(config.port, '127.0.0.1', () => {
+    process.stdout.write('READY\n');
   });
 }
 
-main().catch((err) => {
+main().catch(err => {
   console.error(err);
   process.exit(1);
 });
@@ -565,32 +565,30 @@ main().catch((err) => {
 **Step 3: Create src/lib/daemon.ts**
 
 ```typescript
-import { paths } from "./paths";
-import { loadConfig } from "./config";
-import { DaemonAlreadyRunningError } from "./errors";
-import type { DaemonInfo } from "../types";
+import { paths } from './paths';
+import { loadConfig } from './config';
+import { DaemonAlreadyRunningError } from './errors';
+import type { DaemonInfo } from '../types';
 
 export async function startDaemon(): Promise<DaemonInfo> {
   const existing = await getDaemonStatus();
   if (existing?.running) {
-    throw new DaemonAlreadyRunningError(
-      `Already running on port ${existing.port} (PID ${existing.pid})`,
-    );
+    throw new DaemonAlreadyRunningError(`Already running on port ${existing.port} (PID ${existing.pid})`);
   }
 
   // Clean stale PID if exists
   const pidFile = Bun.file(paths.pid);
   if (await pidFile.exists()) {
-    const { unlink } = await import("node:fs/promises");
+    const { unlink } = await import('node:fs/promises');
     await unlink(paths.pid);
   }
 
   const config = await loadConfig();
-  const workerPath = new URL("./verdaccio-worker.ts", import.meta.url).pathname;
+  const workerPath = new URL('./verdaccio-worker.ts', import.meta.url).pathname;
 
-  const proc = Bun.spawn(["bun", workerPath], {
-    stdout: "pipe",
-    stderr: "pipe",
+  const proc = Bun.spawn(['bun', workerPath], {
+    stdout: 'pipe',
+    stderr: 'pipe',
     // Note: Bun.spawn doesn't have a 'detached' option like Node.
     // The process will stay alive after parent exits because we unref it below.
   });
@@ -602,7 +600,7 @@ export async function startDaemon(): Promise<DaemonInfo> {
   const timeout = setTimeout(() => {
     if (!ready) {
       proc.kill();
-      throw new Error("Verdaccio failed to start within 10 seconds");
+      throw new Error('Verdaccio failed to start within 10 seconds');
     }
   }, 10000);
 
@@ -610,7 +608,7 @@ export async function startDaemon(): Promise<DaemonInfo> {
     const { done, value } = await reader.read();
     if (done) break;
     const text = decoder.decode(value);
-    if (text.includes("READY")) {
+    if (text.includes('READY')) {
       ready = true;
       clearTimeout(timeout);
       break;
@@ -630,7 +628,7 @@ export async function stopDaemon(): Promise<void> {
   const status = await getDaemonStatus();
   if (!status?.running) return;
 
-  process.kill(status.pid, "SIGTERM");
+  process.kill(status.pid, 'SIGTERM');
 
   // Wait for process to exit
   for (let i = 0; i < 20; i++) {
@@ -640,10 +638,10 @@ export async function stopDaemon(): Promise<void> {
 
   // Force kill if still alive
   if (isProcessAlive(status.pid)) {
-    process.kill(status.pid, "SIGKILL");
+    process.kill(status.pid, 'SIGKILL');
   }
 
-  const { unlink } = await import("node:fs/promises");
+  const { unlink } = await import('node:fs/promises');
   await unlink(paths.pid).catch(() => {});
 }
 
@@ -657,7 +655,7 @@ export async function getDaemonStatus(): Promise<DaemonInfo | null> {
 
   if (!isProcessAlive(pid)) {
     // Stale PID, clean up
-    const { unlink } = await import("node:fs/promises");
+    const { unlink } = await import('node:fs/promises');
     await unlink(paths.pid).catch(() => {});
     return null;
   }
@@ -681,12 +679,12 @@ function isProcessAlive(pid: number): boolean {
 
 async function validatePid(pid: number): Promise<boolean> {
   try {
-    const proc = Bun.spawn(["ps", "-p", String(pid), "-o", "command="], {
-      stdout: "pipe",
-      stderr: "pipe",
+    const proc = Bun.spawn(['ps', '-p', String(pid), '-o', 'command='], {
+      stdout: 'pipe',
+      stderr: 'pipe',
     });
     const output = await new Response(proc.stdout).text();
-    return output.includes("verdaccio-worker") || output.includes("verdaccio");
+    return output.includes('verdaccio-worker') || output.includes('verdaccio');
   } catch {
     return false;
   }
@@ -696,26 +694,22 @@ async function validatePid(pid: number): Promise<boolean> {
 **Step 4: Implement src/commands/start.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import { startDaemon, getDaemonStatus } from "../lib/daemon";
-import { log } from "../lib/log";
+import { defineCommand } from 'citty';
+import { startDaemon, getDaemonStatus } from '../lib/daemon';
+import { log } from '../lib/log';
 
 export default defineCommand({
-  meta: { name: "start", description: "Start Verdaccio daemon" },
+  meta: { name: 'start', description: 'Start Verdaccio daemon' },
   async run() {
     const existing = await getDaemonStatus();
     if (existing?.running) {
-      log.warn(
-        `Already running on port ${existing.port} (PID ${existing.pid})`,
-      );
+      log.warn(`Already running on port ${existing.port} (PID ${existing.pid})`);
       return;
     }
 
-    log.info("Starting Verdaccio...");
+    log.info('Starting Verdaccio...');
     const info = await startDaemon();
-    log.success(
-      `pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`,
-    );
+    log.success(`pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
   },
 });
 ```
@@ -723,20 +717,20 @@ export default defineCommand({
 **Step 5: Implement src/commands/stop.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import { stopDaemon, getDaemonStatus } from "../lib/daemon";
-import { log } from "../lib/log";
+import { defineCommand } from 'citty';
+import { stopDaemon, getDaemonStatus } from '../lib/daemon';
+import { log } from '../lib/log';
 
 export default defineCommand({
-  meta: { name: "stop", description: "Stop Verdaccio daemon" },
+  meta: { name: 'stop', description: 'Stop Verdaccio daemon' },
   async run() {
     const status = await getDaemonStatus();
     if (!status?.running) {
-      log.warn("Verdaccio is not running");
+      log.warn('Verdaccio is not running');
       return;
     }
     await stopDaemon();
-    log.success("Verdaccio stopped");
+    log.success('Verdaccio stopped');
   },
 });
 ```
@@ -744,23 +738,21 @@ export default defineCommand({
 **Step 6: Implement src/commands/status.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import { getDaemonStatus } from "../lib/daemon";
-import { loadConfig } from "../lib/config";
-import { log } from "../lib/log";
+import { defineCommand } from 'citty';
+import { getDaemonStatus } from '../lib/daemon';
+import { loadConfig } from '../lib/config';
+import { log } from '../lib/log';
 
 export default defineCommand({
-  meta: { name: "status", description: "Show server info and status" },
+  meta: { name: 'status', description: 'Show server info and status' },
   async run() {
     const config = await loadConfig();
     const status = await getDaemonStatus();
 
     if (status?.running) {
-      log.success(
-        `Verdaccio running on http://127.0.0.1:${config.port} (PID ${status.pid})`,
-      );
+      log.success(`Verdaccio running on http://127.0.0.1:${config.port} (PID ${status.pid})`);
     } else {
-      log.info("Verdaccio is not running");
+      log.info('Verdaccio is not running');
     }
   },
 });
@@ -769,32 +761,30 @@ export default defineCommand({
 **Step 7: Implement src/commands/logs.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import { paths } from "../lib/paths";
-import { log } from "../lib/log";
+import { defineCommand } from 'citty';
+import { paths } from '../lib/paths';
+import { log } from '../lib/log';
 
 export default defineCommand({
-  meta: { name: "logs", description: "Tail Verdaccio logs" },
+  meta: { name: 'logs', description: 'Tail Verdaccio logs' },
   args: {
     follow: {
-      type: "boolean",
-      alias: "f",
-      description: "Stream logs",
+      type: 'boolean',
+      alias: 'f',
+      description: 'Stream logs',
       default: false,
     },
   },
   async run({ args }) {
     const file = Bun.file(paths.logFile);
     if (!(await file.exists())) {
-      log.warn("No log file found. Has Verdaccio been started?");
+      log.warn('No log file found. Has Verdaccio been started?');
       return;
     }
 
-    const cmd = args.follow
-      ? ["tail", "-f", paths.logFile]
-      : ["tail", "-50", paths.logFile];
+    const cmd = args.follow ? ['tail', '-f', paths.logFile] : ['tail', '-50', paths.logFile];
 
-    const proc = Bun.spawn(cmd, { stdout: "inherit", stderr: "inherit" });
+    const proc = Bun.spawn(cmd, { stdout: 'inherit', stderr: 'inherit' });
     await proc.exited;
   },
 });
@@ -842,7 +832,7 @@ git commit -m "feat: Verdaccio daemon management (start/stop/status/logs)"
 **Step 1: Create src/lib/version.ts**
 
 ```typescript
-const VERSION_PREFIX = "0.0.0-pkglab.";
+const VERSION_PREFIX = '0.0.0-pkglab.';
 let lastTimestamp = 0;
 
 export function generateVersion(): string {
@@ -864,8 +854,8 @@ export function extractTimestamp(version: string): number {
 **Step 2: Create src/lib/workspace.ts**
 
 ```typescript
-import { getPackages } from "@manypkg/get-packages";
-import type { WorkspacePackage } from "../types";
+import { getPackages } from '@manypkg/get-packages';
+import type { WorkspacePackage } from '../types';
 
 export async function discoverWorkspace(cwd: string): Promise<{
   root: string;
@@ -874,7 +864,7 @@ export async function discoverWorkspace(cwd: string): Promise<{
   const result = await getPackages(cwd);
   return {
     root: result.rootDir,
-    packages: result.packages.map((pkg) => ({
+    packages: result.packages.map(pkg => ({
       name: pkg.packageJson.name,
       dir: pkg.dir,
       packageJson: pkg.packageJson as Record<string, any>,
@@ -882,11 +872,8 @@ export async function discoverWorkspace(cwd: string): Promise<{
   };
 }
 
-export function findPackage(
-  packages: WorkspacePackage[],
-  name: string,
-): WorkspacePackage | undefined {
-  return packages.find((p) => p.name === name);
+export function findPackage(packages: WorkspacePackage[], name: string): WorkspacePackage | undefined {
+  return packages.find(p => p.name === name);
 }
 ```
 
@@ -908,15 +895,13 @@ git commit -m "feat: version generation and workspace discovery"
 **Step 1: Create src/lib/graph.ts**
 
 ```typescript
-import { DepGraph } from "dependency-graph";
-import type { WorkspacePackage } from "../types";
-import { CycleDetectedError } from "./errors";
+import { DepGraph } from 'dependency-graph';
+import type { WorkspacePackage } from '../types';
+import { CycleDetectedError } from './errors';
 
-export function buildDependencyGraph(
-  packages: WorkspacePackage[],
-): DepGraph<WorkspacePackage> {
+export function buildDependencyGraph(packages: WorkspacePackage[]): DepGraph<WorkspacePackage> {
   const graph = new DepGraph<WorkspacePackage>();
-  const names = new Set(packages.map((p) => p.name));
+  const names = new Set(packages.map(p => p.name));
 
   for (const pkg of packages) {
     graph.addNode(pkg.name, pkg);
@@ -937,10 +922,7 @@ export function buildDependencyGraph(
   return graph;
 }
 
-export function computeCascade(
-  graph: DepGraph<WorkspacePackage>,
-  changedPackages: string[],
-): WorkspacePackage[] {
+export function computeCascade(graph: DepGraph<WorkspacePackage>, changedPackages: string[]): WorkspacePackage[] {
   const closure = new Set<string>();
 
   for (const name of changedPackages) {
@@ -951,9 +933,7 @@ export function computeCascade(
       }
     } catch (err: any) {
       if (err.cyclePath) {
-        throw new CycleDetectedError(
-          `Dependency cycle detected: ${err.cyclePath.join(" -> ")}`,
-        );
+        throw new CycleDetectedError(`Dependency cycle detected: ${err.cyclePath.join(' -> ')}`);
       }
       throw err;
     }
@@ -967,17 +947,15 @@ export function computeCascade(
       }
     } catch (err: any) {
       if (err.cyclePath) {
-        throw new CycleDetectedError(
-          `Dependency cycle detected: ${err.cyclePath.join(" -> ")}`,
-        );
+        throw new CycleDetectedError(`Dependency cycle detected: ${err.cyclePath.join(' -> ')}`);
       }
       throw err;
     }
   }
 
   const fullOrder = graph.overallOrder();
-  const ordered = fullOrder.filter((name) => expanded.has(name));
-  return ordered.map((name) => graph.getNodeData(name));
+  const ordered = fullOrder.filter(name => expanded.has(name));
+  return ordered.map(name => graph.getNodeData(name));
 }
 ```
 
@@ -1001,9 +979,9 @@ git commit -m "feat: dependency graph with cascade algorithm"
 **Step 1: Create src/lib/lock.ts**
 
 ```typescript
-import { paths } from "./paths";
-import { LockAcquisitionError } from "./errors";
-import { unlink } from "node:fs/promises";
+import { paths } from './paths';
+import { LockAcquisitionError } from './errors';
+import { unlink } from 'node:fs/promises';
 
 export async function acquirePublishLock(): Promise<() => Promise<void>> {
   const lockPath = paths.publishLock;
@@ -1013,9 +991,7 @@ export async function acquirePublishLock(): Promise<() => Promise<void>> {
     const content = await file.text();
     const holderPid = parseInt(content.trim(), 10);
     if (!isNaN(holderPid) && isProcessAlive(holderPid)) {
-      throw new LockAcquisitionError(
-        `Another pkglab pub is running (PID ${holderPid})`,
-      );
+      throw new LockAcquisitionError(`Another pkglab pub is running (PID ${holderPid})`);
     }
   }
 
@@ -1039,16 +1015,13 @@ function isProcessAlive(pid: number): boolean {
 **Step 2: Create src/lib/registry.ts**
 
 ```typescript
-import type { pkglabConfig } from "../types";
+import type { pkglabConfig } from '../types';
 
 function registryUrl(config: pkglabConfig): string {
   return `http://127.0.0.1:${config.port}`;
 }
 
-export async function getPackageVersions(
-  config: pkglabConfig,
-  name: string,
-): Promise<string[]> {
+export async function getPackageVersions(config: pkglabConfig, name: string): Promise<string[]> {
   try {
     const url = `${registryUrl(config)}/${encodeURIComponent(name)}`;
     const resp = await fetch(url);
@@ -1060,9 +1033,7 @@ export async function getPackageVersions(
   }
 }
 
-export async function listAllPackages(
-  config: pkglabConfig,
-): Promise<Array<{ name: string; versions: string[] }>> {
+export async function listAllPackages(config: pkglabConfig): Promise<Array<{ name: string; versions: string[] }>> {
   try {
     const url = `${registryUrl(config)}/-/verdaccio/data/sidebar/@*/*`;
     const resp = await fetch(`${registryUrl(config)}/-/verdaccio/packages`);
@@ -1077,22 +1048,11 @@ export async function listAllPackages(
   }
 }
 
-export async function unpublishVersion(
-  config: pkglabConfig,
-  name: string,
-  version: string,
-): Promise<void> {
-  const proc = Bun.spawn(
-    [
-      "npm",
-      "unpublish",
-      `${name}@${version}`,
-      "--registry",
-      registryUrl(config),
-      "--force",
-    ],
-    { stdout: "pipe", stderr: "pipe" },
-  );
+export async function unpublishVersion(config: pkglabConfig, name: string, version: string): Promise<void> {
+  const proc = Bun.spawn(['npm', 'unpublish', `${name}@${version}`, '--registry', registryUrl(config), '--force'], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
     const stderr = await new Response(proc.stderr).text();
@@ -1104,28 +1064,20 @@ export async function unpublishVersion(
 **Step 3: Create src/lib/publisher.ts**
 
 ```typescript
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { cp, rm, mkdir } from "node:fs/promises";
-import type {
-  PublishPlan,
-  PublishEntry,
-  WorkspacePackage,
-  pkglabConfig,
-} from "../types";
-import { log } from "./log";
-import { DepGraph } from "dependency-graph";
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { cp, rm, mkdir } from 'node:fs/promises';
+import type { PublishPlan, PublishEntry, WorkspacePackage, pkglabConfig } from '../types';
+import { log } from './log';
+import { DepGraph } from 'dependency-graph';
 
-export function buildPublishPlan(
-  packages: WorkspacePackage[],
-  version: string,
-): PublishPlan {
-  const publishNames = new Set(packages.map((p) => p.name));
+export function buildPublishPlan(packages: WorkspacePackage[], version: string): PublishPlan {
+  const publishNames = new Set(packages.map(p => p.name));
 
-  const entries: PublishEntry[] = packages.map((pkg) => {
+  const entries: PublishEntry[] = packages.map(pkg => {
     const rewrittenDeps: Record<string, string> = {};
 
-    for (const field of ["dependencies", "peerDependencies"]) {
+    for (const field of ['dependencies', 'peerDependencies']) {
       const deps = pkg.packageJson[field];
       if (!deps) continue;
       for (const depName of Object.keys(deps)) {
@@ -1141,10 +1093,7 @@ export function buildPublishPlan(
   return { timestamp: Date.now(), packages: entries };
 }
 
-export async function executePublish(
-  plan: PublishPlan,
-  config: pkglabConfig,
-): Promise<void> {
+export async function executePublish(plan: PublishPlan, config: pkglabConfig): Promise<void> {
   const registryUrl = `http://127.0.0.1:${config.port}`;
   const published: string[] = [];
 
@@ -1155,7 +1104,7 @@ export async function executePublish(
       published.push(`${entry.name}@${entry.version}`);
     }
   } catch (err) {
-    log.error("Publish failed, rolling back...");
+    log.error('Publish failed, rolling back...');
     for (const spec of published) {
       await rollbackPackage(spec, registryUrl);
     }
@@ -1163,36 +1112,26 @@ export async function executePublish(
   }
 }
 
-async function publishSinglePackage(
-  entry: PublishEntry,
-  registryUrl: string,
-): Promise<void> {
-  const safeName = entry.name.replace("/", "-").replace("@", "");
+async function publishSinglePackage(entry: PublishEntry, registryUrl: string): Promise<void> {
+  const safeName = entry.name.replace('/', '-').replace('@', '');
   const tempDir = join(tmpdir(), `pkglab-${safeName}-${Date.now()}`);
   await mkdir(tempDir, { recursive: true });
 
   try {
     await cp(entry.dir, tempDir, { recursive: true });
 
-    const pkgJsonPath = join(tempDir, "package.json");
+    const pkgJsonPath = join(tempDir, 'package.json');
     const pkgJson = await Bun.file(pkgJsonPath).json();
 
     pkgJson.version = entry.version;
 
-    for (const field of [
-      "dependencies",
-      "peerDependencies",
-      "optionalDependencies",
-    ]) {
+    for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
       if (!pkgJson[field]) continue;
       for (const [name, version] of Object.entries(pkgJson[field])) {
         if (entry.rewrittenDeps[name]) {
           pkgJson[field][name] = entry.rewrittenDeps[name];
-        } else if (
-          typeof version === "string" &&
-          version.startsWith("workspace:")
-        ) {
-          pkgJson[field][name] = (version as string).replace("workspace:", "");
+        } else if (typeof version === 'string' && version.startsWith('workspace:')) {
+          pkgJson[field][name] = (version as string).replace('workspace:', '');
         }
       }
     }
@@ -1200,32 +1139,22 @@ async function publishSinglePackage(
     // Strip workspace protocol from devDependencies too (they go into published manifest)
     if (pkgJson.devDependencies) {
       for (const [name, version] of Object.entries(pkgJson.devDependencies)) {
-        if (typeof version === "string" && version.startsWith("workspace:")) {
-          pkgJson.devDependencies[name] = (version as string).replace(
-            "workspace:",
-            "",
-          );
+        if (typeof version === 'string' && version.startsWith('workspace:')) {
+          pkgJson.devDependencies[name] = (version as string).replace('workspace:', '');
         }
       }
     }
 
-    await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+    await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n');
 
     // Remove node_modules from temp dir if copied
-    await rm(join(tempDir, "node_modules"), { recursive: true, force: true });
+    await rm(join(tempDir, 'node_modules'), { recursive: true, force: true });
 
-    const proc = Bun.spawn(
-      [
-        "npm",
-        "publish",
-        "--registry",
-        registryUrl,
-        "--no-git-checks",
-        "--access",
-        "public",
-      ],
-      { cwd: tempDir, stdout: "pipe", stderr: "pipe" },
-    );
+    const proc = Bun.spawn(['npm', 'publish', '--registry', registryUrl, '--no-git-checks', '--access', 'public'], {
+      cwd: tempDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
       const stderr = await new Response(proc.stderr).text();
@@ -1236,15 +1165,12 @@ async function publishSinglePackage(
   }
 }
 
-async function rollbackPackage(
-  spec: string,
-  registryUrl: string,
-): Promise<void> {
+async function rollbackPackage(spec: string, registryUrl: string): Promise<void> {
   try {
-    const proc = Bun.spawn(
-      ["npm", "unpublish", spec, "--registry", registryUrl, "--force"],
-      { stdout: "pipe", stderr: "pipe" },
-    );
+    const proc = Bun.spawn(['npm', 'unpublish', spec, '--registry', registryUrl, '--force'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     await proc.exited;
   } catch {
     log.warn(`Failed to rollback ${spec}`);
@@ -1270,27 +1196,27 @@ git commit -m "feat: publish mutex, registry client, and publisher core"
 **Step 1: Implement pub command**
 
 ```typescript
-import { defineCommand } from "citty";
-import { getDaemonStatus } from "../lib/daemon";
-import { loadConfig } from "../lib/config";
-import { discoverWorkspace, findPackage } from "../lib/workspace";
-import { buildDependencyGraph, computeCascade } from "../lib/graph";
-import { buildPublishPlan, executePublish } from "../lib/publisher";
-import { generateVersion } from "../lib/version";
-import { acquirePublishLock } from "../lib/lock";
-import { log } from "../lib/log";
-import { DaemonNotRunningError } from "../lib/errors";
+import { defineCommand } from 'citty';
+import { getDaemonStatus } from '../lib/daemon';
+import { loadConfig } from '../lib/config';
+import { discoverWorkspace, findPackage } from '../lib/workspace';
+import { buildDependencyGraph, computeCascade } from '../lib/graph';
+import { buildPublishPlan, executePublish } from '../lib/publisher';
+import { generateVersion } from '../lib/version';
+import { acquirePublishLock } from '../lib/lock';
+import { log } from '../lib/log';
+import { DaemonNotRunningError } from '../lib/errors';
 
 export default defineCommand({
-  meta: { name: "pub", description: "Publish packages to local Verdaccio" },
+  meta: { name: 'pub', description: 'Publish packages to local Verdaccio' },
   args: {
-    name: { type: "positional", description: "Package name", required: false },
-    "dry-run": {
-      type: "boolean",
-      description: "Show what would be published",
+    name: { type: 'positional', description: 'Package name', required: false },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Show what would be published',
       default: false,
     },
-    fast: { type: "boolean", description: "Skip dep cascade", default: false },
+    fast: { type: 'boolean', description: 'Skip dep cascade', default: false },
   },
   async run({ args }) {
     const status = await getDaemonStatus();
@@ -1313,13 +1239,13 @@ export default defineCommand({
       }
       targets = [pkg.name];
     } else {
-      targets = workspace.packages.map((p) => p.name);
+      targets = workspace.packages.map(p => p.name);
     }
 
     let publishSet;
     if (args.fast) {
       publishSet = targets
-        .map((name) => findPackage(workspace.packages, name))
+        .map(name => findPackage(workspace.packages, name))
         .filter(Boolean) as typeof workspace.packages;
     } else {
       publishSet = computeCascade(graph, targets);
@@ -1328,8 +1254,8 @@ export default defineCommand({
     const version = generateVersion();
     const plan = buildPublishPlan(publishSet, version);
 
-    if (args["dry-run"]) {
-      log.info("Dry run - would publish:");
+    if (args['dry-run']) {
+      log.info('Dry run - would publish:');
       for (const entry of plan.packages) {
         log.line(`  ${entry.name}@${entry.version}`);
         for (const [dep, ver] of Object.entries(entry.rewrittenDeps)) {
@@ -1389,21 +1315,19 @@ git commit -m "feat: pub command with cascade, dry-run, and rollback"
 **Step 1: Create src/lib/pm-detect.ts**
 
 ```typescript
-import { join } from "node:path";
-import { PackageManagerAmbiguousError } from "./errors";
+import { join } from 'node:path';
+import { PackageManagerAmbiguousError } from './errors';
 
-export type PackageManager = "npm" | "pnpm" | "bun";
+export type PackageManager = 'npm' | 'pnpm' | 'bun';
 
 const LOCKFILES: Record<string, PackageManager> = {
-  "pnpm-lock.yaml": "pnpm",
-  "bun.lock": "bun",
-  "bun.lockb": "bun",
-  "package-lock.json": "npm",
+  'pnpm-lock.yaml': 'pnpm',
+  'bun.lock': 'bun',
+  'bun.lockb': 'bun',
+  'package-lock.json': 'npm',
 };
 
-export async function detectPackageManager(
-  repoPath: string,
-): Promise<PackageManager> {
+export async function detectPackageManager(repoPath: string): Promise<PackageManager> {
   const found: PackageManager[] = [];
 
   for (const [lockfile, pm] of Object.entries(LOCKFILES)) {
@@ -1413,28 +1337,22 @@ export async function detectPackageManager(
     }
   }
 
-  if (found.length === 0) return "npm";
+  if (found.length === 0) return 'npm';
   if (found.length > 1) {
-    throw new PackageManagerAmbiguousError(
-      `Multiple PMs detected: ${found.join(", ")}. Remove extra lockfiles.`,
-    );
+    throw new PackageManagerAmbiguousError(`Multiple PMs detected: ${found.join(', ')}. Remove extra lockfiles.`);
   }
   return found[0];
 }
 
-export function installCommand(
-  pm: PackageManager,
-  pkg: string,
-  version: string,
-): string[] {
+export function installCommand(pm: PackageManager, pkg: string, version: string): string[] {
   const spec = `${pkg}@${version}`;
   switch (pm) {
-    case "npm":
-      return ["npm", "install", spec];
-    case "pnpm":
-      return ["pnpm", "add", spec];
-    case "bun":
-      return ["bun", "add", spec];
+    case 'npm':
+      return ['npm', 'install', spec];
+    case 'pnpm':
+      return ['pnpm', 'add', spec];
+    case 'bun':
+      return ['bun', 'add', spec];
   }
 }
 ```
@@ -1442,22 +1360,22 @@ export function installCommand(
 **Step 2: Create src/lib/repo-state.ts**
 
 ```typescript
-import { join, basename } from "node:path";
-import { realpath, readdir } from "node:fs/promises";
-import { parse, stringify } from "yaml";
-import { paths } from "./paths";
-import type { RepoState } from "../types";
+import { join, basename } from 'node:path';
+import { realpath, readdir } from 'node:fs/promises';
+import { parse, stringify } from 'yaml';
+import { paths } from './paths';
+import type { RepoState } from '../types';
 
 export async function canonicalRepoPath(dir: string): Promise<string> {
   return realpath(dir);
 }
 
 async function deriveRepoName(repoPath: string): Promise<string> {
-  const pkgFile = Bun.file(join(repoPath, "package.json"));
+  const pkgFile = Bun.file(join(repoPath, 'package.json'));
   if (await pkgFile.exists()) {
     try {
       const pkg = await pkgFile.json();
-      if (pkg.name) return pkg.name.replace("/", "-").replace("@", "");
+      if (pkg.name) return pkg.name.replace('/', '-').replace('@', '');
     } catch {}
   }
   return basename(repoPath);
@@ -1488,10 +1406,7 @@ export async function loadRepoState(name: string): Promise<RepoState | null> {
   return parse(text) as RepoState;
 }
 
-export async function saveRepoState(
-  name: string,
-  state: RepoState,
-): Promise<void> {
+export async function saveRepoState(name: string, state: RepoState): Promise<void> {
   const filePath = join(paths.reposDir, `${name}.yaml`);
   await Bun.write(filePath, stringify(state));
 }
@@ -1501,8 +1416,8 @@ export async function loadAllRepos(): Promise<Record<string, RepoState>> {
   try {
     const files = await readdir(paths.reposDir);
     for (const file of files) {
-      if (!file.endsWith(".yaml")) continue;
-      const name = file.replace(".yaml", "");
+      if (!file.endsWith('.yaml')) continue;
+      const name = file.replace('.yaml', '');
       const state = await loadRepoState(name);
       if (state) result[name] = state;
     }
@@ -1510,9 +1425,7 @@ export async function loadAllRepos(): Promise<Record<string, RepoState>> {
   return result;
 }
 
-export async function findRepoByPath(
-  repoPath: string,
-): Promise<{ name: string; state: RepoState } | null> {
+export async function findRepoByPath(repoPath: string): Promise<{ name: string; state: RepoState } | null> {
   const canonical = await canonicalRepoPath(repoPath);
   const all = await loadAllRepos();
   for (const [name, state] of Object.entries(all)) {
@@ -1521,9 +1434,7 @@ export async function findRepoByPath(
   return null;
 }
 
-export async function getActiveRepos(): Promise<
-  Array<{ name: string; state: RepoState }>
-> {
+export async function getActiveRepos(): Promise<Array<{ name: string; state: RepoState }>> {
   const all = await loadAllRepos();
   return Object.entries(all)
     .filter(([_, state]) => state.active)
@@ -1544,22 +1455,19 @@ export async function deactivateAllRepos(): Promise<void> {
 **Step 3: Create src/lib/consumer.ts**
 
 ```typescript
-import { join } from "node:path";
-import { log } from "./log";
-import { NpmrcConflictError } from "./errors";
-import { detectPackageManager, installCommand } from "./pm-detect";
-import type { PackageManager } from "./pm-detect";
+import { join } from 'node:path';
+import { log } from './log';
+import { NpmrcConflictError } from './errors';
+import { detectPackageManager, installCommand } from './pm-detect';
+import type { PackageManager } from './pm-detect';
 
-const MARKER_START = "# pkglab-start";
-const MARKER_END = "# pkglab-end";
+const MARKER_START = '# pkglab-start';
+const MARKER_END = '# pkglab-end';
 
-export async function addRegistryToNpmrc(
-  repoPath: string,
-  port: number,
-): Promise<{ isFirstTime: boolean }> {
-  const npmrcPath = join(repoPath, ".npmrc");
+export async function addRegistryToNpmrc(repoPath: string, port: number): Promise<{ isFirstTime: boolean }> {
+  const npmrcPath = join(repoPath, '.npmrc');
   const file = Bun.file(npmrcPath);
-  let content = "";
+  let content = '';
   let isFirstTime = true;
 
   if (await file.exists()) {
@@ -1570,29 +1478,23 @@ export async function addRegistryToNpmrc(
       content = removepkglabBlock(content);
     }
 
-    for (const line of content.split("\n")) {
+    for (const line of content.split('\n')) {
       const trimmed = line.trim();
-      if (
-        trimmed.startsWith("registry=") &&
-        !trimmed.includes("localhost") &&
-        !trimmed.includes("127.0.0.1")
-      ) {
-        throw new NpmrcConflictError(
-          `Existing registry in .npmrc: ${trimmed}\npkglab cannot override this.`,
-        );
+      if (trimmed.startsWith('registry=') && !trimmed.includes('localhost') && !trimmed.includes('127.0.0.1')) {
+        throw new NpmrcConflictError(`Existing registry in .npmrc: ${trimmed}\npkglab cannot override this.`);
       }
     }
   }
 
   const block = `${MARKER_START}\nregistry=http://127.0.0.1:${port}\n${MARKER_END}`;
-  content = content.trimEnd() + "\n" + block + "\n";
+  content = content.trimEnd() + '\n' + block + '\n';
   await Bun.write(npmrcPath, content);
 
   return { isFirstTime };
 }
 
 export async function removeRegistryFromNpmrc(repoPath: string): Promise<void> {
-  const npmrcPath = join(repoPath, ".npmrc");
+  const npmrcPath = join(repoPath, '.npmrc');
   const file = Bun.file(npmrcPath);
   if (!(await file.exists())) return;
 
@@ -1608,34 +1510,35 @@ function removepkglabBlock(content: string): string {
 
   const before = content.slice(0, startIdx);
   const after = content.slice(endIdx + MARKER_END.length);
-  return (before + after).replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  return (before + after).replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
 export async function applySkipWorktree(repoPath: string): Promise<void> {
-  const proc = Bun.spawn(["git", "update-index", "--skip-worktree", ".npmrc"], {
+  const proc = Bun.spawn(['git', 'update-index', '--skip-worktree', '.npmrc'], {
     cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: 'pipe',
+    stderr: 'pipe',
   });
   await proc.exited;
 }
 
 export async function removeSkipWorktree(repoPath: string): Promise<void> {
-  const proc = Bun.spawn(
-    ["git", "update-index", "--no-skip-worktree", ".npmrc"],
-    { cwd: repoPath, stdout: "pipe", stderr: "pipe" },
-  );
+  const proc = Bun.spawn(['git', 'update-index', '--no-skip-worktree', '.npmrc'], {
+    cwd: repoPath,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
   await proc.exited;
 }
 
 export async function isSkipWorktreeSet(repoPath: string): Promise<boolean> {
-  const proc = Bun.spawn(["git", "ls-files", "-v", ".npmrc"], {
+  const proc = Bun.spawn(['git', 'ls-files', '-v', '.npmrc'], {
     cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: 'pipe',
+    stderr: 'pipe',
   });
   const output = await new Response(proc.stdout).text();
-  return output.startsWith("S ");
+  return output.startsWith('S ');
 }
 
 export async function scopedInstall(
@@ -1647,11 +1550,11 @@ export async function scopedInstall(
   const detectedPm = pm || (await detectPackageManager(repoPath));
   const cmd = installCommand(detectedPm, pkgName, version);
 
-  log.dim(`  ${cmd.join(" ")}`);
+  log.dim(`  ${cmd.join(' ')}`);
   const proc = Bun.spawn(cmd, {
     cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: 'pipe',
+    stderr: 'pipe',
   });
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
@@ -1665,18 +1568,18 @@ export async function updatePackageJsonVersion(
   pkgName: string,
   version: string,
 ): Promise<{ previousVersion: string }> {
-  const pkgJsonPath = join(repoPath, "package.json");
+  const pkgJsonPath = join(repoPath, 'package.json');
   const pkgJson = await Bun.file(pkgJsonPath).json();
 
-  let previousVersion = "";
-  for (const field of ["dependencies", "devDependencies"]) {
+  let previousVersion = '';
+  for (const field of ['dependencies', 'devDependencies']) {
     if (pkgJson[field]?.[pkgName]) {
       previousVersion = pkgJson[field][pkgName];
       pkgJson[field][pkgName] = version;
     }
   }
 
-  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n');
   return { previousVersion };
 }
 ```
@@ -1684,31 +1587,21 @@ export async function updatePackageJsonVersion(
 **Step 4: Implement src/commands/add.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import { getDaemonStatus } from "../lib/daemon";
-import { loadConfig } from "../lib/config";
-import {
-  addRegistryToNpmrc,
-  applySkipWorktree,
-  scopedInstall,
-  updatePackageJsonVersion,
-} from "../lib/consumer";
-import {
-  canonicalRepoPath,
-  repoFileName,
-  loadRepoState,
-  saveRepoState,
-} from "../lib/repo-state";
-import { getPackageVersions } from "../lib/registry";
-import { ispkglabVersion, extractTimestamp } from "../lib/version";
-import { log } from "../lib/log";
-import { DaemonNotRunningError } from "../lib/errors";
-import type { RepoState } from "../types";
+import { defineCommand } from 'citty';
+import { getDaemonStatus } from '../lib/daemon';
+import { loadConfig } from '../lib/config';
+import { addRegistryToNpmrc, applySkipWorktree, scopedInstall, updatePackageJsonVersion } from '../lib/consumer';
+import { canonicalRepoPath, repoFileName, loadRepoState, saveRepoState } from '../lib/repo-state';
+import { getPackageVersions } from '../lib/registry';
+import { ispkglabVersion, extractTimestamp } from '../lib/version';
+import { log } from '../lib/log';
+import { DaemonNotRunningError } from '../lib/errors';
+import type { RepoState } from '../types';
 
 export default defineCommand({
-  meta: { name: "add", description: "Add a pkglab package to this repo" },
+  meta: { name: 'add', description: 'Add a pkglab package to this repo' },
   args: {
-    name: { type: "positional", description: "Package name", required: true },
+    name: { type: 'positional', description: 'Package name', required: true },
   },
   async run({ args }) {
     const status = await getDaemonStatus();
@@ -1719,14 +1612,10 @@ export default defineCommand({
     const pkgName = args.name as string;
 
     const versions = await getPackageVersions(config, pkgName);
-    const pkglabVersions = versions
-      .filter(ispkglabVersion)
-      .sort((a, b) => extractTimestamp(b) - extractTimestamp(a));
+    const pkglabVersions = versions.filter(ispkglabVersion).sort((a, b) => extractTimestamp(b) - extractTimestamp(a));
 
     if (pkglabVersions.length === 0) {
-      log.error(
-        `No pkglab versions for ${pkgName}. Publish first: pkglab pub ${pkgName}`,
-      );
+      log.error(`No pkglab versions for ${pkgName}. Publish first: pkglab pub ${pkgName}`);
       process.exit(1);
     }
 
@@ -1736,18 +1625,14 @@ export default defineCommand({
     if (isFirstTime) {
       await applySkipWorktree(repoPath);
       log.info(
-        "notice: pkglab added registry entries to .npmrc\n" +
-          "These entries point to localhost and will break CI if committed.\n" +
-          "pkglab has applied --skip-worktree to prevent accidental commits.\n" +
-          "Run pkglab rm to restore your .npmrc.",
+        'notice: pkglab added registry entries to .npmrc\n' +
+          'These entries point to localhost and will break CI if committed.\n' +
+          'pkglab has applied --skip-worktree to prevent accidental commits.\n' +
+          'Run pkglab rm to restore your .npmrc.',
       );
     }
 
-    const { previousVersion } = await updatePackageJsonVersion(
-      repoPath,
-      pkgName,
-      latestVersion,
-    );
+    const { previousVersion } = await updatePackageJsonVersion(repoPath, pkgName, latestVersion);
     await scopedInstall(repoPath, pkgName, latestVersion);
 
     const repoFile = await repoFileName(repoPath);
@@ -1775,26 +1660,18 @@ export default defineCommand({
 **Step 5: Implement src/commands/rm.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import {
-  removeRegistryFromNpmrc,
-  removeSkipWorktree,
-  updatePackageJsonVersion,
-} from "../lib/consumer";
-import {
-  canonicalRepoPath,
-  findRepoByPath,
-  saveRepoState,
-} from "../lib/repo-state";
-import { log } from "../lib/log";
+import { defineCommand } from 'citty';
+import { removeRegistryFromNpmrc, removeSkipWorktree, updatePackageJsonVersion } from '../lib/consumer';
+import { canonicalRepoPath, findRepoByPath, saveRepoState } from '../lib/repo-state';
+import { log } from '../lib/log';
 
 export default defineCommand({
   meta: {
-    name: "rm",
-    description: "Remove a pkglab package, restore original",
+    name: 'rm',
+    description: 'Remove a pkglab package, restore original',
   },
   args: {
-    name: { type: "positional", description: "Package name", required: true },
+    name: { type: 'positional', description: 'Package name', required: true },
   },
   async run({ args }) {
     const repoPath = await canonicalRepoPath(process.cwd());
@@ -1819,7 +1696,7 @@ export default defineCommand({
     if (Object.keys(repo.state.packages).length === 0) {
       await removeRegistryFromNpmrc(repoPath);
       await removeSkipWorktree(repoPath);
-      log.info("All pkglab packages removed, .npmrc restored");
+      log.info('All pkglab packages removed, .npmrc restored');
     }
 
     log.success(`Removed ${pkgName} from pkglab`);
@@ -1851,28 +1728,28 @@ git commit -m "feat: consumer core (add/rm with .npmrc, skip-worktree, scoped in
 **Step 1: Implement repos/ls.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import { loadAllRepos } from "../../lib/repo-state";
-import { log } from "../../lib/log";
-import pc from "picocolors";
+import { defineCommand } from 'citty';
+import { loadAllRepos } from '../../lib/repo-state';
+import { log } from '../../lib/log';
+import pc from 'picocolors';
 
 export default defineCommand({
-  meta: { name: "ls", description: "List linked consumer repos" },
+  meta: { name: 'ls', description: 'List linked consumer repos' },
   async run() {
     const repos = await loadAllRepos();
     const entries = Object.entries(repos);
 
     if (entries.length === 0) {
-      log.info("No linked repos. Use pkglab add in a consumer repo.");
+      log.info('No linked repos. Use pkglab add in a consumer repo.');
       return;
     }
 
     for (const [name, state] of entries) {
-      const status = state.active ? pc.green("active") : pc.dim("inactive");
+      const status = state.active ? pc.green('active') : pc.dim('inactive');
       const pkgCount = Object.keys(state.packages).length;
       log.line(
         `  ${name.padEnd(20)} ${status.padEnd(18)} ` +
-          `${pkgCount} pkg${pkgCount !== 1 ? "s" : ""}  ${pc.dim(state.path)}`,
+          `${pkgCount} pkg${pkgCount !== 1 ? 's' : ''}  ${pc.dim(state.path)}`,
       );
     }
   },
@@ -1882,16 +1759,16 @@ export default defineCommand({
 **Step 2: Implement repos/activate.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import { loadRepoState, saveRepoState } from "../../lib/repo-state";
-import { addRegistryToNpmrc, applySkipWorktree } from "../../lib/consumer";
-import { loadConfig } from "../../lib/config";
-import { log } from "../../lib/log";
+import { defineCommand } from 'citty';
+import { loadRepoState, saveRepoState } from '../../lib/repo-state';
+import { addRegistryToNpmrc, applySkipWorktree } from '../../lib/consumer';
+import { loadConfig } from '../../lib/config';
+import { log } from '../../lib/log';
 
 export default defineCommand({
-  meta: { name: "activate", description: "Activate repo for auto-updates" },
+  meta: { name: 'activate', description: 'Activate repo for auto-updates' },
   args: {
-    name: { type: "positional", description: "Repo name", required: true },
+    name: { type: 'positional', description: 'Repo name', required: true },
   },
   async run({ args }) {
     const name = args.name as string;
@@ -1915,14 +1792,14 @@ export default defineCommand({
 **Step 3: Implement repos/deactivate.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import { loadRepoState, saveRepoState } from "../../lib/repo-state";
-import { log } from "../../lib/log";
+import { defineCommand } from 'citty';
+import { loadRepoState, saveRepoState } from '../../lib/repo-state';
+import { log } from '../../lib/log';
 
 export default defineCommand({
-  meta: { name: "deactivate", description: "Deactivate repo" },
+  meta: { name: 'deactivate', description: 'Deactivate repo' },
   args: {
-    name: { type: "positional", description: "Repo name", required: true },
+    name: { type: 'positional', description: 'Repo name', required: true },
   },
   async run({ args }) {
     const name = args.name as string;
@@ -1942,25 +1819,17 @@ export default defineCommand({
 **Step 4: Implement repos/reset.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import {
-  loadRepoState,
-  saveRepoState,
-  loadAllRepos,
-} from "../../lib/repo-state";
-import {
-  removeRegistryFromNpmrc,
-  removeSkipWorktree,
-  updatePackageJsonVersion,
-} from "../../lib/consumer";
-import { log } from "../../lib/log";
-import type { RepoState } from "../../types";
+import { defineCommand } from 'citty';
+import { loadRepoState, saveRepoState, loadAllRepos } from '../../lib/repo-state';
+import { removeRegistryFromNpmrc, removeSkipWorktree, updatePackageJsonVersion } from '../../lib/consumer';
+import { log } from '../../lib/log';
+import type { RepoState } from '../../types';
 
 export default defineCommand({
-  meta: { name: "reset", description: "Reset repo to original versions" },
+  meta: { name: 'reset', description: 'Reset repo to original versions' },
   args: {
-    name: { type: "positional", description: "Repo name", required: false },
-    all: { type: "boolean", description: "Reset all repos", default: false },
+    name: { type: 'positional', description: 'Repo name', required: false },
+    all: { type: 'boolean', description: 'Reset all repos', default: false },
   },
   async run({ args }) {
     let targets: Array<[string, RepoState]>;
@@ -1975,7 +1844,7 @@ export default defineCommand({
       }
       targets = [[args.name as string, state]];
     } else {
-      log.error("Specify a repo name or --all");
+      log.error('Specify a repo name or --all');
       process.exit(1);
     }
 
@@ -2002,18 +1871,18 @@ export default defineCommand({
 **Step 5: Implement repos/rename.ts**
 
 ```typescript
-import { defineCommand } from "citty";
-import { loadRepoState } from "../../lib/repo-state";
-import { paths } from "../../lib/paths";
-import { join } from "node:path";
-import { rename } from "node:fs/promises";
-import { log } from "../../lib/log";
+import { defineCommand } from 'citty';
+import { loadRepoState } from '../../lib/repo-state';
+import { paths } from '../../lib/paths';
+import { join } from 'node:path';
+import { rename } from 'node:fs/promises';
+import { log } from '../../lib/log';
 
 export default defineCommand({
-  meta: { name: "rename", description: "Rename a repo alias" },
+  meta: { name: 'rename', description: 'Rename a repo alias' },
   args: {
-    old: { type: "positional", description: "Current name", required: true },
-    new_name: { type: "positional", description: "New name", required: true },
+    old: { type: 'positional', description: 'Current name', required: true },
+    new_name: { type: 'positional', description: 'New name', required: true },
   },
   async run({ args }) {
     const oldName = args.old as string;
@@ -2025,10 +1894,7 @@ export default defineCommand({
       process.exit(1);
     }
 
-    await rename(
-      join(paths.reposDir, `${oldName}.yaml`),
-      join(paths.reposDir, `${newName}.yaml`),
-    );
+    await rename(join(paths.reposDir, `${oldName}.yaml`), join(paths.reposDir, `${newName}.yaml`));
     log.success(`Renamed ${oldName} -> ${newName}`);
   },
 });
@@ -2040,15 +1906,13 @@ After the existing publish success output in `src/commands/pub.ts`, add:
 
 ```typescript
 // Auto-update active consumer repos
-const { getActiveRepos, saveRepoState: saveRepo } =
-  await import("../lib/repo-state");
-const { detectPackageManager } = await import("../lib/pm-detect");
-const { updatePackageJsonVersion, scopedInstall } =
-  await import("../lib/consumer");
+const { getActiveRepos, saveRepoState: saveRepo } = await import('../lib/repo-state');
+const { detectPackageManager } = await import('../lib/pm-detect');
+const { updatePackageJsonVersion, scopedInstall } = await import('../lib/consumer');
 
 const activeRepos = await getActiveRepos();
 if (activeRepos.length > 0) {
-  log.info("\nUpdating active repos:");
+  log.info('\nUpdating active repos:');
   for (const { name, state } of activeRepos) {
     const pm = await detectPackageManager(state.path);
     const updated: string[] = [];
@@ -2064,7 +1928,7 @@ if (activeRepos.length > 0) {
 
     if (updated.length > 0) {
       await saveRepo(name, state);
-      log.success(`  ${name}: updated ${updated.join(", ")}`);
+      log.success(`  ${name}: updated ${updated.join(', ')}`);
     }
   }
 }
@@ -2075,17 +1939,17 @@ if (activeRepos.length > 0) {
 After daemon start in `src/commands/start.ts`, add:
 
 ```typescript
-const { deactivateAllRepos, loadAllRepos } = await import("../lib/repo-state");
+const { deactivateAllRepos, loadAllRepos } = await import('../lib/repo-state');
 await deactivateAllRepos();
 
 const repos = await loadAllRepos();
 const entries = Object.entries(repos);
 if (entries.length > 0) {
-  log.info("\nLinked repos (all inactive):");
+  log.info('\nLinked repos (all inactive):');
   for (const [name, state] of entries) {
     log.line(`  ${name.padEnd(20)} ${state.path}`);
   }
-  log.dim("\nActivate repos: pkglab repos activate <name>");
+  log.dim('\nActivate repos: pkglab repos activate <name>');
 }
 ```
 
@@ -2112,24 +1976,15 @@ git commit -m "feat: repo management (ls/activate/deactivate/reset/rename) + aut
 **Step 1: Create src/lib/prune.ts**
 
 ```typescript
-import type { pkglabConfig } from "../types";
-import {
-  getPackageVersions,
-  listAllPackages,
-  unpublishVersion,
-} from "./registry";
-import { getActiveRepos } from "./repo-state";
-import { ispkglabVersion, extractTimestamp } from "./version";
-import { log } from "./log";
+import type { pkglabConfig } from '../types';
+import { getPackageVersions, listAllPackages, unpublishVersion } from './registry';
+import { getActiveRepos } from './repo-state';
+import { ispkglabVersion, extractTimestamp } from './version';
+import { log } from './log';
 
-export async function prunePackage(
-  config: pkglabConfig,
-  pkgName: string,
-): Promise<number> {
+export async function prunePackage(config: pkglabConfig, pkgName: string): Promise<number> {
   const versions = await getPackageVersions(config, pkgName);
-  const pkglabVersions = versions
-    .filter(ispkglabVersion)
-    .sort((a, b) => extractTimestamp(b) - extractTimestamp(a));
+  const pkglabVersions = versions.filter(ispkglabVersion).sort((a, b) => extractTimestamp(b) - extractTimestamp(a));
 
   if (pkglabVersions.length <= config.prune_keep) return 0;
 
@@ -2141,9 +1996,7 @@ export async function prunePackage(
     }
   }
 
-  const toRemove = pkglabVersions
-    .slice(config.prune_keep)
-    .filter((v) => !referenced.has(v));
+  const toRemove = pkglabVersions.slice(config.prune_keep).filter(v => !referenced.has(v));
 
   for (const version of toRemove) {
     await unpublishVersion(config, pkgName, version);
@@ -2181,7 +2034,7 @@ After consumer auto-update section:
 
 ```typescript
 try {
-  const { pruneAll } = await import("../lib/prune");
+  const { pruneAll } = await import('../lib/prune');
   const pruned = await pruneAll(config);
   if (pruned > 0) log.dim(`Pruned ${pruned} old versions`);
 } catch {

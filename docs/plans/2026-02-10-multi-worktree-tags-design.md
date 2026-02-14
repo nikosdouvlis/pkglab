@@ -7,12 +7,14 @@ Publish from multiple git worktrees without version conflicts. Consumers pin to 
 Current: `0.0.0-pkglab.{YY-MM-DD}--{HH-MM-SS}.{timestamp}`
 
 New:
+
 - Untagged: `0.0.0-pkglab.{timestamp}`
 - Tagged: `0.0.0-pkglab-{tag}.{timestamp}`
 
 Date/time portion dropped. Timestamp alone provides ordering and uniqueness.
 
 Parsing rules:
+
 - `0.0.0-pkglab.` prefix = untagged
 - `0.0.0-pkglab-` prefix = tagged, tag is between `pkglab-` and the last `.`
 - `ispkglabVersion()` requires char after "pkglab" to be `.` or `-`
@@ -21,6 +23,7 @@ Parsing rules:
 - Old format versions treated as untagged (backwards compat)
 
 Tag sanitization (`sanitizeTag()`):
+
 - Replace `/` with `-`
 - Strip anything not alphanumeric or hyphen
 - Collapse consecutive hyphens
@@ -33,21 +36,25 @@ Shared `sanitizeTag()` used in both pub and add paths.
 ## Pub Command
 
 New flags (mutually exclusive):
+
 - `--tag <name>` / `-t <name>` — explicit tag
 - `--worktree` / `-w` — auto-detect from git branch
 
 No flag = untagged, same as today.
 
 `--worktree` behavior:
+
 - Reads branch via `git rev-parse --abbrev-ref HEAD`
 - Sanitizes branch name with `sanitizeTag()`
 - Errors on detached HEAD: "Cannot detect branch name, use --tag instead"
 
 `generateVersion(tag?)`:
+
 - No tag: `0.0.0-pkglab.{timestamp}`
 - With tag: `0.0.0-pkglab-{tag}.{timestamp}`
 
 Auto-update after publish:
+
 - Only updates consumer repos pinned to the matching tag
 - Untagged pub updates untagged consumers
 - Tagged pub updates consumers with that exact tag
@@ -57,12 +64,14 @@ Publish lock unchanged. Verbose output includes the tag.
 ## Consumer Side
 
 Explicit: `pkglab add pkg@tag`
+
 - Scoped packages: split on last `@` (so `@scope/pkg@tag` works)
 - Sanitize input tag before lookup
 - Error if no versions found for that tag, listing available tags
 - Error shows both raw input and sanitized form if they differ
 
 Interactive: `pkglab add` (no args)
+
 1. Checkbox: select packages (space to toggle, enter to confirm)
 2. For each selected package: select tag (skip if only one tag)
 3. Install all selected with their chosen tags
@@ -70,6 +79,7 @@ Interactive: `pkglab add` (no args)
 Uses `@inquirer/prompts`. Already-picked packages show their tag inline in the list.
 
 `PackageLink` type change:
+
 ```
 PackageLink {
   original: string
@@ -79,12 +89,14 @@ PackageLink {
 ```
 
 Version resolution:
+
 - `pkglab add pkg` — latest untagged version (not latest across all tags)
 - `pkglab add pkg@tag` — latest version with that tag
 
 `pkglab rm` restores original version, clears tag field.
 
 `pkglab pkgs ls` shows tags per package:
+
 ```
 @clerk/clerk-js
   (untagged)   0.0.0-pkglab.1707568245000
@@ -106,16 +118,19 @@ Active repo references still protected from pruning.
 ## Error Handling
 
 Publish side:
+
 - `--tag` + `--worktree` together: "Cannot use --tag and --worktree together"
 - `--worktree` on detached HEAD: "Cannot detect branch name, use --tag instead"
 - `--worktree` or `--tag` sanitizes to empty: "Branch/tag name '{raw}' cannot be used as a tag, use --tag instead"
 - Tag > 50 chars: warn and truncate
 
 Consumer side:
+
 - `pkglab add pkg@tag` no matching versions: "No versions found for '{pkg}' with tag '{tag}'. Available tags: {list}"
 - `pkglab add pkg@tag` no package at all: "Package '{pkg}' not found in registry"
 
 Other:
+
 - `check.ts` updated to detect both `0.0.0-pkglab.` and `0.0.0-pkglab-` patterns
 - Old format versions participate as untagged in all operations
 

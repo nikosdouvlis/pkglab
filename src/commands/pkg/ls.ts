@@ -1,21 +1,24 @@
-import { defineCommand } from "citty";
-import { getDaemonStatus } from "../../lib/daemon";
-import { listAllPackages } from "../../lib/registry";
-import { extractTag, extractTimestamp } from "../../lib/version";
-import { log } from "../../lib/log";
-import { c } from "../../lib/color";
-import { DaemonNotRunningError } from "../../lib/errors";
+import { defineCommand } from 'citty';
+
+import { c } from '../../lib/color';
+import { getDaemonStatus } from '../../lib/daemon';
+import { DaemonNotRunningError } from '../../lib/errors';
+import { log } from '../../lib/log';
+import { listAllPackages } from '../../lib/registry';
+import { extractTag, extractTimestamp } from '../../lib/version';
 
 export default defineCommand({
-  meta: { name: "ls", description: "List packages in local registry" },
+  meta: { name: 'ls', description: 'List packages in local registry' },
   async run() {
     const status = await getDaemonStatus();
-    if (!status?.running) throw new DaemonNotRunningError();
+    if (!status?.running) {
+      throw new DaemonNotRunningError();
+    }
 
     const pkglabPackages = await listAllPackages();
 
     if (pkglabPackages.length === 0) {
-      log.info("No packages published to local registry");
+      log.info('No packages published to local registry');
       return;
     }
 
@@ -23,7 +26,7 @@ export default defineCommand({
       // Group versions by tag
       const tagMap = new Map<string, string[]>();
       for (const v of pkg.versions) {
-        const tag = extractTag(v) ?? "(untagged)";
+        const tag = extractTag(v) ?? '(untagged)';
         const existing = tagMap.get(tag);
         if (existing) {
           existing.push(v);
@@ -35,9 +38,13 @@ export default defineCommand({
       log.line(`  ${pkg.name}`);
 
       // Sort tags: (untagged) first, then alphabetical
-      const tags = [...tagMap.keys()].sort((a, b) => {
-        if (a === "(untagged)") return -1;
-        if (b === "(untagged)") return 1;
+      const tags = [...tagMap.keys()].toSorted((a, b) => {
+        if (a === '(untagged)') {
+          return -1;
+        }
+        if (b === '(untagged)') {
+          return 1;
+        }
         return a.localeCompare(b);
       });
 

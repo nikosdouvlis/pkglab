@@ -1,30 +1,29 @@
-import { defineCommand } from "citty";
-import {
-  removeRegistryFromNpmrc,
-  removeSkipWorktree,
-  restorePackage,
-} from "../lib/consumer";
-import {
-  canonicalRepoPath,
-  findRepoByPath,
-  saveRepoByPath,
-} from "../lib/repo-state";
-import { getPositionalArgs, normalizeScope } from "../lib/args";
-import { extractTag } from "../lib/version";
-import { runInstall } from "../lib/pm-detect";
-import { log } from "../lib/log";
+import { defineCommand } from 'citty';
 
+import { getPositionalArgs, normalizeScope } from '../lib/args';
+import { removeRegistryFromNpmrc, removeSkipWorktree, restorePackage } from '../lib/consumer';
+import { log } from '../lib/log';
+import { runInstall } from '../lib/pm-detect';
+import { canonicalRepoPath, findRepoByPath, saveRepoByPath } from '../lib/repo-state';
+import { extractTag } from '../lib/version';
 
 export default defineCommand({
   meta: {
-    name: "restore",
-    description: "Restore pkglab packages to their original versions",
+    name: 'restore',
+    description: 'Restore pkglab packages to their original versions',
   },
   args: {
-    name: { type: "positional", description: "Package name(s)", required: false },
-    all: { type: "boolean", description: "Restore all pkglab packages", default: false },
-    scope: { type: "string", description: "Restore all packages matching a scope (e.g. clerk or @clerk)" },
-    tag: { type: "string", alias: "t", description: "Only restore packages installed with this tag" },
+    name: { type: 'positional', description: 'Package name(s)', required: false },
+    all: { type: 'boolean', description: 'Restore all pkglab packages', default: false },
+    scope: {
+      type: 'string',
+      description: 'Restore all packages matching a scope (e.g. clerk or @clerk)',
+    },
+    tag: {
+      type: 'string',
+      alias: 't',
+      description: 'Only restore packages installed with this tag',
+    },
   },
   async run({ args }) {
     const names = getPositionalArgs(args);
@@ -33,7 +32,7 @@ export default defineCommand({
 
     // Validation
     if (scope && names.length > 0) {
-      log.error("Cannot combine --scope with package names. Use one or the other.");
+      log.error('Cannot combine --scope with package names. Use one or the other.');
       process.exit(1);
     }
 
@@ -41,7 +40,7 @@ export default defineCommand({
     const repo = await findRepoByPath(repoPath);
 
     if (!repo || Object.keys(repo.state.packages).length === 0) {
-      log.warn("No pkglab packages in this repo");
+      log.warn('No pkglab packages in this repo');
       return;
     }
 
@@ -64,7 +63,7 @@ export default defineCommand({
     } else if (names.length > 0) {
       toRestore = names;
     } else {
-      log.error("Specify package name(s), --scope, or --all");
+      log.error('Specify package name(s), --scope, or --all');
       process.exit(1);
     }
 
@@ -72,9 +71,13 @@ export default defineCommand({
     if (tag) {
       toRestore = toRestore.filter(name => {
         const link = repo.state.packages[name];
-        if (!link) return false;
+        if (!link) {
+          return false;
+        }
         // Check stored tag on the link
-        if (link.tag === tag) return true;
+        if (link.tag === tag) {
+          return true;
+        }
         // Also check if the current version has the matching tag
         const versionTag = extractTag(link.current);
         return versionTag === tag;
@@ -92,7 +95,9 @@ export default defineCommand({
         log.warn(`${name} is not linked via pkglab in this repo`);
       }
       toRestore = toRestore.filter(name => repo.state.packages[name]);
-      if (toRestore.length === 0) return;
+      if (toRestore.length === 0) {
+        return;
+      }
     }
 
     // Restore each package
@@ -107,7 +112,7 @@ export default defineCommand({
     if (Object.keys(repo.state.packages).length === 0) {
       await removeRegistryFromNpmrc(repoPath);
       await removeSkipWorktree(repoPath);
-      log.info("All pkglab packages removed, .npmrc restored");
+      log.info('All pkglab packages removed, .npmrc restored');
     }
 
     // Run pm install once

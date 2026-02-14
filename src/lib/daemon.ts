@@ -1,25 +1,17 @@
-import { unlink } from "node:fs/promises";
-import { paths } from "./paths";
-import { loadConfig } from "./config";
-import { DaemonAlreadyRunningError } from "./errors";
-import type { DaemonInfo } from "../types";
-import {
-  isProcessAlive,
-  run,
-  waitForReady,
-  waitForExit,
-  timeout,
-  gracefulStop,
-  validatePidStartTime,
-} from "./proc";
-import { log } from "./log";
+import { unlink } from 'node:fs/promises';
+
+import type { DaemonInfo } from '../types';
+
+import { loadConfig } from './config';
+import { DaemonAlreadyRunningError } from './errors';
+import { log } from './log';
+import { paths } from './paths';
+import { isProcessAlive, run, waitForReady, waitForExit, timeout, gracefulStop, validatePidStartTime } from './proc';
 
 export async function startDaemon(): Promise<DaemonInfo> {
   const existing = await getDaemonStatus();
   if (existing?.running) {
-    throw new DaemonAlreadyRunningError(
-      `Already running on port ${existing.port} (PID ${existing.pid})`
-    );
+    throw new DaemonAlreadyRunningError(`Already running on port ${existing.port} (PID ${existing.pid})`);
   }
 
   // Clean stale PID if exists
@@ -33,28 +25,22 @@ export async function startDaemon(): Promise<DaemonInfo> {
   // In compiled mode, process.argv[1] is a subcommand (e.g. "up").
   // In source mode, process.argv[1] is the script path (e.g. "src/index.ts").
   const isSource = process.argv[1]?.match(/\.(ts|js)$/);
-  const cmd = isSource
-    ? [process.execPath, process.argv[1], "--__worker"]
-    : [process.execPath, "--__worker"];
+  const cmd = isSource ? [process.execPath, process.argv[1], '--__worker'] : [process.execPath, '--__worker'];
 
   const proc = Bun.spawn(cmd, {
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: 'pipe',
+    stderr: 'pipe',
   });
 
   // Wait for READY signal, process exit, or timeout
   const deadline = timeout(10000);
-  const result = await Promise.race([
-    waitForReady(proc),
-    waitForExit(proc),
-    deadline.promise,
-  ]);
+  const result = await Promise.race([waitForReady(proc), waitForExit(proc), deadline.promise]);
   deadline.cancel();
 
-  if (result !== "ready") {
+  if (result !== 'ready') {
     proc.kill();
-    if (result === "timeout") {
-      throw new Error("Verdaccio failed to start within 10 seconds");
+    if (result === 'timeout') {
+      throw new Error('Verdaccio failed to start within 10 seconds');
     }
     const stderr = await new Response(proc.stderr).text();
     throw new Error(`Verdaccio process exited unexpectedly: ${stderr}`);
@@ -74,9 +60,11 @@ export async function startDaemon(): Promise<DaemonInfo> {
  */
 export async function ensureDaemonRunning(): Promise<DaemonInfo> {
   const existing = await getDaemonStatus();
-  if (existing?.running) return existing;
+  if (existing?.running) {
+    return existing;
+  }
 
-  log.info("Starting Verdaccio...");
+  log.info('Starting Verdaccio...');
   const info = await startDaemon();
   log.success(`pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
   return info;
@@ -84,7 +72,9 @@ export async function ensureDaemonRunning(): Promise<DaemonInfo> {
 
 export async function stopDaemon(): Promise<void> {
   const status = await getDaemonStatus();
-  if (!status?.running) return;
+  if (!status?.running) {
+    return;
+  }
 
   await gracefulStop(status.pid);
   await unlink(paths.pid).catch(() => {});
@@ -92,7 +82,9 @@ export async function stopDaemon(): Promise<void> {
 
 export async function getDaemonStatus(): Promise<DaemonInfo | null> {
   const pidFile = Bun.file(paths.pid);
-  if (!(await pidFile.exists())) return null;
+  if (!(await pidFile.exists())) {
+    return null;
+  }
 
   const content = await pidFile.text();
   let pid: number;
@@ -109,7 +101,9 @@ export async function getDaemonStatus(): Promise<DaemonInfo | null> {
     pid = parseInt(content.trim(), 10);
   }
 
-  if (typeof pid !== "number" || !Number.isFinite(pid) || pid <= 0) return null;
+  if (typeof pid !== 'number' || !Number.isFinite(pid) || pid <= 0) {
+    return null;
+  }
 
   if (!isProcessAlive(pid)) {
     await unlink(paths.pid).catch(() => {});
@@ -131,11 +125,15 @@ async function validatePid(pid: number, startedAt?: number): Promise<boolean> {
   }
   // Fallback: check command string (legacy pidfiles without startedAt)
   try {
-    const result = await run(["ps", "-p", String(pid), "-o", "command="], {});
-    if (result.exitCode !== 0) return false;
-    return result.stdout.includes("verdaccio-worker") || (result.stdout.includes("bun") && result.stdout.includes("verdaccio"));
+    const result = await run(['ps', '-p', String(pid), '-o', 'command='], {});
+    if (result.exitCode !== 0) {
+      return false;
+    }
+    return (
+      result.stdout.includes('verdaccio-worker') ||
+      (result.stdout.includes('bun') && result.stdout.includes('verdaccio'))
+    );
   } catch {
     return false;
   }
 }
-

@@ -1,11 +1,16 @@
-import { join } from "node:path";
-import { paths } from "./paths";
-import { ListenerNotRunningError } from "./errors";
+import { join } from 'node:path';
+
+import { ListenerNotRunningError } from './errors';
+import { paths } from './paths';
 
 export interface PingMessage {
   names: string[];
   tag?: string;
   root?: boolean;
+  force?: boolean;
+  single?: boolean;
+  shallow?: boolean;
+  dryRun?: boolean;
 }
 
 export interface PingAck {
@@ -18,9 +23,9 @@ export interface PingAck {
  * Each workspace gets a unique socket based on a hash of its root path.
  */
 export function getListenerSocketPath(workspaceRoot: string): string {
-  const hasher = new Bun.CryptoHasher("sha256");
+  const hasher = new Bun.CryptoHasher('sha256');
   hasher.update(workspaceRoot);
-  const hash = hasher.digest("hex").slice(0, 12);
+  const hash = hasher.digest('hex').slice(0, 12);
   return join(paths.listenersDir, `${hash}.sock`);
 }
 
@@ -30,7 +35,7 @@ export function getListenerSocketPath(workspaceRoot: string): string {
  */
 export async function sendPing(socketPath: string, message: PingMessage): Promise<PingAck> {
   return new Promise<PingAck>((resolve, reject) => {
-    let buffer = "";
+    let buffer = '';
     let settled = false;
 
     const settle = (fn: () => void) => {
@@ -48,13 +53,13 @@ export async function sendPing(socketPath: string, message: PingMessage): Promis
       unix: socketPath,
       socket: {
         open(socket) {
-          const payload = JSON.stringify(message) + "\n";
+          const payload = JSON.stringify(message) + '\n';
           socket.write(payload);
           socket.flush();
         },
         data(_socket, data) {
           buffer += data.toString();
-          const newlineIdx = buffer.indexOf("\n");
+          const newlineIdx = buffer.indexOf('\n');
           if (newlineIdx !== -1) {
             const line = buffer.slice(0, newlineIdx);
             clearTimeout(timeout);
@@ -63,10 +68,10 @@ export async function sendPing(socketPath: string, message: PingMessage): Promis
               if (ack.ok) {
                 settle(() => resolve(ack));
               } else {
-                settle(() => reject(new Error(ack.error ?? "Listener rejected the ping")));
+                settle(() => reject(new Error(ack.error ?? 'Listener rejected the ping')));
               }
             } catch {
-              settle(() => reject(new Error("Invalid ack from listener")));
+              settle(() => reject(new Error('Invalid ack from listener')));
             }
             _socket.end();
           }
@@ -95,19 +100,19 @@ export async function sendPing(socketPath: string, message: PingMessage): Promis
 }
 
 export function getListenerPidPath(workspaceRoot: string): string {
-  return getListenerSocketPath(workspaceRoot).replace(/\.sock$/, ".pid");
+  return getListenerSocketPath(workspaceRoot).replace(/\.sock$/, '.pid');
 }
 
 export function getListenerLogPath(workspaceRoot: string): string {
-  const hash = new Bun.CryptoHasher("sha256").update(workspaceRoot).digest("hex").slice(0, 12);
-  return join("/tmp/pkglab", `listener-${hash}.log`);
+  const hash = new Bun.CryptoHasher('sha256').update(workspaceRoot).digest('hex').slice(0, 12);
+  return join('/tmp/pkglab', `listener-${hash}.log`);
 }
 
 /**
  * Check if a listener is running and connectable at the given socket path.
  */
 export async function isListenerRunning(socketPath: string): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
+  return new Promise<boolean>(resolve => {
     let settled = false;
 
     const settle = (value: boolean) => {

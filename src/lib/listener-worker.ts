@@ -1,12 +1,8 @@
-import { join } from "node:path";
-import { appendFileSync, writeFileSync, mkdirSync, unlinkSync, openSync } from "node:fs";
-import {
-  getListenerSocketPath,
-  getListenerPidPath,
-  getListenerLogPath,
-  isListenerRunning,
-} from "./listener-ipc";
-import { createListener, type ListenerLogger } from "./listener-core";
+import { appendFileSync, writeFileSync, mkdirSync, unlinkSync, openSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { createListener, type ListenerLogger } from './listener-core';
+import { getListenerSocketPath, getListenerPidPath, getListenerLogPath, isListenerRunning } from './listener-ipc';
 
 export async function main(workspaceRoot: string): Promise<void> {
   const socketPath = getListenerSocketPath(workspaceRoot);
@@ -14,11 +10,11 @@ export async function main(workspaceRoot: string): Promise<void> {
   const logPath = getListenerLogPath(workspaceRoot);
 
   // Ensure log directory exists
-  mkdirSync(join(logPath, ".."), { recursive: true });
+  mkdirSync(join(logPath, '..'), { recursive: true });
 
   // Check if already running
   if (await isListenerRunning(socketPath)) {
-    console.error("Listener already running for this workspace");
+    console.error('Listener already running for this workspace');
     process.exit(1);
   }
 
@@ -34,14 +30,14 @@ export async function main(workspaceRoot: string): Promise<void> {
   };
 
   const logger: ListenerLogger = {
-    info: (msg) => writeLog("INFO", msg),
-    success: (msg) => writeLog("OK", msg),
-    error: (msg) => writeLog("ERR", msg),
-    dim: (msg) => writeLog("DEBUG", msg),
+    info: msg => writeLog('INFO', msg),
+    success: msg => writeLog('OK', msg),
+    error: msg => writeLog('ERR', msg),
+    dim: msg => writeLog('DEBUG', msg),
   };
 
   // Open log file for child process stdout/stderr redirection
-  const logFd = openSync(logPath, "a");
+  const logFd = openSync(logPath, 'a');
 
   const handle = createListener({
     socketPath,
@@ -59,11 +55,11 @@ export async function main(workspaceRoot: string): Promise<void> {
       pid: process.pid,
       workspaceRoot,
       startedAt: Date.now(),
-    })
+    }),
   );
 
   // Signal ready AFTER PID is written
-  console.log("READY");
+  console.log('READY');
 
   // Clean up on exit
   const cleanup = () => {
@@ -76,6 +72,6 @@ export async function main(workspaceRoot: string): Promise<void> {
     } catch {}
     process.exit(0);
   };
-  process.on("SIGINT", cleanup);
-  process.on("SIGTERM", cleanup);
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
 }

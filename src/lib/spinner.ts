@@ -1,13 +1,13 @@
-import { c } from "./color";
+import { c } from './color';
 
-const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 export type SpinnerLine = string | { text: string; header: true };
 
 export function createMultiSpinner(lines: SpinnerLine[]) {
   const isTTY = process.stdout.isTTY;
-  const entries = lines.map((line) =>
-    typeof line === "string"
+  const entries = lines.map(line =>
+    typeof line === 'string'
       ? { text: line, header: false, done: false, failed: false }
       : { text: line.text, header: true, done: false, failed: false },
   );
@@ -23,11 +23,7 @@ export function createMultiSpinner(lines: SpinnerLine[]) {
       if (entry.header) {
         process.stdout.write(`\x1b[2K${entry.text}\n`);
       } else {
-        const icon = entry.done
-          ? c.green("✔")
-          : entry.failed
-            ? c.red("✖")
-            : c.cyan(FRAMES[frame % FRAMES.length]);
+        const icon = entry.done ? c.green('✔') : entry.failed ? c.red('✖') : c.cyan(FRAMES[frame % FRAMES.length]);
         process.stdout.write(`\x1b[2K  ${icon} ${entry.text}\n`);
       }
     }
@@ -56,8 +52,12 @@ export function createMultiSpinner(lines: SpinnerLine[]) {
       entries[index].text = text;
     },
     stop() {
-      if (interval) clearInterval(interval);
-      if (isTTY) render();
+      if (interval) {
+        clearInterval(interval);
+      }
+      if (isTTY) {
+        render();
+      }
     },
   };
 }

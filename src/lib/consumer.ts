@@ -1,22 +1,21 @@
-import { join } from "node:path";
-import { log } from "./log";
-import { NpmrcConflictError } from "./errors";
-import { detectPackageManager } from "./pm-detect";
-import type { PackageManager } from "./pm-detect";
-import { run } from "./proc";
-import { getActiveRepos } from "./repo-state";
-import type { PublishPlan, PublishEntry, RepoState } from "../types";
+import { join } from 'node:path';
 
-export const MARKER_START = "# pkglab-start";
-const MARKER_END = "# pkglab-end";
+import type { PublishPlan, PublishEntry, RepoState } from '../types';
+import type { PackageManager } from './pm-detect';
 
-export async function addRegistryToNpmrc(
-  repoPath: string,
-  port: number,
-): Promise<{ isFirstTime: boolean }> {
-  const npmrcPath = join(repoPath, ".npmrc");
+import { NpmrcConflictError } from './errors';
+import { log } from './log';
+import { detectPackageManager } from './pm-detect';
+import { run } from './proc';
+import { getActiveRepos } from './repo-state';
+
+export const MARKER_START = '# pkglab-start';
+const MARKER_END = '# pkglab-end';
+
+export async function addRegistryToNpmrc(repoPath: string, port: number): Promise<{ isFirstTime: boolean }> {
+  const npmrcPath = join(repoPath, '.npmrc');
   const file = Bun.file(npmrcPath);
-  let content = "";
+  let content = '';
   let isFirstTime = true;
 
   if (await file.exists()) {
@@ -27,31 +26,27 @@ export async function addRegistryToNpmrc(
       content = removepkglabBlock(content);
     }
 
-    for (const line of content.split("\n")) {
+    for (const line of content.split('\n')) {
       const trimmed = line.trim();
-      if (
-        trimmed.startsWith("registry=") &&
-        !trimmed.includes("localhost") &&
-        !trimmed.includes("127.0.0.1")
-      ) {
-        throw new NpmrcConflictError(
-          `Existing registry in .npmrc: ${trimmed}\npkglab cannot override this.`,
-        );
+      if (trimmed.startsWith('registry=') && !trimmed.includes('localhost') && !trimmed.includes('127.0.0.1')) {
+        throw new NpmrcConflictError(`Existing registry in .npmrc: ${trimmed}\npkglab cannot override this.`);
       }
     }
   }
 
   const block = `${MARKER_START}\nregistry=http://127.0.0.1:${port}\n${MARKER_END}`;
-  content = content.trimEnd() + "\n" + block + "\n";
+  content = content.trimEnd() + '\n' + block + '\n';
   await Bun.write(npmrcPath, content);
 
   return { isFirstTime };
 }
 
 export async function removeRegistryFromNpmrc(repoPath: string): Promise<void> {
-  const npmrcPath = join(repoPath, ".npmrc");
+  const npmrcPath = join(repoPath, '.npmrc');
   const file = Bun.file(npmrcPath);
-  if (!(await file.exists())) return;
+  if (!(await file.exists())) {
+    return;
+  }
 
   let content = await file.text();
   content = removepkglabBlock(content);
@@ -61,40 +56,48 @@ export async function removeRegistryFromNpmrc(repoPath: string): Promise<void> {
 function removepkglabBlock(content: string): string {
   const startIdx = content.indexOf(MARKER_START);
   const endIdx = content.indexOf(MARKER_END);
-  if (startIdx === -1 || endIdx === -1) return content;
+  if (startIdx === -1 || endIdx === -1) {
+    return content;
+  }
 
   const before = content.slice(0, startIdx);
   const after = content.slice(endIdx + MARKER_END.length);
-  return (before + after).replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  return (before + after).replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
 export async function applySkipWorktree(repoPath: string): Promise<void> {
   // skip-worktree only works on tracked files
-  if (!(await isTrackedByGit(repoPath, ".npmrc"))) return;
+  if (!(await isTrackedByGit(repoPath, '.npmrc'))) {
+    return;
+  }
 
-  const result = await run(["git", "update-index", "--skip-worktree", ".npmrc"], { cwd: repoPath });
+  const result = await run(['git', 'update-index', '--skip-worktree', '.npmrc'], { cwd: repoPath });
   if (result.exitCode !== 0) {
     log.warn(`Failed to set skip-worktree on .npmrc: ${result.stderr.trim()}`);
   }
 }
 
 export async function removeSkipWorktree(repoPath: string): Promise<void> {
-  if (!(await isTrackedByGit(repoPath, ".npmrc"))) return;
+  if (!(await isTrackedByGit(repoPath, '.npmrc'))) {
+    return;
+  }
 
-  const result = await run(["git", "update-index", "--no-skip-worktree", ".npmrc"], { cwd: repoPath });
+  const result = await run(['git', 'update-index', '--no-skip-worktree', '.npmrc'], {
+    cwd: repoPath,
+  });
   if (result.exitCode !== 0) {
     log.warn(`Failed to clear skip-worktree on .npmrc: ${result.stderr.trim()}`);
   }
 }
 
 async function isTrackedByGit(repoPath: string, file: string): Promise<boolean> {
-  const result = await run(["git", "ls-files", file], { cwd: repoPath });
+  const result = await run(['git', 'ls-files', file], { cwd: repoPath });
   return result.stdout.trim().length > 0;
 }
 
 export async function isSkipWorktreeSet(repoPath: string): Promise<boolean> {
-  const result = await run(["git", "ls-files", "-v", ".npmrc"], { cwd: repoPath });
-  return result.stdout.startsWith("S ");
+  const result = await run(['git', 'ls-files', '-v', '.npmrc'], { cwd: repoPath });
+  return result.stdout.startsWith('S ');
 }
 
 export async function updatePackageJsonVersion(
@@ -102,12 +105,12 @@ export async function updatePackageJsonVersion(
   pkgName: string,
   version: string,
 ): Promise<{ previousVersion: string | null }> {
-  const pkgJsonPath = join(repoPath, "package.json");
+  const pkgJsonPath = join(repoPath, 'package.json');
   const pkgJson = await Bun.file(pkgJsonPath).json();
 
   let previousVersion: string | null = null;
   let found = false;
-  for (const field of ["dependencies", "devDependencies"]) {
+  for (const field of ['dependencies', 'devDependencies']) {
     if (pkgJson[field]?.[pkgName]) {
       previousVersion = pkgJson[field][pkgName];
       pkgJson[field][pkgName] = version;
@@ -117,26 +120,25 @@ export async function updatePackageJsonVersion(
 
   // Upsert: if not found in any field, add to dependencies
   if (!found) {
-    if (!pkgJson.dependencies) pkgJson.dependencies = {};
+    if (!pkgJson.dependencies) {
+      pkgJson.dependencies = {};
+    }
     pkgJson.dependencies[pkgName] = version;
   }
 
-  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n');
   return { previousVersion };
 }
 
-export async function removePackageJsonDependency(
-  repoPath: string,
-  pkgName: string,
-): Promise<void> {
-  const pkgJsonPath = join(repoPath, "package.json");
+export async function removePackageJsonDependency(repoPath: string, pkgName: string): Promise<void> {
+  const pkgJsonPath = join(repoPath, 'package.json');
   const pkgJson = await Bun.file(pkgJsonPath).json();
-  for (const field of ["dependencies", "devDependencies"]) {
+  for (const field of ['dependencies', 'devDependencies']) {
     if (pkgJson[field]?.[pkgName]) {
       delete pkgJson[field][pkgName];
     }
   }
-  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n');
 }
 
 /**
@@ -149,18 +151,24 @@ export async function restorePackage(
   pkgName: string,
   targets: Array<{ dir: string; original: string }>,
   catalogName?: string,
-  catalogFormat?: "package-json" | "pnpm-workspace",
+  catalogFormat?: 'package-json' | 'pnpm-workspace',
 ): Promise<void> {
   if (catalogName) {
     const catalogResult = await findCatalogRoot(repoPath);
-    const original = targets[0]?.original ?? "";
+    const original = targets[0]?.original ?? '';
     if (catalogResult && original) {
-      await updateCatalogVersion(catalogResult.root, pkgName, original, catalogName, catalogFormat ?? catalogResult.format);
+      await updateCatalogVersion(
+        catalogResult.root,
+        pkgName,
+        original,
+        catalogName,
+        catalogFormat ?? catalogResult.format,
+      );
       log.info(`Restored ${pkgName} to ${original} (catalog)`);
     } else if (!catalogResult) {
       log.warn(`Could not find catalog root for ${pkgName}, restoring in package.json`);
       if (original) {
-        const targetDir = join(repoPath, targets[0]?.dir ?? ".");
+        const targetDir = join(repoPath, targets[0]?.dir ?? '.');
         await updatePackageJsonVersion(targetDir, pkgName, original);
       }
     }
@@ -182,7 +190,7 @@ export async function restorePackage(
   }
 }
 
-export type CatalogFormat = "package-json" | "pnpm-workspace";
+export type CatalogFormat = 'package-json' | 'pnpm-workspace';
 
 export interface VersionEntry {
   name: string;
@@ -214,18 +222,25 @@ export async function installWithVersionUpdates(
   for (const entry of entries) {
     if (entry.catalogName && catalogRoot) {
       const { previousVersion } = await updateCatalogVersion(
-        catalogRoot, entry.name, entry.version, entry.catalogName, entry.catalogFormat,
+        catalogRoot,
+        entry.name,
+        entry.version,
+        entry.catalogName,
+        entry.catalogFormat,
       );
-      previousVersions.set(entry.name, entry.targets.map(t => ({
-        dir: t.dir,
-        original: previousVersion ?? "",
-      })));
+      previousVersions.set(
+        entry.name,
+        entry.targets.map(t => ({
+          dir: t.dir,
+          original: previousVersion ?? '',
+        })),
+      );
     } else {
       const targets: Array<{ dir: string; original: string }> = [];
       for (const t of entry.targets) {
         const targetPath = join(repoPath, t.dir);
         const { previousVersion } = await updatePackageJsonVersion(targetPath, entry.name, entry.version);
-        targets.push({ dir: t.dir, original: previousVersion ?? "" });
+        targets.push({ dir: t.dir, original: previousVersion ?? '' });
       }
       previousVersions.set(entry.name, targets);
     }
@@ -234,13 +249,11 @@ export async function installWithVersionUpdates(
   // Step 2: determine install command - always use pm install
   // Versions are already written to package.json/catalog in step 1.
   // pm install syncs node_modules from the updated manifests.
-  const cmd: string[] = [pm, "install"];
+  const cmd: string[] = [pm, 'install'];
   const cwd: string = catalogRoot ?? repoPath;
 
   // Step 3: disable bun manifest cache if needed
-  const restoreBunfig = pm === "bun"
-    ? await disableBunManifestCache(cwd)
-    : null;
+  const restoreBunfig = pm === 'bun' ? await disableBunManifestCache(cwd) : null;
 
   try {
     // Step 4: notify caller
@@ -261,7 +274,7 @@ export async function installWithVersionUpdates(
         } else {
           for (const t of prevTargets) {
             const targetPath = join(repoPath, t.dir);
-            if (t.original === "") {
+            if (t.original === '') {
               await removePackageJsonDependency(targetPath, entry.name);
             } else {
               await updatePackageJsonVersion(targetPath, entry.name, t.original);
@@ -289,24 +302,28 @@ export async function findCatalogRoot(startDir: string): Promise<{ root: string;
   let dir = startDir;
   while (true) {
     // Check pnpm-workspace.yaml first
-    const wsFile = Bun.file(join(dir, "pnpm-workspace.yaml"));
+    const wsFile = Bun.file(join(dir, 'pnpm-workspace.yaml'));
     if (await wsFile.exists()) {
-      const { parse } = await import("yaml");
+      const { parse } = await import('yaml');
       const content = parse(await wsFile.text());
       if (content?.catalog || content?.catalogs) {
-        return { root: dir, format: "pnpm-workspace" };
+        return { root: dir, format: 'pnpm-workspace' };
       }
     }
 
     // Check package.json catalogs (bun/npm)
-    const file = Bun.file(join(dir, "package.json"));
+    const file = Bun.file(join(dir, 'package.json'));
     if (await file.exists()) {
       const pkgJson = await file.json();
-      if (pkgJson.catalog || pkgJson.catalogs) return { root: dir, format: "package-json" };
+      if (pkgJson.catalog || pkgJson.catalogs) {
+        return { root: dir, format: 'package-json' };
+      }
     }
 
-    const parent = join(dir, "..");
-    if (parent === dir) return null;
+    const parent = join(dir, '..');
+    if (parent === dir) {
+      return null;
+    }
     dir = parent;
   }
 }
@@ -321,12 +338,12 @@ export interface CatalogData {
  * Load catalog data from either package.json or pnpm-workspace.yaml.
  */
 export async function loadCatalogData(rootDir: string, format: CatalogFormat): Promise<CatalogData> {
-  if (format === "pnpm-workspace") {
-    const { parse } = await import("yaml");
-    const text = await Bun.file(join(rootDir, "pnpm-workspace.yaml")).text();
+  if (format === 'pnpm-workspace') {
+    const { parse } = await import('yaml');
+    const text = await Bun.file(join(rootDir, 'pnpm-workspace.yaml')).text();
     return parse(text) as CatalogData;
   }
-  return Bun.file(join(rootDir, "package.json")).json() as Promise<CatalogData>;
+  return Bun.file(join(rootDir, 'package.json')).json() as Promise<CatalogData>;
 }
 
 /**
@@ -335,16 +352,13 @@ export async function loadCatalogData(rootDir: string, format: CatalogFormat): P
  * share the same catalog/catalogs structure.
  * Returns null if the package isn't in any catalog.
  */
-export function findCatalogEntry(
-  data: CatalogData,
-  pkgName: string,
-): { catalogName: string; version: string } | null {
+export function findCatalogEntry(data: CatalogData, pkgName: string): { catalogName: string; version: string } | null {
   if (data?.catalog?.[pkgName] !== undefined) {
-    return { catalogName: "default", version: data.catalog[pkgName] };
+    return { catalogName: 'default', version: data.catalog[pkgName] };
   }
   if (data?.catalogs) {
     for (const [name, entries] of Object.entries(data.catalogs)) {
-      if (entries && typeof entries === "object" && entries[pkgName] !== undefined) {
+      if (entries && typeof entries === 'object' && entries[pkgName] !== undefined) {
         return { catalogName: name, version: entries[pkgName] };
       }
     }
@@ -361,9 +375,9 @@ export async function updateCatalogVersion(
   pkgName: string,
   version: string,
   catalogName: string,
-  format: CatalogFormat = "package-json",
+  format: CatalogFormat = 'package-json',
 ): Promise<{ previousVersion: string | null }> {
-  if (format === "pnpm-workspace") {
+  if (format === 'pnpm-workspace') {
     return updatePnpmCatalogVersion(rootDir, pkgName, version, catalogName);
   }
   return updatePackageJsonCatalogVersion(rootDir, pkgName, version, catalogName);
@@ -375,11 +389,11 @@ async function updatePackageJsonCatalogVersion(
   version: string,
   catalogName: string,
 ): Promise<{ previousVersion: string | null }> {
-  const pkgJsonPath = join(rootDir, "package.json");
+  const pkgJsonPath = join(rootDir, 'package.json');
   const pkgJson = await Bun.file(pkgJsonPath).json();
 
   let previousVersion: string | null = null;
-  if (catalogName === "default") {
+  if (catalogName === 'default') {
     if (pkgJson.catalog?.[pkgName] !== undefined) {
       previousVersion = pkgJson.catalog[pkgName];
       pkgJson.catalog[pkgName] = version;
@@ -391,7 +405,7 @@ async function updatePackageJsonCatalogVersion(
     }
   }
 
-  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+  await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n');
   return { previousVersion };
 }
 
@@ -401,13 +415,13 @@ async function updatePnpmCatalogVersion(
   version: string,
   catalogName: string,
 ): Promise<{ previousVersion: string | null }> {
-  const { parse, stringify } = await import("yaml");
-  const wsPath = join(rootDir, "pnpm-workspace.yaml");
+  const { parse, stringify } = await import('yaml');
+  const wsPath = join(rootDir, 'pnpm-workspace.yaml');
   const text = await Bun.file(wsPath).text();
   const ws = parse(text);
 
   let previousVersion: string | null = null;
-  if (catalogName === "default") {
+  if (catalogName === 'default') {
     if (ws.catalog?.[pkgName] !== undefined) {
       previousVersion = ws.catalog[pkgName];
       ws.catalog[pkgName] = version;
@@ -426,8 +440,10 @@ async function updatePnpmCatalogVersion(
 export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
   const activeRepos = await getActiveRepos();
   for (const { displayName, state } of activeRepos) {
-    if (Object.keys(state.packages).length === 0) continue;
-    const npmrcFile = Bun.file(join(state.path, ".npmrc"));
+    if (Object.keys(state.packages).length === 0) {
+      continue;
+    }
+    const npmrcFile = Bun.file(join(state.path, '.npmrc'));
     const exists = await npmrcFile.exists();
     const hasBlock = exists && (await npmrcFile.text()).includes(MARKER_START);
     if (!hasBlock) {
@@ -442,7 +458,7 @@ export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
   }
 }
 
-const BUNFIG_MARKER = "\n# pkglab-manifest-override\n";
+const BUNFIG_MARKER = '\n# pkglab-manifest-override\n';
 
 /**
  * Temporarily append [install.cache] disableManifest = true to the consumer's
@@ -450,16 +466,16 @@ const BUNFIG_MARKER = "\n# pkglab-manifest-override\n";
  * published versions. Returns a restore function.
  */
 async function disableBunManifestCache(dir: string): Promise<() => Promise<void>> {
-  const path = join(dir, "bunfig.toml");
+  const path = join(dir, 'bunfig.toml');
   const file = Bun.file(path);
   const original = (await file.exists()) ? await file.text() : null;
 
   const override = `${BUNFIG_MARKER}[install.cache]\ndisableManifest = true\n`;
-  await Bun.write(path, (original ?? "") + override);
+  await Bun.write(path, (original ?? '') + override);
 
   return async () => {
     if (original === null) {
-      const { unlink } = await import("node:fs/promises");
+      const { unlink } = await import('node:fs/promises');
       await unlink(path).catch(() => {});
     } else {
       await Bun.write(path, original);
@@ -478,27 +494,28 @@ export interface RepoWorkItem {
  * Build per-repo work items: which packages to update and the package manager to use.
  * Filters to repos that have at least one package from the plan matching by tag.
  */
-export async function buildConsumerWorkItems(
-  plan: PublishPlan,
-  tag?: string,
-): Promise<RepoWorkItem[]> {
+export async function buildConsumerWorkItems(plan: PublishPlan, tag?: string): Promise<RepoWorkItem[]> {
   const activeRepos = await getActiveRepos();
-  if (activeRepos.length === 0) return [];
+  if (activeRepos.length === 0) {
+    return [];
+  }
 
   const pubTag = tag ?? null;
   const repoWork = await Promise.all(
     activeRepos.map(async ({ displayName, state }) => {
       const pm = await detectPackageManager(state.path);
-      const packages = plan.packages.filter((e) => {
+      const packages = plan.packages.filter(e => {
         const link = state.packages[e.name];
-        if (!link) return false;
+        if (!link) {
+          return false;
+        }
         const linkTag = link.tag ?? null;
         return linkTag === pubTag;
       });
       return { displayName, state, pm, packages };
     }),
   );
-  return repoWork.filter((r) => r.packages.length > 0);
+  return repoWork.filter(r => r.packages.length > 0);
 }
 
 export async function buildVersionEntries(
@@ -511,11 +528,9 @@ export async function buildVersionEntries(
       version: e.version,
       catalogName: link?.catalogName,
       catalogFormat: link?.catalogFormat,
-      targets: link?.targets.map(t => ({ dir: t.dir })) ?? [{ dir: "." }],
+      targets: link?.targets.map(t => ({ dir: t.dir })) ?? [{ dir: '.' }],
     };
   });
-  const catalogResult = entries.some(e => e.catalogName)
-    ? await findCatalogRoot(repo.state.path)
-    : null;
+  const catalogResult = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : null;
   return { entries, catalogRoot: catalogResult?.root };
 }

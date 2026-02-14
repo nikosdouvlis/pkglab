@@ -31,9 +31,9 @@ Throw immediately if any check fails. This catches code regressions.
 
 ```ts
 function assertLocalRegistry(url: string): void {
-  if (!url) throw new Error("Registry URL is empty");
+  if (!url) throw new Error('Registry URL is empty');
   const parsed = new URL(url);
-  if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") {
+  if (parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost') {
     throw new Error(`Registry URL is not local: ${url}`);
   }
 }
@@ -45,9 +45,7 @@ When spawning the `npm publish` subprocess, strip all npm config env vars to pre
 
 ```ts
 const cleanEnv = Object.fromEntries(
-  Object.entries(process.env).filter(
-    ([key]) => !key.startsWith("NPM_CONFIG_") && !key.startsWith("npm_config_"),
-  ),
+  Object.entries(process.env).filter(([key]) => !key.startsWith('NPM_CONFIG_') && !key.startsWith('npm_config_')),
 );
 ```
 
@@ -59,7 +57,7 @@ Before the first publish in a batch, hit the Verdaccio-specific endpoint to conf
 
 ```ts
 const res = await fetch(`${registryUrl}/-/verdaccio/`);
-if (!res.ok) throw new Error("Registry is not Verdaccio");
+if (!res.ok) throw new Error('Registry is not Verdaccio');
 ```
 
 This catches scenarios where the port is occupied by something else.

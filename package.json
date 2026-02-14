@@ -2,31 +2,35 @@
   "name": "pkglab",
   "version": "0.5.0",
   "private": true,
-  "type": "module",
   "description": "Local package development CLI with an embedded Verdaccio registry",
-  "author": "Nikos Douvlis <nikosdouvlis@gmail.com>",
+  "keywords": [
+    "local",
+    "monorepo",
+    "publish",
+    "registry",
+    "verdaccio",
+    "workspace"
+  ],
   "license": "MIT",
+  "author": "Nikos Douvlis <nikosdouvlis@gmail.com>",
+  "bin": {
+    "pkgl": "./src/index.ts",
+    "pkglab": "./src/index.ts"
+  },
   "files": [
     "src"
   ],
-  "keywords": [
-    "verdaccio",
-    "local",
-    "registry",
-    "monorepo",
-    "workspace",
-    "publish"
-  ],
+  "type": "module",
   "scripts": {
     "build:npm": "scripts/build-npm.sh",
     "publish:npm": "scripts/publish-npm.sh",
     "test:e2e": "bun run test/e2e.ts",
     "version": "changeset version && bun run scripts/sync-versions.ts",
-    "release": "bun run scripts/ci-release.ts"
-  },
-  "bin": {
-    "pkglab": "./src/index.ts",
-    "pkgl": "./src/index.ts"
+    "release": "bun run scripts/ci-release.ts",
+    "lint": "oxlint --type-aware",
+    "lint:fix": "oxlint --type-aware --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.2.0",
@@ -40,6 +44,9 @@
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
     "@types/bun": "latest",
+    "oxfmt": "^0.32.0",
+    "oxlint": "^1.47.0",
+    "oxlint-tsgolint": "^0.12.2",
     "typescript": "^5.7"
   }
 }

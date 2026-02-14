@@ -1,17 +1,16 @@
-import { defineCommand } from "citty";
-import { startDaemon, getDaemonStatus } from "../lib/daemon";
-import { log } from "../lib/log";
-import { prefetchUpdateCheck } from "../lib/update-check";
+import { defineCommand } from 'citty';
+
+import { startDaemon, getDaemonStatus } from '../lib/daemon';
+import { log } from '../lib/log';
+import { prefetchUpdateCheck } from '../lib/update-check';
 
 export default defineCommand({
-  meta: { name: "up", description: "Start Verdaccio daemon" },
+  meta: { name: 'up', description: 'Start Verdaccio daemon' },
   async run() {
     const existing = await getDaemonStatus();
     if (existing?.running) {
-      log.warn(
-        `Already running on port ${existing.port} (PID ${existing.pid})`,
-      );
-      const { ensureNpmrcForActiveRepos } = await import("../lib/consumer");
+      log.warn(`Already running on port ${existing.port} (PID ${existing.pid})`);
+      const { ensureNpmrcForActiveRepos } = await import('../lib/consumer');
       await ensureNpmrcForActiveRepos(existing.port);
       return;
     }
@@ -19,24 +18,19 @@ export default defineCommand({
     // Start fetch before interactive prompt so it runs in parallel
     const showUpdate = await prefetchUpdateCheck();
 
-    log.info("Starting Verdaccio...");
+    log.info('Starting Verdaccio...');
     const info = await startDaemon();
-    log.success(
-      `pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`,
-    );
+    log.success(`pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
 
-    const { deactivateAllRepos, loadAllRepos, getActiveRepos } =
-      await import("../lib/repo-state");
+    const { deactivateAllRepos, loadAllRepos, getActiveRepos } = await import('../lib/repo-state');
 
-    const previouslyActive = new Set(
-      (await getActiveRepos()).map((r) => r.state.path),
-    );
+    const previouslyActive = new Set((await getActiveRepos()).map(r => r.state.path));
     await deactivateAllRepos();
 
     const repos = await loadAllRepos();
     if (repos.length > 0) {
       // Propagate port to .npmrc in linked repos
-      const { addRegistryToNpmrc } = await import("../lib/consumer");
+      const { addRegistryToNpmrc } = await import('../lib/consumer');
       for (const { displayName, state } of repos) {
         if (Object.keys(state.packages).length > 0) {
           try {
@@ -47,14 +41,14 @@ export default defineCommand({
         }
       }
 
-      const { selectRepos } = await import("../lib/prompt");
+      const { selectRepos } = await import('../lib/prompt');
       const selected = await selectRepos({
-        message: "Select repos to activate",
+        message: 'Select repos to activate',
         preSelect: previouslyActive,
       });
 
       if (selected.length > 0) {
-        const { activateRepo } = await import("../lib/repo-state");
+        const { activateRepo } = await import('../lib/repo-state');
         for (const { displayName, state } of selected) {
           await activateRepo(state, info.port);
           log.success(`Activated ${displayName}`);

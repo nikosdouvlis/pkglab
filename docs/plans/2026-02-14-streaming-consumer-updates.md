@@ -7,11 +7,13 @@ Currently, consumer repo updates wait for ALL packages to finish publishing befo
 ## Design
 
 **Current flow:**
+
 ```
 publish ALL packages (parallel) -> set dist tags -> update ALL repos (parallel)
 ```
 
 **New flow:**
+
 ```
 publish packages (parallel) -> as each completes, check if any repo's
                                 required set is fully published
@@ -32,6 +34,7 @@ Example: repo has `@clerk/nextjs` via pkglab add. `@clerk/nextjs` transitively d
 ## Error Handling
 
 No rollback. If a publish fails:
+
 - Successfully published packages stay in the registry
 - Consumer installs that already completed are fine (they installed valid versions)
 - Consumer installs for repos that need the failed package never start
@@ -40,11 +43,13 @@ No rollback. If a publish fails:
 ## Changes
 
 `src/lib/publisher.ts` (executePublish):
+
 - Remove rollback logic (successful publishes stay)
 - Add `onPackagePublished(entry)` callback to PublishOptions
 - Report failures without rolling back
 
 `src/commands/pub.ts` (publishPackages):
+
 - Accept workspace packages to build dependency graph
 - Before publishing, compute required sets for each consumer repo
 - Build unified spinner with publish lines + consumer repo lines
@@ -52,11 +57,13 @@ No rollback. If a publish fails:
 - Start consumer install immediately for ready repos
 
 `src/lib/spinner.ts`:
+
 - May need a way to update line text (for "waiting" -> "installing" transitions)
 
 ## Spinner Layout (interleaved)
 
 All lines built upfront, updated in place:
+
 ```
   spinner @clerk/shared@version
   spinner @clerk/backend@version
@@ -71,6 +78,7 @@ other-repo /path/to/other                (header)
 ## Data Flow
 
 publishPackages needs:
+
 - The dependency graph (from workspace packages, same as runCascade builds)
 - The publish plan (already has this)
 - Consumer repo work items (from buildConsumerWorkItems, move earlier)

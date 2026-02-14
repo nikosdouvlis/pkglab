@@ -1,7 +1,17 @@
-import { defineCommand } from "citty";
-import { ensureDaemonRunning } from "../lib/daemon";
-import { loadConfig } from "../lib/config";
-import { discoverWorkspace, findPackage, loadCatalogs } from "../lib/workspace";
+import { defineCommand } from 'citty';
+
+import type { RepoWorkItem } from '../lib/consumer';
+import type { SpinnerLine } from '../lib/spinner';
+import type { WorkspacePackage, PublishEntry } from '../types';
+
+import { getPositionalArgs } from '../lib/args';
+import { c } from '../lib/color';
+import { loadConfig } from '../lib/config';
+import { buildConsumerWorkItems, buildVersionEntries, installWithVersionUpdates } from '../lib/consumer';
+import { ensureDaemonRunning } from '../lib/daemon';
+import { pkglabError } from '../lib/errors';
+import { fingerprintPackages } from '../lib/fingerprint';
+import { loadFingerprintState, saveFingerprintState } from '../lib/fingerprint-state';
 import {
   buildDependencyGraph,
   computeInitialScope,
@@ -10,33 +20,21 @@ import {
   deterministicToposort,
   precomputeTransitiveDeps,
   precomputeTransitiveDependents,
-} from "../lib/graph";
-import { buildPublishPlan, executePublish } from "../lib/publisher";
-import { setDistTag } from "../lib/registry";
-import { generateVersion, sanitizeTag } from "../lib/version";
-import { acquirePublishLock } from "../lib/lock";
-import { getActiveRepos, saveRepoByPath } from "../lib/repo-state";
-import { prefetchUpdateCheck } from "../lib/update-check";
-import { log } from "../lib/log";
-import { c } from "../lib/color";
-import { createMultiSpinner } from "../lib/spinner";
-import type { SpinnerLine } from "../lib/spinner";
-import { pkglabError } from "../lib/errors";
-import { fingerprintPackages } from "../lib/fingerprint";
-import { loadFingerprintState, saveFingerprintState } from "../lib/fingerprint-state";
-import { run } from "../lib/proc";
-import { getPositionalArgs } from "../lib/args";
-import { getListenerSocketPath, sendPing } from "../lib/listener-ipc";
-import { ensureListenerRunning } from "../lib/listener-daemon";
-import {
-  buildConsumerWorkItems,
-  buildVersionEntries,
-  installWithVersionUpdates,
-} from "../lib/consumer";
-import type { RepoWorkItem } from "../lib/consumer";
-import type { WorkspacePackage, PublishEntry } from "../types";
+} from '../lib/graph';
+import { ensureListenerRunning } from '../lib/listener-daemon';
+import { getListenerSocketPath, sendPing } from '../lib/listener-ipc';
+import { acquirePublishLock } from '../lib/lock';
+import { log } from '../lib/log';
+import { run } from '../lib/proc';
+import { buildPublishPlan, executePublish } from '../lib/publisher';
+import { setDistTag } from '../lib/registry';
+import { getActiveRepos, saveRepoByPath } from '../lib/repo-state';
+import { createMultiSpinner } from '../lib/spinner';
+import { prefetchUpdateCheck } from '../lib/update-check';
+import { generateVersion, sanitizeTag } from '../lib/version';
+import { discoverWorkspace, findPackage, loadCatalogs } from '../lib/workspace';
 
-type ChangeReason = "changed" | "propagated" | "unchanged";
+type ChangeReason = 'changed' | 'propagated' | 'unchanged';
 
 interface CascadeResult {
   cascadePackages: WorkspacePackage[];
@@ -60,7 +58,7 @@ function detectChanges(
 ): { reason: Map<string, ChangeReason>; existingVersions: Map<string, string> } {
   const reason = new Map<string, ChangeReason>();
   const existingVersions = new Map<string, string>();
-  const cascadeNames = new Set(cascadePackages.map((p) => p.name));
+  const cascadeNames = new Set(cascadePackages.map(p => p.name));
 
   // Process in topological order (cascadePackages is already topo-sorted)
   for (const pkg of cascadePackages) {
@@ -69,7 +67,7 @@ function detectChanges(
 
     // Content hash changed or no previous state: mark as changed
     if (!fp || !prev || fp.hash !== prev.hash) {
-      reason.set(pkg.name, "changed");
+      reason.set(pkg.name, 'changed');
       continue;
     }
 
@@ -80,7 +78,7 @@ function detectChanges(
       for (const dep of deps) {
         if (cascadeNames.has(dep)) {
           const depReason = reason.get(dep);
-          if (depReason === "changed" || depReason === "propagated") {
+          if (depReason === 'changed' || depReason === 'propagated') {
             depChanged = true;
             break;
           }
@@ -91,9 +89,9 @@ function detectChanges(
     }
 
     if (depChanged) {
-      reason.set(pkg.name, "propagated");
+      reason.set(pkg.name, 'propagated');
     } else {
-      reason.set(pkg.name, "unchanged");
+      reason.set(pkg.name, 'unchanged');
       existingVersions.set(pkg.name, prev.version);
     }
   }
@@ -103,16 +101,16 @@ function detectChanges(
 
 async function resolveTag(args: Record<string, unknown>): Promise<string | undefined> {
   if (args.tag && args.worktree) {
-    throw new pkglabError("Cannot use --tag and --worktree together");
+    throw new pkglabError('Cannot use --tag and --worktree together');
   }
 
   if (args.worktree) {
-    const result = await run(["git", "rev-parse", "--abbrev-ref", "HEAD"], {
+    const result = await run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd: process.cwd(),
     });
     const branch = result.stdout.trim();
-    if (branch === "HEAD") {
-      throw new pkglabError("Cannot detect branch name, use --tag instead");
+    if (branch === 'HEAD') {
+      throw new pkglabError('Cannot detect branch name, use --tag instead');
     }
     return sanitizeTag(branch);
   }
@@ -124,14 +122,11 @@ async function resolveTag(args: Record<string, unknown>): Promise<string | undef
   return undefined;
 }
 
-function resolveTargets(
-  args: Record<string, unknown>,
-  workspace: { packages: WorkspacePackage[] },
-): string[] {
+function resolveTargets(args: Record<string, unknown>, workspace: { packages: WorkspacePackage[] }): string[] {
   const names = getPositionalArgs(args);
 
   if (args.root && names.length > 0) {
-    throw new pkglabError("Cannot use --root with package names");
+    throw new pkglabError('Cannot use --root with package names');
   }
 
   if (names.length > 0) {
@@ -153,10 +148,10 @@ function resolveTargets(
 
   if (!args.root) {
     const cwd = process.cwd();
-    const currentPkg = workspace.packages.find((p) => p.dir === cwd);
+    const currentPkg = workspace.packages.find(p => p.dir === cwd);
     if (currentPkg) {
       if (!currentPkg.publishable) {
-        log.error("Current package is private and cannot be published");
+        log.error('Current package is private and cannot be published');
         process.exit(1);
       }
       log.info(`Publishing from package dir: ${currentPkg.name}`);
@@ -164,7 +159,7 @@ function resolveTargets(
     }
   }
 
-  return workspace.packages.filter((p) => p.publishable).map((p) => p.name);
+  return workspace.packages.filter(p => p.publishable).map(p => p.name);
 }
 
 async function runCascade(
@@ -202,20 +197,16 @@ async function runCascade(
   let allSkippedDependents: { name: string; via: string }[] = [];
 
   // Load previous fingerprint state (--force uses empty state to republish all)
-  const previousState = opts.force
-    ? {}
-    : await loadFingerprintState(workspace.root, tag ?? null);
+  const previousState = opts.force ? {} : await loadFingerprintState(workspace.root, tag ?? null);
 
   // Eager fingerprinting: fingerprint ALL publishable packages upfront in one parallel batch.
   // The cost of fingerprinting a few extra packages is negligible compared to eliminating
   // sequential rounds of fingerprinting inside the cascade loop.
-  const allPublishable = workspace.packages.filter((p) => p.publishable);
+  const allPublishable = workspace.packages.filter(p => p.publishable);
   if (opts.verbose) {
     log.info(`Fingerprinting ${allPublishable.length} packages...`);
   }
-  const fingerprints = await fingerprintPackages(
-    allPublishable.map((p) => ({ name: p.name, dir: p.dir })),
-  );
+  const fingerprints = await fingerprintPackages(allPublishable.map(p => ({ name: p.name, dir: p.dir })));
 
   // Track which changed packages we've already expanded dependents from
   const expandedSet = new Set<string>();
@@ -230,33 +221,39 @@ async function runCascade(
   while (true) {
     // Close under deps: ensure every publishable package has its workspace deps in scope
     const closed = closeUnderDeps(graph, scope, cachedDeps);
-    for (const name of closed) scope.add(name);
+    for (const name of closed) {
+      scope.add(name);
+    }
 
     // Toposort the full scope for detectChanges
     const ordered = deterministicToposort(graph, scope);
-    const scopePackages = ordered.map((name) => graph.getNodeData(name));
+    const scopePackages = ordered.map(name => graph.getNodeData(name));
 
     // Classify all packages in topo order
-    ({ reason, existingVersions } = detectChanges(
-      scopePackages, fingerprints, previousState, graph,
-    ));
+    ({ reason, existingVersions } = detectChanges(scopePackages, fingerprints, previousState, graph));
 
     // --shallow: skip dependent expansion (targets + deps only)
-    if (opts.shallow) break;
+    if (opts.shallow) {
+      break;
+    }
 
     // Find changed packages we haven't expanded from yet
     const toExpand: string[] = [];
     for (const [name, r] of reason) {
-      if (r === "changed" && !expandedSet.has(name)) {
+      if (r === 'changed' && !expandedSet.has(name)) {
         toExpand.push(name);
       }
     }
 
-    if (toExpand.length === 0) break;
+    if (toExpand.length === 0) {
+      break;
+    }
 
     // Expand dependents from newly changed packages
     const expansion = expandDependents(graph, toExpand, scope, consumedPackages, cachedDependents);
-    for (const name of toExpand) expandedSet.add(name);
+    for (const name of toExpand) {
+      expandedSet.add(name);
+    }
 
     // Track which package triggered each dependent's inclusion
     for (const source of toExpand) {
@@ -272,13 +269,14 @@ async function runCascade(
       allSkippedDependents = allSkippedDependents.concat(expansion.skippedDependents);
     }
 
-    if (expansion.newPackages.length === 0) break;
+    if (expansion.newPackages.length === 0) {
+      break;
+    }
 
     // Log expansion for verbose output
     if (opts.verbose) {
       for (const source of toExpand) {
-        const newFromSource = (expansion.dependents[source] || [])
-          .filter((d) => !scope.has(d));
+        const newFromSource = (expansion.dependents[source] || []).filter(d => !scope.has(d));
         if (newFromSource.length > 0) {
           verboseExpansions.push({ source, newPackages: newFromSource });
         }
@@ -294,48 +292,54 @@ async function runCascade(
   // Deduplicate skipped dependents
   const seenSkipped = new Set<string>();
   allSkippedDependents = allSkippedDependents
-    .filter((d) => {
-      if (scope.has(d.name) || seenSkipped.has(d.name)) return false;
+    .filter(d => {
+      if (scope.has(d.name) || seenSkipped.has(d.name)) {
+        return false;
+      }
       seenSkipped.add(d.name);
       return true;
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .toSorted((a, b) => a.name.localeCompare(b.name));
 
   // Final toposort of the complete scope
   const finalOrdered = deterministicToposort(graph, scope);
-  let cascadePackages = finalOrdered.map((name) => graph.getNodeData(name));
+  let cascadePackages = finalOrdered.map(name => graph.getNodeData(name));
 
   // Skip private packages pulled in by cascade
-  const skippedPrivate = cascadePackages.filter((p) => !p.publishable);
+  const skippedPrivate = cascadePackages.filter(p => !p.publishable);
   if (skippedPrivate.length > 0) {
     if (opts.verbose) {
       for (const pkg of skippedPrivate) {
         log.warn(`Skipping private package ${pkg.name}`);
       }
     }
-    cascadePackages = cascadePackages.filter((p) => p.publishable);
+    cascadePackages = cascadePackages.filter(p => p.publishable);
   }
 
   // Verbose cascade breakdown
   if (opts.verbose) {
-    const initialNames = [...initialScope].sort();
-    const depsInInitial = initialNames.filter((n) => !targetSet.has(n));
-    const initialParts = targets.concat(depsInInitial.map((n) => `${n} (dep)`));
-    log.info(`Initial scope: ${initialParts.join(", ")}`);
+    const initialNames = [...initialScope].toSorted();
+    const depsInInitial = initialNames.filter(n => !targetSet.has(n));
+    const initialParts = targets.concat(depsInInitial.map(n => `${n} (dep)`));
+    log.info(`Initial scope: ${initialParts.join(', ')}`);
     for (const { source, newPackages } of verboseExpansions) {
-      const sourceReason = reason.get(source) === "changed" ? "changed" : "dep changed";
+      const sourceReason = reason.get(source) === 'changed' ? 'changed' : 'dep changed';
       log.info(`Expanded from ${source} (${sourceReason}):`);
-      for (const d of newPackages) log.line(`  - ${d}`);
+      for (const d of newPackages) {
+        log.line(`  - ${d}`);
+      }
     }
   }
 
   // Validate no non-publishable dependencies in the cascade set
   for (const pkg of cascadePackages) {
-    for (const field of ["dependencies", "peerDependencies", "optionalDependencies"] as const) {
+    for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
       const deps = pkg.packageJson[field];
-      if (!deps) continue;
+      if (!deps) {
+        continue;
+      }
       for (const depName of Object.keys(deps)) {
-        const depPkg = workspace.packages.find((p) => p.name === depName);
+        const depPkg = workspace.packages.find(p => p.name === depName);
         if (depPkg && !depPkg.publishable) {
           log.error(`Cannot publish ${pkg.name}: depends on private package ${depName}`);
           process.exit(1);
@@ -344,11 +348,11 @@ async function runCascade(
     }
   }
 
-  const publishSet = cascadePackages.filter((p) => {
+  const publishSet = cascadePackages.filter(p => {
     const r = reason.get(p.name);
-    return r === "changed" || r === "propagated";
+    return r === 'changed' || r === 'propagated';
   });
-  const unchangedSet = cascadePackages.filter((p) => reason.get(p.name) === "unchanged");
+  const unchangedSet = cascadePackages.filter(p => reason.get(p.name) === 'unchanged');
 
   return {
     cascadePackages,
@@ -365,66 +369,95 @@ async function runCascade(
   };
 }
 
-function printScopeSummary(
-  cascade: CascadeResult,
-): void {
+function printScopeSummary(cascade: CascadeResult): void {
   const {
-    cascadePackages, publishSet, unchangedSet, reason,
-    targetSet, expandedFrom, initialScope, allSkippedDependents, activeRepos,
+    cascadePackages,
+    publishSet,
+    unchangedSet,
+    reason,
+    targetSet,
+    expandedFrom,
+    initialScope,
+    allSkippedDependents,
+    activeRepos,
   } = cascade;
 
   const toPublish = publishSet.length;
   const unchanged = unchangedSet.length;
   const total = cascadePackages.length;
   const parts = [`${toPublish} to publish`];
-  if (unchanged > 0) parts.push(`${unchanged} unchanged`);
-  log.info(`Scope: ${total} packages (${parts.join(", ")})`);
-  log.line("");
+  if (unchanged > 0) {
+    parts.push(`${unchanged} unchanged`);
+  }
+  log.info(`Scope: ${total} packages (${parts.join(', ')})`);
+  log.line('');
 
   for (const pkg of cascadePackages) {
     const r = reason.get(pkg.name)!;
-    const willPublish = r === "changed" || r === "propagated";
+    const willPublish = r === 'changed' || r === 'propagated';
 
     // Scope reason: target, dependency (transitive dep of target), or dependent (via X)
     let scopeReason: string;
     if (targetSet.has(pkg.name)) {
-      scopeReason = "target";
+      scopeReason = 'target';
     } else if (expandedFrom.has(pkg.name)) {
       scopeReason = `dependent (via ${expandedFrom.get(pkg.name)})`;
     } else if (initialScope.has(pkg.name)) {
-      scopeReason = "dependency";
+      scopeReason = 'dependency';
     } else {
-      scopeReason = "dependency";
+      scopeReason = 'dependency';
     }
 
-    const changeReason = r === "changed" ? "changed" : r === "propagated" ? "dep changed" : "unchanged";
+    const changeReason = r === 'changed' ? 'changed' : r === 'propagated' ? 'dep changed' : 'unchanged';
     if (willPublish) {
-      log.line(`  ${c.green("\u25B2")} ${pkg.name}  ${scopeReason}, ${changeReason}`);
+      log.line(`  ${c.green('\u25B2')} ${pkg.name}  ${scopeReason}, ${changeReason}`);
     } else {
-      log.line(`  ${c.dim("\u00B7")} ${c.dim(pkg.name)}  ${c.dim(`${scopeReason}, ${changeReason}`)}`);
+      log.line(`  ${c.dim('\u00B7')} ${c.dim(pkg.name)}  ${c.dim(`${scopeReason}, ${changeReason}`)}`);
     }
   }
 
   if (activeRepos.length > 0) {
     for (const { name, via } of allSkippedDependents) {
-      log.line(`  ${c.dim("\u00B7")} ${c.dim(name)}  ${c.dim(`dependent (via ${via}), no consumers`)}`);
+      log.line(`  ${c.dim('\u00B7')} ${c.dim(name)}  ${c.dim(`dependent (via ${via}), no consumers`)}`);
     }
   }
 }
 
 export default defineCommand({
-  meta: { name: "pub", description: "Publish packages to local registry" },
+  meta: { name: 'pub', description: 'Publish packages to local registry' },
   args: {
-    name: { type: "positional", description: "Package name(s)", required: false },
-    "dry-run": { type: "boolean", description: "Show what would be published", default: false },
-    single: { type: "boolean", description: "Skip dep cascade", default: false },
-    shallow: { type: "boolean", description: "Targets + deps only, no dependent expansion", default: false },
-    verbose: { type: "boolean", description: "Show detailed output", default: false, alias: "v" },
-    force: { type: "boolean", description: "Ignore fingerprints (republish all)", default: false, alias: "f" },
-    tag: { type: "string", description: "Publish with a tag", alias: "t" },
-    worktree: { type: "boolean", description: "Auto-detect tag from git branch", default: false, alias: "w" },
-    root: { type: "boolean", description: "Publish all packages (skip per-package cwd detection)", default: false },
-    ping: { type: "boolean", description: "Send signal to listener instead of publishing", default: false },
+    name: { type: 'positional', description: 'Package name(s)', required: false },
+    'dry-run': { type: 'boolean', description: 'Show what would be published', default: false },
+    single: { type: 'boolean', description: 'Skip dep cascade', default: false },
+    shallow: {
+      type: 'boolean',
+      description: 'Targets + deps only, no dependent expansion',
+      default: false,
+    },
+    verbose: { type: 'boolean', description: 'Show detailed output', default: false, alias: 'v' },
+    force: {
+      type: 'boolean',
+      description: 'Ignore fingerprints (republish all)',
+      default: false,
+      alias: 'f',
+    },
+    tag: { type: 'string', description: 'Publish with a tag', alias: 't' },
+    worktree: {
+      type: 'boolean',
+      description: 'Auto-detect tag from git branch',
+      default: false,
+      alias: 'w',
+    },
+    root: {
+      type: 'boolean',
+      description: 'Publish all packages (skip per-package cwd detection)',
+      default: false,
+    },
+    ping: {
+      type: 'boolean',
+      description: 'Send signal to listener instead of publishing',
+      default: false,
+    },
   },
   async run({ args }) {
     const tag = await resolveTag(args);
@@ -432,26 +465,24 @@ export default defineCommand({
 
     // --ping: fast path, send signal to listener and exit
     if (args.ping) {
-      const incompatible = ["single", "shallow", "force", "dry-run"].filter((f) => args[f]);
-      if (incompatible.length > 0) {
-        throw new pkglabError(
-          `Cannot use --ping with ${incompatible.map((f) => "--" + f).join(", ")}`
-        );
-      }
       await ensureListenerRunning(workspace.root);
       const targets = resolveTargets(args, workspace);
       const socketPath = getListenerSocketPath(workspace.root);
       await sendPing(socketPath, {
         names: targets,
         tag,
-        root: args.root as boolean,
+        root: args.root,
+        force: args.force,
+        single: args.single,
+        shallow: args.shallow,
+        dryRun: args['dry-run'],
       });
-      log.success("Ping sent to listener");
+      log.success('Ping sent to listener');
       return;
     }
 
     // Normal publish path
-    const verbose = args.verbose as boolean;
+    const verbose = args.verbose;
     const showUpdate = await prefetchUpdateCheck();
 
     if (verbose && tag) {
@@ -470,29 +501,42 @@ export default defineCommand({
     // --single bypasses cascade and fingerprinting entirely
     if (args.single) {
       const publishSet = targets
-        .map((name) => findPackage(workspace.packages, name))
+        .map(name => findPackage(workspace.packages, name))
         .filter(Boolean) as typeof workspace.packages;
 
-      await publishPackages(publishSet, [], workspace.root, config, tag, verbose, args["dry-run"] as boolean, new Map(), undefined, undefined, undefined, workspace.packages);
+      await publishPackages(
+        publishSet,
+        [],
+        workspace.root,
+        config,
+        tag,
+        verbose,
+        args['dry-run'],
+        new Map(),
+        undefined,
+        undefined,
+        undefined,
+        workspace.packages,
+      );
       await showUpdate();
       return;
     }
 
     const cascade = await runCascade(targets, workspace, tag, {
       verbose,
-      shallow: args.shallow as boolean,
-      force: args.force as boolean,
+      shallow: args.shallow,
+      force: args.force,
     });
 
     printScopeSummary(cascade);
 
     if (cascade.publishSet.length === 0) {
-      log.line("");
-      log.success("Nothing to publish");
+      log.line('');
+      log.success('Nothing to publish');
       await showUpdate();
       return;
     }
-    log.line("");
+    log.line('');
 
     await publishPackages(
       cascade.publishSet,
@@ -501,7 +545,7 @@ export default defineCommand({
       config,
       tag,
       verbose,
-      args["dry-run"] as boolean,
+      args['dry-run'],
       cascade.existingVersions,
       cascade.reason,
       cascade.fingerprints,
@@ -539,15 +583,15 @@ async function publishPackages(
     for (const entry of plan.packages) {
       const r = reason?.get(entry.name);
       if (verbose && r) {
-        const detail = r === "propagated" ? " (dep changed)" : " (content changed)";
-        log.line(`  ${c.green("\u2714")} ${entry.name}@${entry.version}${detail}`);
+        const detail = r === 'propagated' ? ' (dep changed)' : ' (content changed)';
+        log.line(`  ${c.green('\u2714')} ${entry.name}@${entry.version}${detail}`);
       } else {
-        log.line(`  ${c.green("\u2714")} ${entry.name}@${entry.version}`);
+        log.line(`  ${c.green('\u2714')} ${entry.name}@${entry.version}`);
       }
     }
     for (const pkg of unchangedSet) {
-      const ver = existingVersions.get(pkg.name) ?? "unknown";
-      log.line(`  ${c.dim("\u25CB")} ${c.dim(`${pkg.name} (unchanged, ${ver})`)}`);
+      const ver = existingVersions.get(pkg.name) ?? 'unknown';
+      log.line(`  ${c.dim('\u25CB')} ${c.dim(`${pkg.name} (unchanged, ${ver})`)}`);
     }
     return;
   }
@@ -570,7 +614,7 @@ async function publishPackages(
   if (consumerWork.length > 0 && workspacePackages) {
     const graph = buildDependencyGraph(workspacePackages);
     const transitiveDeps = precomputeTransitiveDeps(graph);
-    const publishNames = new Set(plan.packages.map((p) => p.name));
+    const publishNames = new Set(plan.packages.map(p => p.name));
 
     for (const repo of consumerWork) {
       const required = new Set<string>();
@@ -598,15 +642,15 @@ async function publishPackages(
       for (const entry of plan.packages) {
         const r = reason?.get(entry.name);
         if (r) {
-          const detail = r === "propagated" ? " (dep changed)" : " (content changed)";
-          log.line(`  ${c.green("\u2714")} ${entry.name}@${entry.version}${detail}`);
+          const detail = r === 'propagated' ? ' (dep changed)' : ' (content changed)';
+          log.line(`  ${c.green('\u2714')} ${entry.name}@${entry.version}${detail}`);
         } else {
           log.line(`  - ${entry.name}@${entry.version}`);
         }
       }
       for (const pkg of unchangedSet) {
-        const ver = existingVersions.get(pkg.name) ?? "unknown";
-        log.line(`  ${c.dim("\u25CB")} ${c.dim(`${pkg.name} (unchanged, ${ver})`)}`);
+        const ver = existingVersions.get(pkg.name) ?? 'unknown';
+        log.line(`  ${c.dim('\u25CB')} ${c.dim(`${pkg.name} (unchanged, ${ver})`)}`);
       }
 
       // Streaming consumer updates in verbose mode
@@ -614,34 +658,41 @@ async function publishPackages(
       const pendingRepos = new Set(consumerWork);
       const repoInstallPromises: Promise<void>[] = [];
 
-      await executePublish(plan, config, {
-        verbose: true,
-        onPackagePublished(entry: PublishEntry) {
-          publishedPackages.add(entry.name);
-          for (const repo of pendingRepos) {
-            const required = requiredSets.get(repo);
-            if (!required) continue;
-            const allReady = [...required].every((name) => publishedPackages.has(name));
-            if (allReady) {
-              pendingRepos.delete(repo);
-              log.info(`Starting install for ${repo.displayName}`);
-              repoInstallPromises.push(
-                runRepoInstall(repo).then(() => {
-                  log.success(`  ${repo.displayName}: updated ${repo.packages.map((e) => e.name).join(", ")}`);
-                }),
-              );
+      await executePublish(
+        plan,
+        config,
+        {
+          verbose: true,
+          onPackagePublished(entry: PublishEntry) {
+            publishedPackages.add(entry.name);
+            for (const repo of pendingRepos) {
+              const required = requiredSets.get(repo);
+              if (!required) {
+                continue;
+              }
+              const allReady = [...required].every(name => publishedPackages.has(name));
+              if (allReady) {
+                pendingRepos.delete(repo);
+                log.info(`Starting install for ${repo.displayName}`);
+                repoInstallPromises.push(
+                  runRepoInstall(repo).then(() => {
+                    log.success(`  ${repo.displayName}: updated ${repo.packages.map(e => e.name).join(', ')}`);
+                  }),
+                );
+              }
             }
-          }
+          },
         },
-      }, workspaceRoot);
+        workspaceRoot,
+      );
 
       // Mark repos that depend on failed packages
       for (const repo of pendingRepos) {
         const required = requiredSets.get(repo);
         if (required) {
-          const missing = [...required].filter((name) => !publishedPackages.has(name));
+          const missing = [...required].filter(name => !publishedPackages.has(name));
           if (missing.length > 0) {
-            log.warn(`Skipped ${repo.displayName} (publish failed for ${missing.join(", ")})`);
+            log.warn(`Skipped ${repo.displayName} (publish failed for ${missing.join(', ')})`);
           }
         }
       }
@@ -650,10 +701,8 @@ async function publishPackages(
       await Promise.all(repoInstallPromises);
     } else {
       // Non-verbose: unified spinner with publish lines + consumer repo lines
-      log.info("Publishing...");
-      const spinnerLines: SpinnerLine[] = plan.packages.map(
-        (e) => `${e.name}@${e.version}`,
-      );
+      log.info('Publishing...');
+      const spinnerLines: SpinnerLine[] = plan.packages.map(e => `${e.name}@${e.version}`);
 
       // Add consumer repo lines to the spinner (header + per-package lines)
       const repoPackageIndices = new Map<RepoWorkItem, number[]>();
@@ -676,44 +725,55 @@ async function publishPackages(
       const repoInstallPromises: Promise<void>[] = [];
 
       try {
-        await executePublish(plan, config, {
-          onPublished: (i) => spinner.complete(i),
-          onFailed: (i) => spinner.fail(i),
-          onPackagePublished(entry: PublishEntry) {
-            publishedPackages.add(entry.name);
-            for (const repo of pendingRepos) {
-              const required = requiredSets.get(repo);
-              if (!required) continue;
-              const allReady = [...required].every((name) => publishedPackages.has(name));
-              if (allReady) {
-                pendingRepos.delete(repo);
-                const indices = repoPackageIndices.get(repo)!;
-                for (const idx of indices) {
-                  spinner.setText(idx, `installing ${repo.packages[indices.indexOf(idx)].name}`);
+        await executePublish(
+          plan,
+          config,
+          {
+            onPublished: i => spinner.complete(i),
+            onFailed: i => spinner.fail(i),
+            onPackagePublished(entry: PublishEntry) {
+              publishedPackages.add(entry.name);
+              for (const repo of pendingRepos) {
+                const required = requiredSets.get(repo);
+                if (!required) {
+                  continue;
                 }
-                repoInstallPromises.push(
-                  runRepoInstall(repo).then(() => {
-                    for (let i = 0; i < repo.packages.length; i++) {
-                      spinner.setText(indices[i], `updated ${repo.packages[i].name}`);
-                      spinner.complete(indices[i]);
-                    }
-                  }).catch((err) => {
-                    for (const idx of indices) {
-                      spinner.fail(idx);
-                    }
-                    throw err;
-                  }),
-                );
+                const allReady = [...required].every(name => publishedPackages.has(name));
+                if (allReady) {
+                  pendingRepos.delete(repo);
+                  const indices = repoPackageIndices.get(repo)!;
+                  for (const idx of indices) {
+                    spinner.setText(idx, `installing ${repo.packages[indices.indexOf(idx)].name}`);
+                  }
+                  repoInstallPromises.push(
+                    runRepoInstall(repo)
+                      .then(() => {
+                        for (let i = 0; i < repo.packages.length; i++) {
+                          spinner.setText(indices[i], `updated ${repo.packages[i].name}`);
+                          spinner.complete(indices[i]);
+                        }
+                      })
+                      .catch(err => {
+                        for (const idx of indices) {
+                          spinner.fail(idx);
+                        }
+                        throw err;
+                      }),
+                  );
+                }
               }
-            }
+            },
           },
-        }, workspaceRoot);
+          workspaceRoot,
+        );
 
         // Mark repos that depend on failed packages
         for (const repo of pendingRepos) {
           const required = requiredSets.get(repo);
-          if (!required) continue;
-          const missing = [...required].filter((name) => !publishedPackages.has(name));
+          if (!required) {
+            continue;
+          }
+          const missing = [...required].filter(name => !publishedPackages.has(name));
           if (missing.length > 0) {
             const indices = repoPackageIndices.get(repo)!;
             for (let i = 0; i < repo.packages.length; i++) {
@@ -731,22 +791,20 @@ async function publishPackages(
     }
 
     // Set npm dist-tags so `npm install pkg@tag` works against the local registry
-    const distTag = tag ?? "pkglab";
-    await Promise.all(
-      plan.packages.map((e) => setDistTag(config, e.name, e.version, distTag)),
-    );
+    const distTag = tag ?? 'pkglab';
+    await Promise.all(plan.packages.map(e => setDistTag(config, e.name, e.version, distTag)));
 
     const elapsed = ((performance.now() - publishStart) / 1000).toFixed(2);
     log.success(`Published ${plan.packages.length} packages in ${elapsed}s`);
 
     // Save fingerprint state AFTER consumer updates so a failed update retries on next pub
     if (fingerprints && allCascadePackages) {
-      const entries = allCascadePackages.map((pkg) => {
+      const entries = allCascadePackages.map(pkg => {
         const fp = fingerprints.get(pkg.name);
         const pkgVersion = existingVersions.get(pkg.name) ?? version;
         return {
           name: pkg.name,
-          hash: fp?.hash ?? "",
+          hash: fp?.hash ?? '',
           version: pkgVersion,
         };
       });
@@ -754,19 +812,17 @@ async function publishPackages(
     }
 
     // Auto-prune old versions in detached subprocess
-    Bun.spawn([process.execPath, "--__prune", String(config.port), String(config.prune_keep), ...(tag ? [tag] : [])], {
-      stdout: "ignore",
-      stderr: "ignore",
-      stdin: "ignore",
+    Bun.spawn([process.execPath, '--__prune', String(config.port), String(config.prune_keep), ...(tag ? [tag] : [])], {
+      stdout: 'ignore',
+      stderr: 'ignore',
+      stdin: 'ignore',
     }).unref();
   } finally {
     await releaseLock();
   }
 }
 
-async function runRepoInstall(
-  repo: RepoWorkItem,
-): Promise<void> {
+async function runRepoInstall(repo: RepoWorkItem): Promise<void> {
   const { entries, catalogRoot } = await buildVersionEntries(repo);
 
   await installWithVersionUpdates({

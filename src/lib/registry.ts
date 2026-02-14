@@ -1,8 +1,10 @@
-import { readdir, rm } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import type { pkglabConfig } from "../types";
-import { paths } from "./paths";
-import { ispkglabVersion } from "./version";
+import { readdir, rm } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+
+import type { pkglabConfig } from '../types';
+
+import { paths } from './paths';
+import { ispkglabVersion } from './version';
 
 export function registryUrl(config: pkglabConfig): string {
   return `http://127.0.0.1:${config.port}`;
@@ -24,14 +26,18 @@ async function scanStoragePackages(): Promise<string[]> {
   }
 
   for (const entry of entries) {
-    if (entry.startsWith(".")) continue;
+    if (entry.startsWith('.')) {
+      continue;
+    }
 
-    if (entry.startsWith("@")) {
+    if (entry.startsWith('@')) {
       // Scoped packages: @scope/name
       try {
         const scopeEntries = await readdir(join(storageDir, entry));
         for (const pkg of scopeEntries) {
-          if (!pkg.startsWith(".")) names.push(`${entry}/${pkg}`);
+          if (!pkg.startsWith('.')) {
+            names.push(`${entry}/${pkg}`);
+          }
         }
       } catch {
         continue;
@@ -44,10 +50,8 @@ async function scanStoragePackages(): Promise<string[]> {
   return names;
 }
 
-async function readStoragePackageJson(
-  name: string,
-): Promise<Record<string, any> | null> {
-  const pkgJsonPath = join(paths.verdaccioStorage, name, "package.json");
+async function readStoragePackageJson(name: string): Promise<Record<string, any> | null> {
+  const pkgJsonPath = join(paths.verdaccioStorage, name, 'package.json');
   try {
     return await Bun.file(pkgJsonPath).json();
   } catch {
@@ -64,7 +68,7 @@ export async function listPackageNames(): Promise<string[]> {
     const dir = join(paths.verdaccioStorage, name);
     try {
       const files = await readdir(dir);
-      if (files.some((f) => f.includes("pkglab") && f.endsWith(".tgz"))) {
+      if (files.some(f => f.includes('pkglab') && f.endsWith('.tgz'))) {
         result.push(name);
       }
     } catch {
@@ -75,15 +79,15 @@ export async function listPackageNames(): Promise<string[]> {
   return result;
 }
 
-export async function listAllPackages(): Promise<
-  Array<{ name: string; versions: string[] }>
-> {
+export async function listAllPackages(): Promise<Array<{ name: string; versions: string[] }>> {
   const allNames = await scanStoragePackages();
   const results: Array<{ name: string; versions: string[] }> = [];
 
   for (const name of allNames) {
     const doc = await readStoragePackageJson(name);
-    if (!doc?.versions) continue;
+    if (!doc?.versions) {
+      continue;
+    }
 
     const versions = Object.keys(doc.versions).filter(ispkglabVersion);
     if (versions.length > 0) {
@@ -94,14 +98,14 @@ export async function listAllPackages(): Promise<
   return results;
 }
 
-export async function getDistTags(
-  name: string,
-): Promise<Record<string, string>> {
+export async function getDistTags(name: string): Promise<Record<string, string>> {
   const doc = await readStoragePackageJson(name);
-  if (!doc?.["dist-tags"]) return {};
+  if (!doc?.['dist-tags']) {
+    return {};
+  }
 
   const tags: Record<string, string> = {};
-  for (const [tag, version] of Object.entries(doc["dist-tags"])) {
+  for (const [tag, version] of Object.entries(doc['dist-tags'])) {
     if (ispkglabVersion(version as string)) {
       tags[tag] = version as string;
     }
@@ -113,18 +117,13 @@ export async function getDistTags(
 // HTTP-based mutations (go through Verdaccio API)
 // ---------------------------------------------------------------------------
 
-export async function setDistTag(
-  config: pkglabConfig,
-  name: string,
-  version: string,
-  tag: string,
-): Promise<void> {
+export async function setDistTag(config: pkglabConfig, name: string, version: string, tag: string): Promise<void> {
   const url = `${registryUrl(config)}/-/package/${encodeURIComponent(name)}/dist-tags/${encodeURIComponent(tag)}`;
   await fetch(url, {
-    method: "PUT",
+    method: 'PUT',
     headers: {
-      Authorization: "Bearer pkglab-local",
-      "Content-Type": "application/json",
+      Authorization: 'Bearer pkglab-local',
+      'Content-Type': 'application/json',
     },
     body: JSON.stringify(version),
   });
@@ -135,41 +134,51 @@ export async function unpublishVersions(
   name: string,
   versions: string[],
 ): Promise<{ removed: string[]; failed: string[] }> {
-  if (versions.length === 0) return { removed: [], failed: [] };
+  if (versions.length === 0) {
+    return { removed: [], failed: [] };
+  }
 
   const url = registryUrl(config);
   const pkgUrl = `${url}/${encodeURIComponent(name)}`;
-  const headers = { Authorization: "Bearer pkglab-local" };
+  const headers = { Authorization: 'Bearer pkglab-local' };
 
   const resp = await fetch(pkgUrl, { headers });
-  if (!resp.ok) throw new Error(`Failed to fetch ${name}: ${resp.status}`);
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch ${name}: ${resp.status}`);
+  }
 
-  const doc = (await resp.json()) as any;
+  const doc = await resp.json();
   const removeSet = new Set(versions);
   const removed: string[] = [];
 
   for (const v of versions) {
-    if (!doc.versions?.[v]) continue;
+    if (!doc.versions?.[v]) {
+      continue;
+    }
     delete doc.versions[v];
-    if (doc.time) delete doc.time[v];
+    if (doc.time) {
+      delete doc.time[v];
+    }
     removed.push(v);
   }
 
   // Clean up dist-tags pointing to removed versions
-  if (doc["dist-tags"]) {
-    for (const [tag, v] of Object.entries(doc["dist-tags"])) {
+  if (doc['dist-tags']) {
+    for (const [tag, v] of Object.entries(doc['dist-tags'])) {
       if (removeSet.has(v as string)) {
-        delete doc["dist-tags"][tag];
+        delete doc['dist-tags'][tag];
       }
     }
   }
 
-  if (removed.length === 0) return { removed: [], failed: [] };
+  if (removed.length === 0) {
+    return { removed: [], failed: [] };
+  }
 
-  const rev = doc._rev || "0-0";
+  const rev = doc._rev || '0-0';
   const putResp = await fetch(`${pkgUrl}/-rev/${rev}`, {
-    method: "PUT",
-    headers: { ...headers, "Content-Type": "application/json" },
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify(doc),
   });
 
@@ -177,26 +186,25 @@ export async function unpublishVersions(
     return { removed: [], failed: versions };
   }
 
-  return { removed, failed: versions.filter((v) => !removed.includes(v)) };
+  return { removed, failed: versions.filter(v => !removed.includes(v)) };
 }
 
-export async function removePackage(
-  config: pkglabConfig,
-  name: string,
-): Promise<boolean> {
+export async function removePackage(config: pkglabConfig, name: string): Promise<boolean> {
   const url = registryUrl(config);
   const pkgUrl = `${url}/${encodeURIComponent(name)}`;
-  const headers = { Authorization: "Bearer pkglab-local" };
+  const headers = { Authorization: 'Bearer pkglab-local' };
 
   // Get the revision needed for DELETE
   const resp = await fetch(pkgUrl, { headers });
-  if (!resp.ok) return false;
-  const doc = (await resp.json()) as any;
-  const rev = doc._rev || "0-0";
+  if (!resp.ok) {
+    return false;
+  }
+  const doc = await resp.json();
+  const rev = doc._rev || '0-0';
 
   // Delete from Verdaccio API
   const delResp = await fetch(`${pkgUrl}/-rev/${rev}`, {
-    method: "DELETE",
+    method: 'DELETE',
     headers,
   });
 
@@ -205,7 +213,7 @@ export async function removePackage(
   await rm(pkgDir, { recursive: true, force: true }).catch(() => {});
 
   // Clean up empty scope directory
-  if (name.startsWith("@")) {
+  if (name.startsWith('@')) {
     const scopeDir = dirname(pkgDir);
     try {
       const remaining = await readdir(scopeDir);

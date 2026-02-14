@@ -1,12 +1,12 @@
-import { DepGraph } from "dependency-graph";
-import type { WorkspacePackage } from "../types";
-import { CycleDetectedError } from "./errors";
+import { DepGraph } from 'dependency-graph';
+
+import type { WorkspacePackage } from '../types';
+
+import { CycleDetectedError } from './errors';
 
 // Precompute all transitive dependencies for every node in the graph.
 // Returns a Map keyed by package name, value is the array from graph.dependenciesOf().
-export function precomputeTransitiveDeps(
-  graph: DepGraph<WorkspacePackage>,
-): Map<string, string[]> {
+export function precomputeTransitiveDeps(graph: DepGraph<WorkspacePackage>): Map<string, string[]> {
   const cache = new Map<string, string[]>();
   for (const node of graph.overallOrder()) {
     cache.set(node, graph.dependenciesOf(node));
@@ -16,9 +16,7 @@ export function precomputeTransitiveDeps(
 
 // Precompute all transitive dependents for every node in the graph.
 // Returns a Map keyed by package name, value is the array from graph.dependantsOf().
-export function precomputeTransitiveDependents(
-  graph: DepGraph<WorkspacePackage>,
-): Map<string, string[]> {
+export function precomputeTransitiveDependents(graph: DepGraph<WorkspacePackage>): Map<string, string[]> {
   const cache = new Map<string, string[]>();
   for (const node of graph.overallOrder()) {
     cache.set(node, graph.dependantsOf(node));
@@ -26,11 +24,9 @@ export function precomputeTransitiveDependents(
   return cache;
 }
 
-export function buildDependencyGraph(
-  packages: WorkspacePackage[]
-): DepGraph<WorkspacePackage> {
+export function buildDependencyGraph(packages: WorkspacePackage[]): DepGraph<WorkspacePackage> {
   const graph = new DepGraph<WorkspacePackage>();
-  const names = new Set(packages.map((p) => p.name));
+  const names = new Set(packages.map(p => p.name));
 
   for (const pkg of packages) {
     graph.addNode(pkg.name, pkg);
@@ -66,9 +62,7 @@ export function computeInitialScope(
     scope.add(name);
 
     try {
-      const directDeps = graph.directDependenciesOf(name).filter(
-        (dep) => dep !== name
-      );
+      const directDeps = graph.directDependenciesOf(name).filter(dep => dep !== name);
       dependencies[name] = directDeps;
       // Include transitive dependencies so workspace deps are published together
       const allDeps = cachedDeps?.get(name) ?? graph.dependenciesOf(name);
@@ -92,7 +86,11 @@ export function expandDependents(
   currentScope: Set<string>,
   consumedPackages?: Set<string>,
   cachedDependents?: Map<string, string[]>,
-): { newPackages: string[]; dependents: Record<string, string[]>; skippedDependents: { name: string; via: string }[] } {
+): {
+  newPackages: string[];
+  dependents: Record<string, string[]>;
+  skippedDependents: { name: string; via: string }[];
+} {
   const dependents: Record<string, string[]> = {};
   const newPackages = new Set<string>();
   const allPossibleDependents = consumedPackages ? new Map<string, string>() : null;
@@ -102,15 +100,15 @@ export function expandDependents(
       const transitiveDependents = cachedDependents?.get(name) ?? graph.dependantsOf(name);
       if (allPossibleDependents) {
         for (const d of transitiveDependents) {
-          if (!allPossibleDependents.has(d)) allPossibleDependents.set(d, name);
+          if (!allPossibleDependents.has(d)) {
+            allPossibleDependents.set(d, name);
+          }
         }
       }
 
       if (consumedPackages) {
         // Keep dependents that are consumed by active repos OR already in scope
-        const filtered = transitiveDependents.filter(
-          (d) => currentScope.has(d) || consumedPackages.has(d),
-        );
+        const filtered = transitiveDependents.filter(d => currentScope.has(d) || consumedPackages.has(d));
         dependents[name] = filtered;
         for (const dep of filtered) {
           if (!currentScope.has(dep)) {
@@ -127,9 +125,7 @@ export function expandDependents(
       }
     } catch (err: any) {
       if (err.cyclePath) {
-        throw new CycleDetectedError(
-          `Dependency cycle detected: ${err.cyclePath.join(" -> ")}`
-        );
+        throw new CycleDetectedError(`Dependency cycle detected: ${err.cyclePath.join(' -> ')}`);
       }
       throw err;
     }
@@ -140,10 +136,10 @@ export function expandDependents(
   const allIncluded = new Set([...currentScope, ...newPackages]);
   const skippedDependents: { name: string; via: string }[] = allPossibleDependents
     ? [...allPossibleDependents.entries()]
-        .filter((e) => !allIncluded.has(e[0]))
-        .filter((e) => !graph.getNodeData(e[0]).packageJson.private)
-        .map((e) => ({ name: e[0], via: e[1] }))
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .filter(e => !allIncluded.has(e[0]))
+        .filter(e => !graph.getNodeData(e[0]).packageJson.private)
+        .map(e => ({ name: e[0], via: e[1] }))
+        .toSorted((a, b) => a.name.localeCompare(b.name))
     : [];
 
   return { newPackages: [...newPackages], dependents, skippedDependents };
@@ -161,9 +157,11 @@ export function closeUnderDeps(
   let changed = true;
   while (changed) {
     changed = false;
-    for (const name of [...result]) {
+    for (const name of result) {
       const pkg = graph.getNodeData(name);
-      if (pkg.packageJson.private) continue;
+      if (pkg.packageJson.private) {
+        continue;
+      }
       try {
         const deps = cachedDeps?.get(name) ?? graph.dependenciesOf(name);
         for (const dep of deps) {
@@ -178,10 +176,7 @@ export function closeUnderDeps(
   return result;
 }
 
-export function deterministicToposort(
-  graph: DepGraph<WorkspacePackage>,
-  subset: Set<string>
-): string[] {
+export function deterministicToposort(graph: DepGraph<WorkspacePackage>, subset: Set<string>): string[] {
   // Build in-degree map for the subset
   const inDegree = new Map<string, number>();
   const adjList = new Map<string, string[]>();
@@ -205,23 +200,24 @@ export function deterministicToposort(
   }
 
   // Kahn's algorithm with lexical tie-breaking
-  const queue = [...subset]
-    .filter((n) => inDegree.get(n) === 0)
-    .sort();
+  const queue = [...subset].filter(n => inDegree.get(n) === 0).toSorted();
   const result: string[] = [];
 
   while (queue.length > 0) {
     const node = queue.shift()!;
     result.push(node);
 
-    for (const dependent of (adjList.get(node) || []).sort()) {
+    for (const dependent of (adjList.get(node) || []).toSorted()) {
       const newDeg = (inDegree.get(dependent) || 1) - 1;
       inDegree.set(dependent, newDeg);
       if (newDeg === 0) {
         // Insert in sorted position
-        const idx = queue.findIndex((n) => n > dependent);
-        if (idx === -1) queue.push(dependent);
-        else queue.splice(idx, 0, dependent);
+        const idx = queue.findIndex(n => n > dependent);
+        if (idx === -1) {
+          queue.push(dependent);
+        } else {
+          queue.splice(idx, 0, dependent);
+        }
       }
     }
   }

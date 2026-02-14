@@ -1,43 +1,44 @@
-import { defineCommand } from "citty";
-import { rm } from "node:fs/promises";
-import { getDaemonStatus, stopDaemon } from "../lib/daemon";
-import { clearFingerprintState } from "../lib/fingerprint-state";
-import { paths } from "../lib/paths";
-import { log } from "../lib/log";
+import { defineCommand } from 'citty';
+import { rm } from 'node:fs/promises';
+
+import { getDaemonStatus, stopDaemon } from '../lib/daemon';
+import { clearFingerprintState } from '../lib/fingerprint-state';
+import { log } from '../lib/log';
+import { paths } from '../lib/paths';
 
 export default defineCommand({
-  meta: { name: "reset", description: "Reset pkglab state" },
+  meta: { name: 'reset', description: 'Reset pkglab state' },
   args: {
     hard: {
-      type: "boolean",
-      description: "Wipe all pkglab data and Verdaccio storage",
+      type: 'boolean',
+      description: 'Wipe all pkglab data and Verdaccio storage',
       default: false,
     },
     fingerprints: {
-      type: "boolean",
-      description: "Clear fingerprint cache (forces full republish on next pub)",
+      type: 'boolean',
+      description: 'Clear fingerprint cache (forces full republish on next pub)',
       default: false,
     },
   },
   async run({ args }) {
     if (args.fingerprints) {
       await clearFingerprintState();
-      log.success("Fingerprint cache cleared. Next pub will republish all packages.");
+      log.success('Fingerprint cache cleared. Next pub will republish all packages.');
       return;
     }
 
     if (!args.hard) {
-      log.error("Use --hard to confirm: pkglab reset --hard");
+      log.error('Use --hard to confirm: pkglab reset --hard');
       process.exit(1);
     }
 
     const status = await getDaemonStatus();
     if (status?.running) {
       await stopDaemon();
-      log.info("Stopped registry");
+      log.info('Stopped registry');
     }
 
     await rm(paths.home, { recursive: true, force: true });
-    log.success("Reset complete. All pkglab data wiped.");
+    log.success('Reset complete. All pkglab data wiped.');
   },
 });

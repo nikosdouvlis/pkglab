@@ -1,31 +1,32 @@
-import { defineCommand } from "citty";
-import { getDaemonStatus } from "../lib/daemon";
-import { loadConfig } from "../lib/config";
-import { paths } from "../lib/paths";
-import { loadAllRepos } from "../lib/repo-state";
-import { MARKER_START, isSkipWorktreeSet, applySkipWorktree, addRegistryToNpmrc } from "../lib/consumer";
-import { BACKUP_SUFFIX } from "../lib/publisher";
-import { log } from "../lib/log";
-import { c } from "../lib/color";
-import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { defineCommand } from 'citty';
+import { stat } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import { c } from '../lib/color';
+import { loadConfig } from '../lib/config';
+import { MARKER_START, isSkipWorktreeSet, applySkipWorktree, addRegistryToNpmrc } from '../lib/consumer';
+import { getDaemonStatus } from '../lib/daemon';
+import { log } from '../lib/log';
+import { paths } from '../lib/paths';
+import { BACKUP_SUFFIX } from '../lib/publisher';
+import { loadAllRepos } from '../lib/repo-state';
 
 export default defineCommand({
-  meta: { name: "doctor", description: "Health check for pkglab environment" },
+  meta: { name: 'doctor', description: 'Health check for pkglab environment' },
   async run() {
     let issues = 0;
 
     // Check Bun
     const bunVersion = Bun.version;
-    log.line(`  ${c.green("✓")} Bun ${bunVersion}`);
+    log.line(`  ${c.green('✓')} Bun ${bunVersion}`);
 
     // Check pkglab dirs
     for (const dir of [paths.home, paths.reposDir, paths.verdaccioDir]) {
       try {
         await stat(dir);
-        log.line(`  ${c.green("✓")} ${dir}`);
+        log.line(`  ${c.green('✓')} ${dir}`);
       } catch {
-        log.line(`  ${c.red("✗")} ${dir} missing`);
+        log.line(`  ${c.red('✗')} ${dir} missing`);
         issues++;
       }
     }
@@ -34,51 +35,51 @@ export default defineCommand({
     const config = await loadConfig();
     const status = await getDaemonStatus();
     if (status?.running) {
-      log.line(`  ${c.green("✓")} Verdaccio running (PID ${status.pid})`);
+      log.line(`  ${c.green('✓')} Verdaccio running (PID ${status.pid})`);
 
       // Ping registry
       try {
         const resp = await fetch(`http://127.0.0.1:${config.port}/-/ping`);
         if (resp.ok) {
-          log.line(
-            `  ${c.green("✓")} Registry responding on port ${config.port}`,
-          );
+          log.line(`  ${c.green('✓')} Registry responding on port ${config.port}`);
         } else {
-          log.line(
-            `  ${c.red("✗")} Registry not responding (HTTP ${resp.status})`,
-          );
+          log.line(`  ${c.red('✗')} Registry not responding (HTTP ${resp.status})`);
           issues++;
         }
       } catch {
-        log.line(`  ${c.red("✗")} Registry not responding`);
+        log.line(`  ${c.red('✗')} Registry not responding`);
         issues++;
       }
     } else {
-      log.line(`  ${c.yellow("!")} Verdaccio not running`);
+      log.line(`  ${c.yellow('!')} Verdaccio not running`);
     }
 
     // Check .npmrc and skip-worktree on linked repos
     const repos = await loadAllRepos();
     for (const { displayName, state } of repos) {
-      if (Object.keys(state.packages).length === 0) continue;
+      if (Object.keys(state.packages).length === 0) {
+        continue;
+      }
 
       // Check .npmrc has pkglab registry block
       try {
-        const npmrcFile = Bun.file(join(state.path, ".npmrc"));
+        const npmrcFile = Bun.file(join(state.path, '.npmrc'));
         const exists = await npmrcFile.exists();
         const hasBlock = exists && (await npmrcFile.text()).includes(MARKER_START);
 
         if (hasBlock) {
-          log.line(`  ${c.green("✓")} ${displayName}: .npmrc OK`);
+          log.line(`  ${c.green('✓')} ${displayName}: .npmrc OK`);
         } else {
           log.line(
-            `  ${c.yellow("!")} ${displayName}: .npmrc ${exists ? "missing registry block" : "missing"}, repairing...`,
+            `  ${c.yellow('!')} ${displayName}: .npmrc ${exists ? 'missing registry block' : 'missing'}, repairing...`,
           );
           await addRegistryToNpmrc(state.path, config.port);
-          log.line(`  ${c.green("✓")} ${displayName}: .npmrc repaired`);
+          log.line(`  ${c.green('✓')} ${displayName}: .npmrc repaired`);
         }
       } catch (err) {
-        log.line(`  ${c.red("✗")} ${displayName}: could not check .npmrc (${err instanceof Error ? err.message : err})`);
+        log.line(
+          `  ${c.red('✗')} ${displayName}: could not check .npmrc (${err instanceof Error ? err.message : String(err)})`,
+        );
         issues++;
       }
 
@@ -86,16 +87,14 @@ export default defineCommand({
       try {
         const hasFlag = await isSkipWorktreeSet(state.path);
         if (hasFlag) {
-          log.line(`  ${c.green("✓")} ${displayName}: skip-worktree OK`);
+          log.line(`  ${c.green('✓')} ${displayName}: skip-worktree OK`);
         } else {
-          log.line(
-            `  ${c.yellow("!")} ${displayName}: skip-worktree missing, repairing...`,
-          );
+          log.line(`  ${c.yellow('!')} ${displayName}: skip-worktree missing, repairing...`);
           await applySkipWorktree(state.path);
-          log.line(`  ${c.green("✓")} ${displayName}: skip-worktree repaired`);
+          log.line(`  ${c.green('✓')} ${displayName}: skip-worktree repaired`);
         }
       } catch {
-        log.line(`  ${c.red("✗")} ${displayName}: could not check skip-worktree`);
+        log.line(`  ${c.red('✗')} ${displayName}: could not check skip-worktree`);
         issues++;
       }
     }
@@ -104,23 +103,25 @@ export default defineCommand({
     const glob = new Bun.Glob(`**/package.json${BACKUP_SUFFIX}`);
     const backups: string[] = [];
     for await (const match of glob.scan({ cwd: process.cwd(), absolute: true })) {
-      if (match.includes("node_modules/")) continue;
+      if (match.includes('node_modules/')) {
+        continue;
+      }
       backups.push(match);
     }
     if (backups.length > 0) {
-      log.line(`  ${c.red("✗")} Found ${backups.length} leftover publish backup(s):`);
+      log.line(`  ${c.red('✗')} Found ${backups.length} leftover publish backup(s):`);
       for (const b of backups) {
         log.line(`      ${b}`);
       }
       log.line(`    These are original package.json files from a crashed publish.`);
-      log.line(`    Run ${c.cyan("pkglab pub")} again to auto-recover, or rename them back manually.`);
+      log.line(`    Run ${c.cyan('pkglab pub')} again to auto-recover, or rename them back manually.`);
       issues += backups.length;
     }
 
     if (issues === 0) {
-      log.success("All checks passed");
+      log.success('All checks passed');
     } else {
-      log.warn(`${issues} issue${issues !== 1 ? "s" : ""} found`);
+      log.warn(`${issues} issue${issues !== 1 ? 's' : ''} found`);
     }
   },
 });

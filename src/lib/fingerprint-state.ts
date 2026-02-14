@@ -1,5 +1,6 @@
-import { join } from "node:path";
-import { paths } from "./paths";
+import { join } from 'node:path';
+
+import { paths } from './paths';
 
 interface FingerprintEntry {
   hash: string;
@@ -12,23 +13,24 @@ type FingerprintFile = Record<string, Record<string, Record<string, FingerprintE
 
 export type FingerprintMap = Record<string, FingerprintEntry>;
 
-const FINGERPRINT_PATH = join(paths.home, "fingerprints.json");
+const FINGERPRINT_PATH = join(paths.home, 'fingerprints.json');
 
 function tagKey(tag: string | null): string {
-  return tag ?? "__untagged__";
+  return tag ?? '__untagged__';
 }
 
-export async function loadFingerprintState(
-  workspaceRoot: string,
-  tag: string | null,
-): Promise<FingerprintMap> {
+export async function loadFingerprintState(workspaceRoot: string, tag: string | null): Promise<FingerprintMap> {
   const file = Bun.file(FINGERPRINT_PATH);
-  if (!(await file.exists())) return {};
+  if (!(await file.exists())) {
+    return {};
+  }
 
   try {
     const data: FingerprintFile = await file.json();
     const workspace = data[workspaceRoot];
-    if (!workspace) return {};
+    if (!workspace) {
+      return {};
+    }
 
     const key = tagKey(tag);
     const result: FingerprintMap = {};
@@ -77,13 +79,13 @@ export async function saveFingerprintState(
     };
   }
 
-  await Bun.write(FINGERPRINT_PATH, JSON.stringify(data, null, 2) + "\n");
+  await Bun.write(FINGERPRINT_PATH, JSON.stringify(data, null, 2) + '\n');
 }
 
 export async function clearFingerprintState(): Promise<void> {
   const file = Bun.file(FINGERPRINT_PATH);
   if (await file.exists()) {
-    const { rm } = await import("node:fs/promises");
+    const { rm } = await import('node:fs/promises');
     await rm(FINGERPRINT_PATH);
   }
 }

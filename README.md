@@ -227,8 +227,8 @@ For pnpm workspaces, catalogs live in pnpm-workspace.yaml:
 
 ```yaml
 catalog:
-  "@clerk/backend": "^3.0.0"
-  "@clerk/shared": "^2.0.0"
+  '@clerk/backend': '^3.0.0'
+  '@clerk/shared': '^2.0.0'
 ```
 
 Named catalogs (`catalogs.react19`, etc.) are also supported in both formats. pkglab finds which catalog contains each package automatically.

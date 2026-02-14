@@ -1,19 +1,9 @@
-import { unlink } from "node:fs/promises";
-import {
-  getListenerSocketPath,
-  getListenerPidPath,
-  isListenerRunning,
-} from "./listener-ipc";
-import {
-  isProcessAlive,
-  waitForReady,
-  waitForExit,
-  timeout,
-  gracefulStop,
-  validatePidStartTime,
-} from "./proc";
-import { log } from "./log";
-import { ensureDaemonRunning } from "./daemon";
+import { unlink } from 'node:fs/promises';
+
+import { ensureDaemonRunning } from './daemon';
+import { getListenerSocketPath, getListenerPidPath, isListenerRunning } from './listener-ipc';
+import { log } from './log';
+import { isProcessAlive, waitForReady, waitForExit, timeout, gracefulStop, validatePidStartTime } from './proc';
 
 export interface ListenerInfo {
   pid: number;
@@ -21,12 +11,12 @@ export interface ListenerInfo {
   workspaceRoot: string;
 }
 
-export async function getListenerDaemonStatus(
-  workspaceRoot: string
-): Promise<ListenerInfo | null> {
+export async function getListenerDaemonStatus(workspaceRoot: string): Promise<ListenerInfo | null> {
   const pidPath = getListenerPidPath(workspaceRoot);
   const pidFile = Bun.file(pidPath);
-  if (!(await pidFile.exists())) return null;
+  if (!(await pidFile.exists())) {
+    return null;
+  }
 
   try {
     const data = JSON.parse(await pidFile.text());
@@ -53,9 +43,7 @@ export async function getListenerDaemonStatus(
   }
 }
 
-export async function startListenerDaemon(
-  workspaceRoot: string
-): Promise<ListenerInfo> {
+export async function startListenerDaemon(workspaceRoot: string): Promise<ListenerInfo> {
   // Ensure Verdaccio is running first
   await ensureDaemonRunning();
 
@@ -64,33 +52,31 @@ export async function startListenerDaemon(
   // Check if already running
   if (await isListenerRunning(socketPath)) {
     const status = await getListenerDaemonStatus(workspaceRoot);
-    if (status) return status;
+    if (status) {
+      return status;
+    }
   }
 
   // Build command: same pattern as daemon.ts startDaemon()
   const isSource = process.argv[1]?.match(/\.(ts|js)$/);
   const cmd = isSource
-    ? [process.execPath, process.argv[1], "--__listener", workspaceRoot]
-    : [process.execPath, "--__listener", workspaceRoot];
+    ? [process.execPath, process.argv[1], '--__listener', workspaceRoot]
+    : [process.execPath, '--__listener', workspaceRoot];
 
   const proc = Bun.spawn(cmd, {
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: 'pipe',
+    stderr: 'pipe',
   });
 
   // Wait for READY signal, process exit, or timeout
   const deadline = timeout(5000);
-  const result = await Promise.race([
-    waitForReady(proc),
-    waitForExit(proc),
-    deadline.promise,
-  ]);
+  const result = await Promise.race([waitForReady(proc), waitForExit(proc), deadline.promise]);
   deadline.cancel();
 
-  if (result !== "ready") {
+  if (result !== 'ready') {
     proc.kill();
-    if (result === "timeout") {
-      throw new Error("Listener failed to start within 5 seconds");
+    if (result === 'timeout') {
+      throw new Error('Listener failed to start within 5 seconds');
     }
     const stderr = await new Response(proc.stderr).text();
     throw new Error(`Listener process exited unexpectedly: ${stderr}`);
@@ -102,26 +88,30 @@ export async function startListenerDaemon(
   return status ?? { pid: proc.pid, running: true, workspaceRoot };
 }
 
-export async function ensureListenerRunning(
-  workspaceRoot: string
-): Promise<void> {
+export async function ensureListenerRunning(workspaceRoot: string): Promise<void> {
   const socketPath = getListenerSocketPath(workspaceRoot);
-  if (await isListenerRunning(socketPath)) return;
+  if (await isListenerRunning(socketPath)) {
+    return;
+  }
 
-  log.info("Starting listener...");
+  log.info('Starting listener...');
   try {
     const info = await startListenerDaemon(workspaceRoot);
     log.success(`Listener running (PID ${info.pid})`);
   } catch {
     // Another process may have won the race
-    if (await isListenerRunning(socketPath)) return;
-    throw new Error("Failed to start listener daemon");
+    if (await isListenerRunning(socketPath)) {
+      return;
+    }
+    throw new Error('Failed to start listener daemon');
   }
 }
 
 export async function stopListener(workspaceRoot: string): Promise<void> {
   const status = await getListenerDaemonStatus(workspaceRoot);
-  if (!status?.running) return;
+  if (!status?.running) {
+    return;
+  }
 
   await gracefulStop(status.pid);
 
@@ -130,4 +120,3 @@ export async function stopListener(workspaceRoot: string): Promise<void> {
   await unlink(pidPath).catch(() => {});
   await unlink(socketPath).catch(() => {});
 }
-

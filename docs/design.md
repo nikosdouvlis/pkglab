@@ -142,12 +142,12 @@ Per-repo state file:
 path: /Users/nikos/Projects/my-app
 active: false
 packages:
-  "@clerk/backend":
-    original: "^4.1.0"
-    current: "0.0.0-pkglab.1707500000000"
-  "@clerk/shared":
-    original: "^4.0.0"
-    current: "0.0.0-pkglab.1707500000000"
+  '@clerk/backend':
+    original: '^4.1.0'
+    current: '0.0.0-pkglab.1707500000000'
+  '@clerk/shared':
+    original: '^4.0.0'
+    current: '0.0.0-pkglab.1707500000000'
 ```
 
 The `original` field stores the pre-pkglab version for each package. `pkglab rm @clerk/backend` reads this value and restores it in `package.json`.
@@ -220,9 +220,9 @@ Per-repo state files under `~/.pkglab/repos/`:
 path: /Users/nikos/Projects/my-app
 active: false
 packages:
-  "@clerk/backend":
-    original: "^4.1.0"
-    current: "0.0.0-pkglab.1707500000000"
+  '@clerk/backend':
+    original: '^4.1.0'
+    current: '0.0.0-pkglab.1707500000000'
 ```
 
 No config files in publisher or consumer repos. All repo-level state lives in `.npmrc` (registry markers) and `package.json` (version strings) — files that already exist.

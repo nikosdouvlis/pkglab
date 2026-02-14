@@ -1,4 +1,4 @@
-import { paths } from "./paths";
+import { paths } from './paths';
 
 export function buildVerdaccioConfig() {
   return {
@@ -6,29 +6,29 @@ export function buildVerdaccioConfig() {
     storage: paths.verdaccioStorage,
     uplinks: {
       npmjs: {
-        url: "https://registry.npmjs.org/",
+        url: 'https://registry.npmjs.org/',
         cache: false,
-        timeout: "60s",
+        timeout: '60s',
         max_fails: 10,
-        fail_timeout: "10s",
+        fail_timeout: '10s',
         strict_ssl: false,
       },
     },
     publish: { allow_offline: true },
     packages: {
-      "**": {
-        access: "$all",
-        publish: "$all",
-        unpublish: "$all",
-        proxy: "npmjs",
+      '**': {
+        access: '$all',
+        publish: '$all',
+        unpublish: '$all',
+        proxy: 'npmjs',
       },
     },
-    max_body_size: "100mb",
+    max_body_size: '100mb',
     server: { keepAliveTimeout: 60 },
-    log: { type: "file", path: paths.logFile, level: "info", format: "json" },
+    log: { type: 'file', path: paths.logFile, level: 'info', format: 'json' },
     auth: {
       htpasswd: {
-        file: paths.verdaccioDir + "/htpasswd",
+        file: paths.verdaccioDir + '/htpasswd',
         max_users: -1,
       },
     },

@@ -1,8 +1,9 @@
-import { paths } from "./paths";
-import { LockAcquisitionError } from "./errors";
-import { unlink } from "node:fs/promises";
-import { open } from "node:fs/promises";
-import { isProcessAlive } from "./proc";
+import { unlink } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
+
+import { LockAcquisitionError } from './errors';
+import { paths } from './paths';
+import { isProcessAlive } from './proc';
 
 export async function acquirePublishLock(): Promise<() => Promise<void>> {
   const lockPath = paths.publishLock;
@@ -15,17 +16,13 @@ export async function acquirePublishLock(): Promise<() => Promise<void>> {
       const content = await file.text();
       const holderPid = parseInt(content.trim(), 10);
       if (!isNaN(holderPid) && isProcessAlive(holderPid)) {
-        throw new LockAcquisitionError(
-          `Another pkglab pub is running (PID ${holderPid})`,
-        );
+        throw new LockAcquisitionError(`Another pkglab pub is running (PID ${holderPid})`);
       }
       // Stale lock — remove and retry
       await unlink(lockPath).catch(() => {});
       const retryFd = await openExclusive(lockPath);
       if (retryFd === null) {
-        throw new LockAcquisitionError(
-          "Failed to acquire publish lock after clearing stale lock",
-        );
+        throw new LockAcquisitionError('Failed to acquire publish lock after clearing stale lock');
       }
       await writeAndClose(retryFd, String(process.pid));
     }
@@ -38,25 +35,19 @@ export async function acquirePublishLock(): Promise<() => Promise<void>> {
   };
 }
 
-async function openExclusive(
-  path: string,
-): Promise<import("node:fs/promises").FileHandle | null> {
+async function openExclusive(path: string): Promise<import('node:fs/promises').FileHandle | null> {
   try {
-    const { constants } = await import("node:fs");
-    return await open(
-      path,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
-    );
+    const { constants } = await import('node:fs');
+    return await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL);
   } catch (err: any) {
-    if (err.code === "EEXIST") return null;
+    if (err.code === 'EEXIST') {
+      return null;
+    }
     throw err;
   }
 }
 
-async function writeAndClose(
-  fd: import("node:fs/promises").FileHandle,
-  content: string,
-): Promise<void> {
+async function writeAndClose(fd: import('node:fs/promises').FileHandle, content: string): Promise<void> {
   await fd.write(content);
   await fd.close();
 }

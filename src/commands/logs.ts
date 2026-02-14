@@ -1,15 +1,16 @@
-import { defineCommand } from "citty";
-import { paths } from "../lib/paths";
-import { getListenerLogPath } from "../lib/listener-ipc";
-import { discoverWorkspace } from "../lib/workspace";
-import { log } from "../lib/log";
+import { defineCommand } from 'citty';
+
+import { getListenerLogPath } from '../lib/listener-ipc';
+import { log } from '../lib/log';
+import { paths } from '../lib/paths';
+import { discoverWorkspace } from '../lib/workspace';
 
 export default defineCommand({
-  meta: { name: "logs", description: "Tail pkglab logs" },
+  meta: { name: 'logs', description: 'Tail pkglab logs' },
   args: {
-    follow: { type: "boolean", alias: "f", description: "Stream logs", default: false },
-    listener: { type: "boolean", description: "Show only listener logs", default: false },
-    registry: { type: "boolean", description: "Show only registry logs", default: false },
+    follow: { type: 'boolean', alias: 'f', description: 'Stream logs', default: false },
+    listener: { type: 'boolean', description: 'Show only listener logs', default: false },
+    registry: { type: 'boolean', description: 'Show only registry logs', default: false },
   },
   async run({ args }) {
     const files: string[] = [];
@@ -37,15 +38,13 @@ export default defineCommand({
     }
 
     if (files.length === 0) {
-      log.warn("No log files found");
+      log.warn('No log files found');
       return;
     }
 
-    const cmd = args.follow
-      ? ["tail", "-f", ...files]
-      : ["tail", "-50", ...files];
+    const cmd = args.follow ? ['tail', '-f', ...files] : ['tail', '-50', ...files];
 
-    const proc = Bun.spawn(cmd, { stdout: "inherit", stderr: "inherit" });
+    const proc = Bun.spawn(cmd, { stdout: 'inherit', stderr: 'inherit' });
     await proc.exited;
   },
 });

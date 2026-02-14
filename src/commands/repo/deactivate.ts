@@ -1,20 +1,22 @@
-import { defineCommand } from "citty";
+import { defineCommand } from 'citty';
+
+import type { RepoState } from '../../types';
+
+import { getPositionalArgs } from '../../lib/args';
+import { log } from '../../lib/log';
 import {
   loadAllRepos,
   loadRepoByPath,
   saveRepoByPath,
   getRepoDisplayName,
   canonicalRepoPath,
-} from "../../lib/repo-state";
-import { getPositionalArgs } from "../../lib/args";
-import { log } from "../../lib/log";
-import type { RepoState } from "../../types";
+} from '../../lib/repo-state';
 
 export default defineCommand({
-  meta: { name: "off", description: "Deactivate repo for auto-updates" },
+  meta: { name: 'off', description: 'Deactivate repo for auto-updates' },
   args: {
-    name: { type: "positional", description: "Repo path", required: false },
-    all: { type: "boolean", description: "Deactivate all repos", default: false },
+    name: { type: 'positional', description: 'Repo path', required: false },
+    all: { type: 'boolean', description: 'Deactivate all repos', default: false },
   },
   async run({ args }) {
     const pathArg = args.name as string | undefined;
@@ -30,36 +32,42 @@ export default defineCommand({
     if (args.all) {
       const repos = await loadAllRepos();
       if (repos.length === 0) {
-        log.info("No repos registered");
+        log.info('No repos registered');
         return;
       }
 
       let deactivated = 0;
       for (const { state } of repos) {
-        if (!state.active) continue;
+        if (!state.active) {
+          continue;
+        }
         await deactivateRepo(state);
         deactivated++;
       }
 
       if (deactivated === 0) {
-        log.info("No repos are currently active");
+        log.info('No repos are currently active');
       }
       return;
     }
 
     const paths = getPositionalArgs(args);
-    if (pathArg) paths.unshift(pathArg);
+    if (pathArg) {
+      paths.unshift(pathArg);
+    }
 
     if (paths.length === 0) {
       // Interactive mode: select from active repos
-      const { selectRepos } = await import("../../lib/prompt");
+      const { selectRepos } = await import('../../lib/prompt');
       const selected = await selectRepos({
-        message: "Select repos to deactivate",
-        filter: (s) => s.active,
-        emptyMessage: "No repos are currently active.",
+        message: 'Select repos to deactivate',
+        filter: s => s.active,
+        emptyMessage: 'No repos are currently active.',
       });
 
-      if (selected.length === 0) return;
+      if (selected.length === 0) {
+        return;
+      }
 
       for (const { state } of selected) {
         await deactivateRepo(state);

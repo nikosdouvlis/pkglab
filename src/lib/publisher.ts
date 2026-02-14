@@ -1,15 +1,12 @@
-import { join } from "node:path";
-import { rename, rm } from "node:fs/promises";
-import type {
-  PublishPlan,
-  PublishEntry,
-  WorkspacePackage,
-  pkglabConfig,
-} from "../types";
-import { log } from "./log";
-import { run } from "./proc";
-import { extractTag } from "./version";
-import { registryUrl } from "./registry";
+import { rename, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import type { PublishPlan, PublishEntry, WorkspacePackage, pkglabConfig } from '../types';
+
+import { log } from './log';
+import { run } from './proc';
+import { registryUrl } from './registry';
+import { extractTag } from './version';
 
 export function buildPublishPlan(
   packages: WorkspacePackage[],
@@ -17,18 +14,16 @@ export function buildPublishPlan(
   catalogs: Record<string, Record<string, string>> = {},
   existingVersions: Map<string, string> = new Map(),
 ): PublishPlan {
-  const publishNames = new Set(packages.map((p) => p.name));
+  const publishNames = new Set(packages.map(p => p.name));
 
-  const entries: PublishEntry[] = packages.map((pkg) => {
+  const entries: PublishEntry[] = packages.map(pkg => {
     const rewrittenDeps: Record<string, string> = {};
 
-    for (const field of [
-      "dependencies",
-      "peerDependencies",
-      "optionalDependencies",
-    ]) {
+    for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
       const deps = pkg.packageJson[field];
-      if (!deps) continue;
+      if (!deps) {
+        continue;
+      }
       for (const depName of Object.keys(deps)) {
         if (publishNames.has(depName)) {
           rewrittenDeps[depName] = version;
@@ -61,9 +56,7 @@ export async function executePublish(
 
   // Write .npmrc at the workspace root so bun/npm can find auth.
   // Package-level .npmrc is ignored inside workspaces on some platforms.
-  const npmrcCleanup = workspaceRoot
-    ? await writeWorkspaceNpmrc(workspaceRoot, url)
-    : undefined;
+  const npmrcCleanup = workspaceRoot ? await writeWorkspaceNpmrc(workspaceRoot, url) : undefined;
 
   try {
     const results = await Promise.allSettled(
@@ -88,15 +81,17 @@ export async function executePublish(
 
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
-      if (result.status === "rejected") {
+      if (result.status === 'rejected') {
         const spec = `${plan.packages[i].name}@${plan.packages[i].version}`;
         failed.push(spec);
-        if (!firstError) firstError = result.reason;
+        if (!firstError) {
+          firstError = result.reason;
+        }
       }
     }
 
     if (failed.length > 0) {
-      log.error(`Failed to publish: ${failed.join(", ")}`);
+      log.error(`Failed to publish: ${failed.join(', ')}`);
       throw firstError;
     }
   } finally {
@@ -104,14 +99,14 @@ export async function executePublish(
   }
 }
 
-export const BACKUP_SUFFIX = ".pkglab";
+export const BACKUP_SUFFIX = '.pkglab';
 
 async function publishSinglePackage(
   entry: PublishEntry,
   registryUrl: string,
   catalogs: Record<string, Record<string, string>>,
 ): Promise<void> {
-  const pkgJsonPath = join(entry.dir, "package.json");
+  const pkgJsonPath = join(entry.dir, 'package.json');
   const backupPath = join(entry.dir, `package.json${BACKUP_SUFFIX}`);
 
   // Recover any leftover backups from a previous crashed publish
@@ -121,35 +116,27 @@ async function publishSinglePackage(
   const pkgJson = await Bun.file(pkgJsonPath).json();
   pkgJson.version = entry.version;
 
-  const runtimeFields = ["dependencies", "peerDependencies", "optionalDependencies"];
+  const runtimeFields = ['dependencies', 'peerDependencies', 'optionalDependencies'];
 
-  for (const field of [...runtimeFields, "devDependencies"]) {
-    if (!pkgJson[field]) continue;
+  for (const field of [...runtimeFields, 'devDependencies']) {
+    if (!pkgJson[field]) {
+      continue;
+    }
     const isRuntime = runtimeFields.includes(field);
     for (const [name, version] of Object.entries(pkgJson[field])) {
       if (entry.rewrittenDeps[name]) {
         pkgJson[field][name] = entry.rewrittenDeps[name];
-      } else if (
-        typeof version === "string" &&
-        version.startsWith("workspace:")
-      ) {
-        const inner = (version as string).slice("workspace:".length);
-        if (isRuntime && (inner === "^" || inner === "~" || inner === "*")) {
+      } else if (typeof version === 'string' && version.startsWith('workspace:')) {
+        const inner = version.slice('workspace:'.length);
+        if (isRuntime && (inner === '^' || inner === '~' || inner === '*')) {
           throw new Error(
             `${entry.name} has workspace dep "${name}" (${version}) that is not in the publish set. ` +
-            `This is a bug in cascade computation.`,
+              `This is a bug in cascade computation.`,
           );
         }
-        pkgJson[field][name] = resolveWorkspaceProtocol(version as string);
-      } else if (
-        typeof version === "string" &&
-        version.startsWith("catalog:")
-      ) {
-        pkgJson[field][name] = resolveCatalogProtocol(
-          version as string,
-          name,
-          catalogs,
-        );
+        pkgJson[field][name] = resolveWorkspaceProtocol(version);
+      } else if (typeof version === 'string' && version.startsWith('catalog:')) {
+        pkgJson[field][name] = resolveCatalogProtocol(version, name, catalogs);
       }
     }
   }
@@ -159,21 +146,23 @@ async function publishSinglePackage(
 
   try {
     // Write modified package.json
-    await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+    await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n');
 
     const tag = extractTag(entry.version);
-    const distTag = tag ? `pkglab-${tag}` : "pkglab";
+    const distTag = tag ? `pkglab-${tag}` : 'pkglab';
 
-    const cmd = ["bun", "publish", "--registry", registryUrl, "--tag", distTag, "--access", "public"];
+    const cmd = ['bun', 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
     const maxAttempts = 3;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const result = await run(cmd, { cwd: entry.dir });
-      if (result.exitCode === 0) break;
+      if (result.exitCode === 0) {
+        break;
+      }
 
       if (attempt < maxAttempts) {
         log.warn(`Publish attempt ${attempt}/${maxAttempts} failed for ${entry.name}, retrying...`);
-        await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
         continue;
       }
 
@@ -190,13 +179,10 @@ async function publishSinglePackage(
 // Must be at the root because Bun ignores package-level .npmrc when
 // XDG_CONFIG_HOME is set (common on Linux/CI). See https://github.com/oven-sh/bun/issues/23128
 // Returns a cleanup function that restores the original state.
-async function writeWorkspaceNpmrc(
-  workspaceRoot: string,
-  url: string,
-): Promise<() => Promise<void>> {
-  const npmrcPath = join(workspaceRoot, ".npmrc");
+async function writeWorkspaceNpmrc(workspaceRoot: string, url: string): Promise<() => Promise<void>> {
+  const npmrcPath = join(workspaceRoot, '.npmrc');
   const backupPath = join(workspaceRoot, `.npmrc${BACKUP_SUFFIX}`);
-  const registryHost = url.replace(/^https?:/, "");
+  const registryHost = url.replace(/^https?:/, '');
   const npmrc = `registry=${url}\n${registryHost}/:_authToken=pkglab-local\n`;
 
   // Backup existing .npmrc if present
@@ -228,23 +214,30 @@ function resolveCatalogProtocol(
   pkgName: string,
   catalogs: Record<string, Record<string, string>>,
 ): string {
-  const catalogName = spec.slice("catalog:".length);
+  const catalogName = spec.slice('catalog:'.length);
   const catalog = catalogs[catalogName];
-  if (catalog?.[pkgName]) return catalog[pkgName];
+  if (catalog?.[pkgName]) {
+    return catalog[pkgName];
+  }
   // Default catalog (catalog:) with no name
-  if (!catalogName && catalogs["default"]?.[pkgName])
-    return catalogs["default"][pkgName];
+  if (!catalogName && catalogs['default']?.[pkgName]) {
+    return catalogs['default'][pkgName];
+  }
   log.warn(`Could not resolve ${spec} for ${pkgName}, using *`);
-  return "*";
+  return '*';
 }
 
 function resolveWorkspaceProtocol(spec: string): string {
-  const value = spec.slice("workspace:".length);
+  const value = spec.slice('workspace:'.length);
   // Shorthand forms (workspace:^, workspace:~, workspace:*) are only valid between
   // workspace siblings. Those siblings should be in rewrittenDeps and never reach here.
   // If they do (edge case), strip to a permissive range that Verdaccio can proxy-resolve.
-  if (value === "*") return "*";
-  if (value === "^" || value === "~") return "*";
+  if (value === '*') {
+    return '*';
+  }
+  if (value === '^' || value === '~') {
+    return '*';
+  }
   // Full form: workspace:^1.0.0 -> ^1.0.0, workspace:~2.3.0 -> ~2.3.0
   return value;
 }
