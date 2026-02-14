@@ -48,14 +48,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check if new tag was created
+        id: tag-check
+        run: |
+          VERSION=$(jq -r .version package.json)
+          if git tag --list "v${VERSION}" | grep -q .; then
+            echo "tagged=true" >> "$GITHUB_OUTPUT"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Push tags
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.tag-check.outputs.tagged == 'true'
         run: git push --follow-tags
 
       - name: Create GitHub Release
-        if: steps.changesets.outputs.published == 'true'
-        run: |
-          VERSION=$(jq -r .version package.json)
-          gh release create "v${VERSION}" --generate-notes --latest
+        if: steps.tag-check.outputs.tagged == 'true'
+        run: gh release create "v${{ steps.tag-check.outputs.version }}" --generate-notes --latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
