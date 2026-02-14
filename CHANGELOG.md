@@ -1,5 +1,15 @@
 # pkglab
 
+## 0.6.0
+
+### Minor Changes
+
+- 2122a8e: Forward --force, --single, --shallow, --dry-run flags through --ping to listener daemon. Add oxlint and oxfmt tooling with CI checks.
+
+### Patch Changes
+
+- 776d0fc: Change default Verdaccio port from 4873 to 16180 to avoid conflicts with existing Verdaccio instances.
+
 ## 0.5.0
 
 ### Minor Changes
