@@ -51,3 +51,11 @@ jobs:
       - name: Push tags
         if: steps.changesets.outputs.published == 'true'
         run: git push --follow-tags
+
+      - name: Create GitHub Release
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          VERSION=$(jq -r .version package.json)
+          gh release create "v${VERSION}" --generate-notes --latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
