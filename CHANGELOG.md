@@ -1,5 +1,18 @@
 # pkglab
 
+## 0.5.0
+
+### Minor Changes
+
+- 85fa35d: Auto-start listener daemon on `pub --ping`, show listener in status/logs/down
+- 987b5be: Add `pkglab listen` command and `pub --ping`, `pub --root` flags for coordinated watch-mode publishing
+- 810ce0a: Stream consumer repo updates during publish instead of waiting for all packages
+
+### Patch Changes
+
+- 0299038: Deduplicate daemon lifecycle helpers, repo activation logic, and install runner across commands
+- fe1a74b: Retry failed bun publish attempts up to 3 times with backoff
+
 ## 0.4.0
 
 ### Minor Changes
