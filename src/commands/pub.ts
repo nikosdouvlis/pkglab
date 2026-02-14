@@ -531,7 +531,7 @@ async function publishPackages(
         const ver = existingVersions.get(pkg.name) ?? "unknown";
         log.line(`  ${c.dim("\u25CB")} ${c.dim(`${pkg.name} (unchanged, ${ver})`)}`);
       }
-      await executePublish(plan, config, { verbose: true });
+      await executePublish(plan, config, { verbose: true }, workspaceRoot);
     } else {
       log.info("Publishing...");
       const spinner = createMultiSpinner(
@@ -542,7 +542,7 @@ async function publishPackages(
         await executePublish(plan, config, {
           onPublished: (i) => spinner.complete(i),
           onFailed: (i) => spinner.fail(i),
-        });
+        }, workspaceRoot);
       } finally {
         spinner.stop();
       }

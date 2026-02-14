@@ -54,61 +54,72 @@ export async function executePublish(
   plan: PublishPlan,
   config: pkglabConfig,
   options: PublishOptions = {},
+  workspaceRoot?: string,
 ): Promise<void> {
   const url = registryUrl(config);
 
-  const results = await Promise.allSettled(
-    plan.packages.map(async (entry, index) => {
-      if (options.verbose) {
-        log.info(`Publishing ${entry.name}@${entry.version}`);
-      }
-      try {
-        await publishSinglePackage(entry, url, plan.catalogs);
-        options.onPublished?.(index);
-        return `${entry.name}@${entry.version}`;
-      } catch (error) {
-        options.onFailed?.(index);
-        throw error;
-      }
-    }),
-  );
+  // Write .npmrc at the workspace root so bun/npm can find auth.
+  // Package-level .npmrc is ignored inside workspaces on some platforms.
+  const npmrcCleanup = workspaceRoot
+    ? await writeWorkspaceNpmrc(workspaceRoot, url)
+    : undefined;
 
-  const published: string[] = [];
-  const failed: string[] = [];
-  let firstError: Error | undefined;
+  try {
+    const results = await Promise.allSettled(
+      plan.packages.map(async (entry, index) => {
+        if (options.verbose) {
+          log.info(`Publishing ${entry.name}@${entry.version}`);
+        }
+        try {
+          await publishSinglePackage(entry, url, plan.catalogs);
+          options.onPublished?.(index);
+          return `${entry.name}@${entry.version}`;
+        } catch (error) {
+          options.onFailed?.(index);
+          throw error;
+        }
+      }),
+    );
 
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    const spec = `${plan.packages[i].name}@${plan.packages[i].version}`;
-    if (result.status === "fulfilled") {
-      published.push(spec);
-    } else {
-      failed.push(spec);
-      if (!firstError) firstError = result.reason;
+    const published: string[] = [];
+    const failed: string[] = [];
+    let firstError: Error | undefined;
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const spec = `${plan.packages[i].name}@${plan.packages[i].version}`;
+      if (result.status === "fulfilled") {
+        published.push(spec);
+      } else {
+        failed.push(spec);
+        if (!firstError) firstError = result.reason;
+      }
     }
-  }
 
-  if (failed.length > 0) {
-    log.error(`Failed to publish: ${failed.join(", ")}`);
+    if (failed.length > 0) {
+      log.error(`Failed to publish: ${failed.join(", ")}`);
 
-    // Rollback the ones that succeeded
-    if (published.length > 0) {
-      log.error("Rolling back successful publishes...");
-      const rollbackFailures: string[] = [];
-      await Promise.all(
-        published.map(async (spec) => {
-          const ok = await rollbackPackage(spec, url);
-          if (!ok) rollbackFailures.push(spec);
-        }),
-      );
-      if (rollbackFailures.length > 0) {
-        log.error(
-          `Rollback incomplete, these packages may still exist in registry: ${rollbackFailures.join(", ")}`,
+      // Rollback the ones that succeeded
+      if (published.length > 0) {
+        log.error("Rolling back successful publishes...");
+        const rollbackFailures: string[] = [];
+        await Promise.all(
+          published.map(async (spec) => {
+            const ok = await rollbackPackage(spec, url);
+            if (!ok) rollbackFailures.push(spec);
+          }),
         );
+        if (rollbackFailures.length > 0) {
+          log.error(
+            `Rollback incomplete, these packages may still exist in registry: ${rollbackFailures.join(", ")}`,
+          );
+        }
       }
-    }
 
-    throw firstError;
+      throw firstError;
+    }
+  } finally {
+    await npmrcCleanup?.();
   }
 }
 
@@ -172,11 +183,9 @@ async function publishSinglePackage(
     const tag = extractTag(entry.version);
     const distTag = tag ? `pkglab-${tag}` : "pkglab";
 
-    // Pass auth via env vars since .npmrc inside workspace packages is ignored
-    // by both npm and bun on some platforms.
     const result = await run(
       ["bun", "publish", "--registry", registryUrl, "--tag", distTag, "--access", "public"],
-      { cwd: entry.dir, env: npmEnvWithAuth(registryUrl) },
+      { cwd: entry.dir },
     );
     if (result.exitCode !== 0) {
       throw new Error(`bun publish failed for ${entry.name}: ${result.stderr}`);
@@ -186,6 +195,33 @@ async function publishSinglePackage(
     await rm(pkgJsonPath, { force: true }).catch(() => {});
     await rename(backupPath, pkgJsonPath).catch(() => {});
   }
+}
+
+// Write .npmrc at the workspace root with registry auth.
+// Returns a cleanup function that restores the original state.
+async function writeWorkspaceNpmrc(
+  workspaceRoot: string,
+  url: string,
+): Promise<() => Promise<void>> {
+  const npmrcPath = join(workspaceRoot, ".npmrc");
+  const backupPath = join(workspaceRoot, `.npmrc${BACKUP_SUFFIX}`);
+  const registryHost = url.replace(/^https?:/, "");
+  const npmrc = `registry=${url}\n${registryHost}/:_authToken=pkglab-local\n`;
+
+  // Backup existing .npmrc if present
+  const hadNpmrc = await Bun.file(npmrcPath).exists();
+  if (hadNpmrc) {
+    await rename(npmrcPath, backupPath);
+  }
+
+  await Bun.write(npmrcPath, npmrc);
+
+  return async () => {
+    await rm(npmrcPath, { force: true }).catch(() => {});
+    if (hadNpmrc) {
+      await rename(backupPath, npmrcPath).catch(() => {});
+    }
+  };
 }
 
 async function recoverBackup(backupPath: string, targetPath: string): Promise<void> {
