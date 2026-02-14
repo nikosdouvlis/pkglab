@@ -12,6 +12,7 @@ export const paths = {
   verdaccioDir: join(pkglab_HOME, "verdaccio"),
   verdaccioConfig: join(pkglab_HOME, "verdaccio", "config.yaml"),
   verdaccioStorage: join(pkglab_HOME, "verdaccio", "storage"),
+  listenersDir: join(pkglab_HOME, "listeners"),
   logFile: "/tmp/pkglab/verdaccio.log",
   logDir: "/tmp/pkglab",
 } as const;

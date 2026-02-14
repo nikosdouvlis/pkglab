@@ -40,3 +40,10 @@ export class NpmrcConflictError extends pkglabError {
   }
 }
 
+export class ListenerNotRunningError extends pkglabError {
+  constructor(msg = "No listener running for this workspace. Run: pkglab listen") {
+    super(msg);
+    this.name = "ListenerNotRunningError";
+  }
+}
+

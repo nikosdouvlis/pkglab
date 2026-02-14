@@ -16,6 +16,7 @@ export async function ensurepkglabDirs(): Promise<void> {
   await mkdir(paths.home, { recursive: true });
   await mkdir(paths.reposDir, { recursive: true });
   await mkdir(paths.verdaccioDir, { recursive: true });
+  await mkdir(paths.listenersDir, { recursive: true });
   await mkdir(paths.logDir, { recursive: true });
 }
 

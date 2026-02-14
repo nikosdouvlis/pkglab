@@ -48,6 +48,7 @@ const cmd = defineCommand({
     reset: () => import("./commands/reset").then((m) => m.default),
     doctor: () => import("./commands/doctor").then((m) => m.default),
     check: () => import("./commands/check").then((m) => m.default),
+    listen: () => import("./commands/listen").then((m) => m.default),
   },
   async setup() {
     await ensurepkglabDirs();

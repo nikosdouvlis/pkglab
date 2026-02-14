@@ -26,6 +26,7 @@ import { fingerprintPackages } from "../lib/fingerprint";
 import { loadFingerprintState, saveFingerprintState } from "../lib/fingerprint-state";
 import { run } from "../lib/proc";
 import { getPositionalArgs } from "../lib/args";
+import { getListenerSocketPath, sendPing } from "../lib/listener-ipc";
 import {
   buildConsumerWorkItems,
   buildVersionEntries,
@@ -127,6 +128,11 @@ function resolveTargets(
   workspace: { packages: WorkspacePackage[] },
 ): string[] {
   const names = getPositionalArgs(args);
+
+  if (args.root && names.length > 0) {
+    throw new pkglabError("Cannot use --root with package names");
+  }
+
   if (names.length > 0) {
     const targets: string[] = [];
     for (const name of names) {
@@ -144,15 +150,17 @@ function resolveTargets(
     return targets;
   }
 
-  const cwd = process.cwd();
-  const currentPkg = workspace.packages.find((p) => p.dir === cwd);
-  if (currentPkg) {
-    if (!currentPkg.publishable) {
-      log.error("Current package is private and cannot be published");
-      process.exit(1);
+  if (!args.root) {
+    const cwd = process.cwd();
+    const currentPkg = workspace.packages.find((p) => p.dir === cwd);
+    if (currentPkg) {
+      if (!currentPkg.publishable) {
+        log.error("Current package is private and cannot be published");
+        process.exit(1);
+      }
+      log.info(`Publishing from package dir: ${currentPkg.name}`);
+      return [currentPkg.name];
     }
-    log.info(`Publishing from package dir: ${currentPkg.name}`);
-    return [currentPkg.name];
   }
 
   return workspace.packages.filter((p) => p.publishable).map((p) => p.name);
@@ -414,6 +422,8 @@ export default defineCommand({
     force: { type: "boolean", description: "Ignore fingerprints (republish all)", default: false, alias: "f" },
     tag: { type: "string", description: "Publish with a tag", alias: "t" },
     worktree: { type: "boolean", description: "Auto-detect tag from git branch", default: false, alias: "w" },
+    root: { type: "boolean", description: "Publish all packages (skip per-package cwd detection)", default: false },
+    ping: { type: "boolean", description: "Send signal to listener instead of publishing", default: false },
   },
   async run({ args }) {
     const verbose = args.verbose as boolean;
@@ -433,6 +443,18 @@ export default defineCommand({
     }
 
     const targets = resolveTargets(args, workspace);
+
+    // --ping: send signal to the listener and exit
+    if (args.ping) {
+      const socketPath = getListenerSocketPath(workspace.root);
+      await sendPing(socketPath, {
+        names: targets,
+        tag,
+        root: args.root as boolean,
+      });
+      log.success("Ping sent to listener");
+      return;
+    }
 
     // --single bypasses cascade and fingerprinting entirely
     if (args.single) {
@@ -630,12 +652,7 @@ async function publishPackages(
         const indices: number[] = [];
         for (const entry of repo.packages) {
           indices.push(spinnerLines.length);
-          const required = requiredSets.get(repo);
-          const depsOnly = required
-            ? [...required].filter((n) => n !== entry.name)
-            : [];
-          const suffix = depsOnly.length > 0 ? " (and its deps)" : "";
-          spinnerLines.push(`waiting for ${entry.name}${suffix}`);
+          spinnerLines.push(`waiting for ${entry.name}`);
         }
         repoPackageIndices.set(repo, indices);
       }
