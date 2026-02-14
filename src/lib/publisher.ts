@@ -121,12 +121,9 @@ async function publishSinglePackage(
 ): Promise<void> {
   const pkgJsonPath = join(entry.dir, "package.json");
   const backupPath = join(entry.dir, `package.json${BACKUP_SUFFIX}`);
-  const npmrcPath = join(entry.dir, ".npmrc");
-  const npmrcBackupPath = join(entry.dir, `.npmrc${BACKUP_SUFFIX}`);
 
   // Recover any leftover backups from a previous crashed publish
   await recoverBackup(backupPath, pkgJsonPath);
-  await recoverBackup(npmrcBackupPath, npmrcPath);
 
   // Read and modify package.json in memory
   const pkgJson = await Bun.file(pkgJsonPath).json();
@@ -165,44 +162,29 @@ async function publishSinglePackage(
     }
   }
 
-  // Check if .npmrc already exists
-  const hadNpmrc = await Bun.file(npmrcPath).exists();
-
-  // Rename originals to .pkglab backups
+  // Rename original to .pkglab backup
   await rename(pkgJsonPath, backupPath);
-  if (hadNpmrc) {
-    await rename(npmrcPath, npmrcBackupPath);
-  }
 
   try {
     // Write modified package.json
     await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
 
-    // Write .npmrc with registry + dummy auth
-    const registryHost = registryUrl.replace(/^https?:/, "");
-    const npmrc = `registry=${registryUrl}\n${registryHost}/:_authToken=pkglab-local\n`;
-    await Bun.write(npmrcPath, npmrc);
-
     const tag = extractTag(entry.version);
     const distTag = tag ? `pkglab-${tag}` : "pkglab";
 
+    // Pass auth via env vars since .npmrc inside workspace packages is ignored
+    // by both npm and bun on some platforms.
     const result = await run(
       ["bun", "publish", "--registry", registryUrl, "--tag", distTag, "--access", "public"],
-      { cwd: entry.dir },
+      { cwd: entry.dir, env: npmEnvWithAuth(registryUrl) },
     );
     if (result.exitCode !== 0) {
       throw new Error(`bun publish failed for ${entry.name}: ${result.stderr}`);
     }
   } finally {
-    // Restore originals: rm temp, rename backup back
+    // Restore original package.json
     await rm(pkgJsonPath, { force: true }).catch(() => {});
     await rename(backupPath, pkgJsonPath).catch(() => {});
-    if (hadNpmrc) {
-      await rm(npmrcPath, { force: true }).catch(() => {});
-      await rename(npmrcBackupPath, npmrcPath).catch(() => {});
-    } else {
-      await rm(npmrcPath, { force: true }).catch(() => {});
-    }
   }
 }
 
