@@ -27,7 +27,13 @@ import { discoverWorkspace } from "../lib/workspace";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import { getPositionalArgs, normalizeScope } from "../lib/args";
-import type { pkglabConfig, RepoState } from "../types";
+import type { pkglabConfig, RepoState, WorkspacePackage } from "../types";
+
+type WorkspaceDiscovery = {
+  root: string;
+  tool: string;
+  packages: WorkspacePackage[];
+};
 
 function parsePackageArg(input: string): { name: string; tag?: string } {
   const lastAt = input.lastIndexOf("@");
@@ -90,12 +96,14 @@ const NPMRC_NOTICE =
 /**
  * Discover workspace and collect root + sub-package package.json data.
  * Returns undefined if the path is not a workspace.
+ * Accepts an optional pre-computed workspace discovery result to avoid redundant filesystem walks.
  */
 async function collectWorkspacePackageJsons(
   repoPath: string,
+  cachedWorkspace?: WorkspaceDiscovery,
 ): Promise<Array<{ path: string; relDir: string; packageJson: Record<string, any> }> | undefined> {
   try {
-    const ws = await discoverWorkspace(repoPath);
+    const ws = cachedWorkspace ?? await discoverWorkspace(repoPath);
     const rootPkgJson = await Bun.file(join(repoPath, "package.json")).json();
     return [
       { path: join(repoPath, "package.json"), relDir: ".", packageJson: rootPkgJson },
@@ -104,7 +112,7 @@ async function collectWorkspacePackageJsons(
         .map(p => ({
           path: join(p.dir, "package.json"),
           relDir: relative(repoPath, p.dir) || ".",
-          packageJson: p.packageJson,
+          packageJson: p.packageJson as Record<string, any>,
         })),
     ];
   } catch {
@@ -121,6 +129,7 @@ async function batchInstallPackages(
   packagejson?: string,
   dryRun?: boolean,
   verbose?: boolean,
+  cachedWorkspace?: WorkspaceDiscovery,
 ): Promise<void> {
   let effectivePath = repoPath;
   let catalogRoot: string | undefined;
@@ -238,7 +247,7 @@ async function batchInstallPackages(
   // When no -p flag, scan workspace packages to find all sub-packages that use each dep
   let workspacePackageJsons: Array<{ path: string; relDir: string; packageJson: Record<string, any> }> | undefined;
   if (!packagejson) {
-    workspacePackageJsons = await collectWorkspacePackageJsons(effectivePath);
+    workspacePackageJsons = await collectWorkspacePackageJsons(effectivePath, cachedWorkspace);
     if (verbose && workspacePackageJsons) {
       log.info(`Workspace scan: found ${workspacePackageJsons.length} package.json files`);
       for (const wsPkg of workspacePackageJsons) {
@@ -444,15 +453,25 @@ async function resolveScopePackages(
   scope: string,
   tag: string | undefined,
   verbose?: boolean,
-): Promise<ResolvedPackage[]> {
+  cachedWorkspace?: WorkspaceDiscovery,
+): Promise<{ resolved: ResolvedPackage[]; workspace: WorkspaceDiscovery }> {
   const prefix = normalizeScope(scope);
   if (!prefix) {
     log.error(`Invalid scope: "${scope}". Use a scope name like "clerk" or "@clerk".`);
     process.exit(1);
   }
 
+  // Discover workspace once (use cache if provided)
+  let workspace: WorkspaceDiscovery;
+  try {
+    workspace = cachedWorkspace ?? await discoverWorkspace(repoPath);
+  } catch {
+    log.error("--scope requires a workspace. No workspace detected.");
+    process.exit(1);
+  }
+
   // Scan workspace
-  const allPackageJsons = await collectWorkspacePackageJsons(repoPath);
+  const allPackageJsons = await collectWorkspacePackageJsons(repoPath, workspace);
   if (!allPackageJsons) {
     log.error("--scope requires a workspace. No workspace detected.");
     process.exit(1);
@@ -518,7 +537,7 @@ async function resolveScopePackages(
     log.dim(`  ${pkg.name}@${pkg.version}`);
   }
 
-  return resolved;
+  return { resolved, workspace };
 }
 
 export default defineCommand({
@@ -603,8 +622,11 @@ export default defineCommand({
     ]);
 
     let resolved: ResolvedPackage[];
+    let cachedWorkspace: WorkspaceDiscovery | undefined;
     if (scope) {
-      resolved = await resolveScopePackages(repoPath, scope, tag, verbose);
+      const result = await resolveScopePackages(repoPath, scope, tag, verbose);
+      resolved = result.resolved;
+      cachedWorkspace = result.workspace;
     } else if (names.length === 0) {
       resolved = await interactivePick(tag);
     } else {
@@ -614,7 +636,7 @@ export default defineCommand({
     }
 
     if (resolved.length > 0) {
-      await batchInstallPackages(config, repoPath, resolved, catalog, packagejson, dryRun, verbose);
+      await batchInstallPackages(config, repoPath, resolved, catalog, packagejson, dryRun, verbose, cachedWorkspace);
       if (!dryRun) {
         await ensureNpmrcForActiveRepos(config.port);
       }

@@ -8,6 +8,8 @@ import {
   expandDependents,
   closeUnderDeps,
   deterministicToposort,
+  precomputeTransitiveDeps,
+  precomputeTransitiveDependents,
 } from "../lib/graph";
 import { buildPublishPlan, executePublish } from "../lib/publisher";
 import { setDistTag } from "../lib/registry";
@@ -156,6 +158,10 @@ async function runCascade(
 ): Promise<CascadeResult> {
   const graph = buildDependencyGraph(workspace.packages);
 
+  // Precompute transitive closures once for the entire graph
+  const cachedDeps = precomputeTransitiveDeps(graph);
+  const cachedDependents = precomputeTransitiveDependents(graph);
+
   // Gather consumed packages from active repos for cascade filtering.
   // No active repos = empty set = no dependents pass filter (nobody is consuming).
   // Active repos = filter dependents to only packages consumers have installed.
@@ -168,7 +174,7 @@ async function runCascade(
   }
 
   // Phase 1: targets + transitive deps (no dependents yet)
-  const { scope: initialScope } = computeInitialScope(graph, targets);
+  const { scope: initialScope } = computeInitialScope(graph, targets, cachedDeps);
   const scope = new Set(initialScope);
 
   // Track scope reasons: why each package is in scope
@@ -183,8 +189,17 @@ async function runCascade(
     ? {}
     : await loadFingerprintState(workspace.root, tag ?? null);
 
-  // Cache fingerprints across iterations
-  const fingerprints = new Map<string, { hash: string; fileCount: number }>();
+  // Eager fingerprinting: fingerprint ALL publishable packages upfront in one parallel batch.
+  // The cost of fingerprinting a few extra packages is negligible compared to eliminating
+  // sequential rounds of fingerprinting inside the cascade loop.
+  const allPublishable = workspace.packages.filter((p) => p.publishable);
+  if (opts.verbose) {
+    log.info(`Fingerprinting ${allPublishable.length} packages...`);
+  }
+  const fingerprints = await fingerprintPackages(
+    allPublishable.map((p) => ({ name: p.name, dir: p.dir })),
+  );
+
   // Track which changed packages we've already expanded dependents from
   const expandedSet = new Set<string>();
   // Track reason and existingVersions across iterations
@@ -197,26 +212,8 @@ async function runCascade(
   // Two-phase cascade loop
   while (true) {
     // Close under deps: ensure every publishable package has its workspace deps in scope
-    const closed = closeUnderDeps(graph, scope);
+    const closed = closeUnderDeps(graph, scope, cachedDeps);
     for (const name of closed) scope.add(name);
-
-    // Fingerprint any packages not yet fingerprinted
-    const toFingerprint: { name: string; dir: string }[] = [];
-    for (const name of scope) {
-      if (!fingerprints.has(name)) {
-        const pkg = graph.getNodeData(name);
-        toFingerprint.push({ name: pkg.name, dir: pkg.dir });
-      }
-    }
-    if (toFingerprint.length > 0) {
-      if (opts.verbose) {
-        log.info(`Fingerprinting ${toFingerprint.length} packages...`);
-      }
-      const newFps = await fingerprintPackages(toFingerprint);
-      for (const [name, fp] of newFps) {
-        fingerprints.set(name, fp);
-      }
-    }
 
     // Toposort the full scope for detectChanges
     const ordered = deterministicToposort(graph, scope);
@@ -241,7 +238,7 @@ async function runCascade(
     if (toExpand.length === 0) break;
 
     // Expand dependents from newly changed packages
-    const expansion = expandDependents(graph, toExpand, scope, consumedPackages);
+    const expansion = expandDependents(graph, toExpand, scope, consumedPackages, cachedDependents);
     for (const name of toExpand) expandedSet.add(name);
 
     // Track which package triggered each dependent's inclusion
@@ -518,6 +515,8 @@ async function publishPackages(
 
   const releaseLock = await acquirePublishLock();
   try {
+    const publishStart = performance.now();
+
     if (verbose) {
       for (const entry of plan.packages) {
         const r = reason?.get(entry.name);
@@ -533,10 +532,6 @@ async function publishPackages(
         log.line(`  ${c.dim("\u25CB")} ${c.dim(`${pkg.name} (unchanged, ${ver})`)}`);
       }
       await executePublish(plan, config, { verbose: true });
-      log.success(`Published ${plan.packages.length} packages:`);
-      for (const entry of plan.packages) {
-        log.line(`  ${entry.name}@${entry.version}`);
-      }
     } else {
       log.info("Publishing...");
       const spinner = createMultiSpinner(
@@ -558,6 +553,9 @@ async function publishPackages(
     await Promise.all(
       plan.packages.map((e) => setDistTag(config, e.name, e.version, distTag)),
     );
+
+    const elapsed = ((performance.now() - publishStart) / 1000).toFixed(2);
+    log.success(`Published ${plan.packages.length} packages in ${elapsed}s`);
 
     // Auto-update active consumer repos
     const { updateActiveRepos } = await import("../lib/consumer");

@@ -2,6 +2,30 @@ import { DepGraph } from "dependency-graph";
 import type { WorkspacePackage } from "../types";
 import { CycleDetectedError } from "./errors";
 
+// Precompute all transitive dependencies for every node in the graph.
+// Returns a Map keyed by package name, value is the array from graph.dependenciesOf().
+export function precomputeTransitiveDeps(
+  graph: DepGraph<WorkspacePackage>,
+): Map<string, string[]> {
+  const cache = new Map<string, string[]>();
+  for (const node of graph.overallOrder()) {
+    cache.set(node, graph.dependenciesOf(node));
+  }
+  return cache;
+}
+
+// Precompute all transitive dependents for every node in the graph.
+// Returns a Map keyed by package name, value is the array from graph.dependantsOf().
+export function precomputeTransitiveDependents(
+  graph: DepGraph<WorkspacePackage>,
+): Map<string, string[]> {
+  const cache = new Map<string, string[]>();
+  for (const node of graph.overallOrder()) {
+    cache.set(node, graph.dependantsOf(node));
+  }
+  return cache;
+}
+
 export function buildDependencyGraph(
   packages: WorkspacePackage[]
 ): DepGraph<WorkspacePackage> {
@@ -29,9 +53,11 @@ export function buildDependencyGraph(
 }
 
 // Phase 1: targets + their transitive deps (no dependents)
+// When cachedDeps is provided, uses precomputed transitive deps instead of calling the graph.
 export function computeInitialScope(
   graph: DepGraph<WorkspacePackage>,
   targets: string[],
+  cachedDeps?: Map<string, string[]>,
 ): { scope: Set<string>; dependencies: Record<string, string[]> } {
   const scope = new Set<string>();
   const dependencies: Record<string, string[]> = {};
@@ -45,7 +71,7 @@ export function computeInitialScope(
       );
       dependencies[name] = directDeps;
       // Include transitive dependencies so workspace deps are published together
-      const allDeps = graph.dependenciesOf(name);
+      const allDeps = cachedDeps?.get(name) ?? graph.dependenciesOf(name);
       for (const dep of allDeps) {
         scope.add(dep);
       }
@@ -59,11 +85,13 @@ export function computeInitialScope(
 
 // Phase 2: from specific "changed" packages, compute their dependents.
 // Apply consumer filter. Only return packages not already in currentScope.
+// When cachedDependents is provided, uses precomputed transitive dependents instead of calling the graph.
 export function expandDependents(
   graph: DepGraph<WorkspacePackage>,
   changedPackages: string[],
   currentScope: Set<string>,
   consumedPackages?: Set<string>,
+  cachedDependents?: Map<string, string[]>,
 ): { newPackages: string[]; dependents: Record<string, string[]>; skippedDependents: { name: string; via: string }[] } {
   const dependents: Record<string, string[]> = {};
   const newPackages = new Set<string>();
@@ -71,7 +99,7 @@ export function expandDependents(
 
   for (const name of changedPackages) {
     try {
-      const transitiveDependents = graph.dependantsOf(name);
+      const transitiveDependents = cachedDependents?.get(name) ?? graph.dependantsOf(name);
       if (allPossibleDependents) {
         for (const d of transitiveDependents) {
           if (!allPossibleDependents.has(d)) allPossibleDependents.set(d, name);
@@ -123,9 +151,11 @@ export function expandDependents(
 
 // Phase 3: ensure every publishable package in scope has its workspace deps in scope.
 // Returns the expanded scope (may add new packages). Skips private packages.
+// When cachedDeps is provided, uses precomputed transitive deps instead of calling the graph.
 export function closeUnderDeps(
   graph: DepGraph<WorkspacePackage>,
   scope: Set<string>,
+  cachedDeps?: Map<string, string[]>,
 ): Set<string> {
   const result = new Set(scope);
   let changed = true;
@@ -135,7 +165,7 @@ export function closeUnderDeps(
       const pkg = graph.getNodeData(name);
       if (pkg.packageJson.private) continue;
       try {
-        const deps = graph.dependenciesOf(name);
+        const deps = cachedDeps?.get(name) ?? graph.dependenciesOf(name);
         for (const dep of deps) {
           if (!result.has(dep)) {
             result.add(dep);

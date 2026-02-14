@@ -129,7 +129,9 @@ export async function fingerprintPackage(packageDir: string): Promise<PackageFin
     if (await f.exists()) {
       hasher.update(ignoreFile);
       hasher.update("\0");
-      hasher.update(new Uint8Array(await f.arrayBuffer()));
+      for await (const chunk of f.stream()) {
+        hasher.update(chunk);
+      }
       hasher.update("\0");
     }
   }
@@ -137,7 +139,9 @@ export async function fingerprintPackage(packageDir: string): Promise<PackageFin
   for (const file of files) {
     const f = Bun.file(join(packageDir, file));
     if (!(await f.exists())) continue;
-    hasher.update(new Uint8Array(await f.arrayBuffer()));
+    for await (const chunk of f.stream()) {
+      hasher.update(chunk);
+    }
     hasher.update("\0");
     hasher.update(file);
     hasher.update("\0");
@@ -165,8 +169,10 @@ async function fingerprintPackageStrict(packageDir: string): Promise<PackageFing
   const hasher = new Bun.CryptoHasher("sha256");
   hasher.update("pkglab-fp-v2\0");
   for (const file of files) {
-    const content = await Bun.file(join(packageDir, file)).arrayBuffer();
-    hasher.update(new Uint8Array(content));
+    const f = Bun.file(join(packageDir, file));
+    for await (const chunk of f.stream()) {
+      hasher.update(chunk);
+    }
     hasher.update("\0");
     hasher.update(file);
     hasher.update("\0");
