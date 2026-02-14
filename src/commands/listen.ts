@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
 import { unlink } from "node:fs/promises";
+import { unlinkSync } from "node:fs";
 import { discoverWorkspace } from "../lib/workspace";
 import { ensureDaemonRunning } from "../lib/daemon";
 import {
@@ -13,7 +14,6 @@ import { log } from "../lib/log";
 import { c } from "../lib/color";
 
 interface Lane {
-  publishing: boolean;
   pending: Set<string>;
   root: boolean;
 }
@@ -55,11 +55,12 @@ export default defineCommand({
 
     // Per-tag lane state for coalescing pings
     const lanes = new Map<string, Lane>();
+    let publishing = false;
 
     function getLane(tag: string): Lane {
       let lane = lanes.get(tag);
       if (!lane) {
-        lane = { publishing: false, pending: new Set(), root: false };
+        lane = { pending: new Set(), root: false };
         lanes.set(tag, lane);
       }
       return lane;
@@ -74,7 +75,7 @@ export default defineCommand({
       }
       if (msg.root) lane.root = true;
 
-      if (lane.publishing) {
+      if (publishing) {
         const names = msg.names.length > 0 ? msg.names.join(", ") : "(root)";
         log.info(
           formatTimestamp() +
@@ -88,63 +89,80 @@ export default defineCommand({
         log.info(
           formatTimestamp() + " Ping: " + names + (tag ? ` [${tag}]` : "")
         );
-        runPublishCycle(tag, lane);
+        drainLanes();
       }
     }
 
-    async function runPublishCycle(tag: string, lane: Lane): Promise<void> {
-      lane.publishing = true;
+    async function drainLanes(): Promise<void> {
+      publishing = true;
+      try {
+        while (true) {
+          // Find next lane with pending work
+          let activeLane: Lane | undefined;
+          let activeTag = "";
+          for (const [tag, lane] of lanes) {
+            if (lane.pending.size > 0 || lane.root) {
+              activeLane = lane;
+              activeTag = tag;
+              break;
+            }
+          }
+          if (!activeLane) break;
 
-      while (lane.pending.size > 0 || lane.root) {
-        const names = [...lane.pending];
-        const useRoot = lane.root;
-        lane.pending.clear();
-        lane.root = false;
+          // Drain this lane's pending set
+          const names = [...activeLane.pending];
+          const useRoot = activeLane.root;
+          activeLane.pending.clear();
+          activeLane.root = false;
 
-        // Build command
-        const cmd: string[] = [process.execPath];
-        const isSource = process.argv[1]?.match(/\.(ts|js)$/);
-        if (isSource) cmd.push(process.argv[1]);
-        cmd.push("pub");
+          // Build command
+          const cmd: string[] = [process.execPath];
+          const isSource = process.argv[1]?.match(/\.(ts|js)$/);
+          if (isSource) cmd.push(process.argv[1]);
+          cmd.push("pub");
 
-        if (useRoot) {
-          cmd.push("--root");
-        } else if (names.length > 0) {
-          cmd.push(...names);
-        }
+          if (useRoot) {
+            cmd.push("--root");
+          } else if (names.length > 0) {
+            cmd.push(...names);
+          }
 
-        if (tag) {
-          cmd.push("--tag", tag);
-        }
+          if (activeTag) {
+            cmd.push("--tag", activeTag);
+          }
 
-        log.info(
-          formatTimestamp() +
-            " Publishing" +
-            (tag ? ` [${tag}]` : "") +
-            "..."
-        );
-        if (names.length > 0 && !useRoot) {
-          log.dim("  " + names.join(", "));
-        }
-
-        const proc = Bun.spawn(cmd, {
-          cwd: workspaceRoot,
-          stdout: "inherit",
-          stderr: "inherit",
-        });
-
-        const exitCode = await proc.exited;
-        if (exitCode !== 0) {
-          log.error(
-            formatTimestamp() + " Publish failed (exit " + exitCode + ")"
+          log.info(
+            formatTimestamp() +
+              " Publishing" +
+              (activeTag ? ` [${activeTag}]` : "") +
+              "..."
           );
-        } else {
-          log.success(formatTimestamp() + " Publish complete");
-        }
-      }
+          if (names.length > 0 && !useRoot) {
+            log.dim("  " + names.join(", "));
+          }
 
-      lane.publishing = false;
+          const proc = Bun.spawn(cmd, {
+            cwd: workspaceRoot,
+            stdout: "inherit",
+            stderr: "inherit",
+          });
+
+          const exitCode = await proc.exited;
+          if (exitCode !== 0) {
+            log.error(
+              formatTimestamp() + " Publish failed (exit " + exitCode + ")"
+            );
+          } else {
+            log.success(formatTimestamp() + " Publish complete");
+          }
+        }
+      } finally {
+        publishing = false;
+      }
     }
+
+    // Per-socket receive buffer for TCP frame reassembly
+    const socketBuffers = new Map<object, string>();
 
     // Start Unix socket server
     const server = Bun.listen({
@@ -156,16 +174,21 @@ export default defineCommand({
           }
         },
         data(socket, data) {
-          const raw = data.toString();
-          // Messages are newline-delimited JSON
-          const lines = raw.split("\n").filter((l) => l.trim());
-          for (const line of lines) {
+          let buffer = (socketBuffers.get(socket) ?? "") + data.toString();
+          let newlineIdx: number;
+          while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, newlineIdx).trim();
+            buffer = buffer.slice(newlineIdx + 1);
+            if (!line) continue;
             try {
-              const msg = JSON.parse(line) as PingMessage;
+              const msg = JSON.parse(line);
+              if (!Array.isArray(msg.names)) {
+                throw new Error("Invalid ping: names must be an array");
+              }
               const ack: PingAck = { ok: true };
               socket.write(JSON.stringify(ack) + "\n");
               socket.flush();
-              handlePing(msg);
+              handlePing(msg as PingMessage);
             } catch (err) {
               const ack: PingAck = {
                 ok: false,
@@ -180,8 +203,10 @@ export default defineCommand({
               }
             }
           }
+          socketBuffers.set(socket, buffer);
         },
-        close(_socket) {
+        close(socket) {
+          socketBuffers.delete(socket);
           if (args.verbose) {
             log.dim(formatTimestamp() + " Connection closed");
           }
@@ -198,7 +223,7 @@ export default defineCommand({
 
     const cleanup = () => {
       server.stop();
-      unlink(socketPath).catch(() => {});
+      try { unlinkSync(socketPath); } catch {}
       process.exit(0);
     };
     process.on("SIGINT", cleanup);

@@ -426,26 +426,18 @@ export default defineCommand({
     ping: { type: "boolean", description: "Send signal to listener instead of publishing", default: false },
   },
   async run({ args }) {
-    const verbose = args.verbose as boolean;
-    const showUpdate = await prefetchUpdateCheck();
-
     const tag = await resolveTag(args);
-    if (verbose && tag) {
-      log.info(`Publishing with tag: ${tag}`);
-    }
-
-    await ensureDaemonRunning();
-
-    const config = await loadConfig();
     const workspace = await discoverWorkspace(process.cwd());
-    if (verbose) {
-      log.info(`Found ${workspace.packages.length} packages in workspace`);
-    }
 
-    const targets = resolveTargets(args, workspace);
-
-    // --ping: send signal to the listener and exit
+    // --ping: fast path, send signal to listener and exit
     if (args.ping) {
+      const incompatible = ["single", "shallow", "force", "dry-run"].filter((f) => args[f]);
+      if (incompatible.length > 0) {
+        throw new pkglabError(
+          `Cannot use --ping with ${incompatible.map((f) => "--" + f).join(", ")}`
+        );
+      }
+      const targets = resolveTargets(args, workspace);
       const socketPath = getListenerSocketPath(workspace.root);
       await sendPing(socketPath, {
         names: targets,
@@ -455,6 +447,23 @@ export default defineCommand({
       log.success("Ping sent to listener");
       return;
     }
+
+    // Normal publish path
+    const verbose = args.verbose as boolean;
+    const showUpdate = await prefetchUpdateCheck();
+
+    if (verbose && tag) {
+      log.info(`Publishing with tag: ${tag}`);
+    }
+
+    await ensureDaemonRunning();
+
+    const config = await loadConfig();
+    if (verbose) {
+      log.info(`Found ${workspace.packages.length} packages in workspace`);
+    }
+
+    const targets = resolveTargets(args, workspace);
 
     // --single bypasses cascade and fingerprinting entirely
     if (args.single) {

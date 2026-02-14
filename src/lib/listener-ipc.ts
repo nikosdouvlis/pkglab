@@ -60,7 +60,11 @@ export async function sendPing(socketPath: string, message: PingMessage): Promis
             clearTimeout(timeout);
             try {
               const ack = JSON.parse(line) as PingAck;
-              settle(() => resolve(ack));
+              if (ack.ok) {
+                settle(() => resolve(ack));
+              } else {
+                settle(() => reject(new Error(ack.error ?? "Listener rejected the ping")));
+              }
             } catch {
               settle(() => reject(new Error("Invalid ack from listener")));
             }
