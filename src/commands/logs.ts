@@ -3,14 +3,14 @@ import { paths } from "../lib/paths";
 import { log } from "../lib/log";
 
 export default defineCommand({
-  meta: { name: "logs", description: "Tail Verdaccio logs" },
+  meta: { name: "logs", description: "Tail local registry logs" },
   args: {
     follow: { type: "boolean", alias: "f", description: "Stream logs", default: false },
   },
   async run({ args }) {
     const file = Bun.file(paths.logFile);
     if (!(await file.exists())) {
-      log.warn("No log file found. Has Verdaccio been started?");
+      log.warn("No log file found. Has the registry been started?");
       return;
     }
 

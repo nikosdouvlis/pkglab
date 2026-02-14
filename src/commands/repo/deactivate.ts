@@ -1,21 +1,48 @@
 import { defineCommand } from "citty";
 import {
+  loadAllRepos,
   loadRepoByPath,
   saveRepoByPath,
   getRepoDisplayName,
   canonicalRepoPath,
 } from "../../lib/repo-state";
+import { getPositionalArgs } from "../../lib/args";
 import { log } from "../../lib/log";
 
 export default defineCommand({
-  meta: { name: "off", description: "Deactivate repo" },
+  meta: { name: "off", description: "Deactivate repo for auto-updates" },
   args: {
     name: { type: "positional", description: "Repo path", required: false },
+    all: { type: "boolean", description: "Deactivate all repos", default: false },
   },
   async run({ args }) {
     const pathArg = args.name as string | undefined;
 
-    const paths = ((args as any)._ as string[] | undefined) ?? [];
+    // --all: deactivate every known repo
+    if (args.all) {
+      const repos = await loadAllRepos();
+      if (repos.length === 0) {
+        log.info("No repos registered");
+        return;
+      }
+
+      let deactivated = 0;
+      for (const { state } of repos) {
+        if (!state.active) continue;
+        state.active = false;
+        await saveRepoByPath(state.path, state);
+        const displayName = await getRepoDisplayName(state.path);
+        log.success(`Deactivated ${displayName}`);
+        deactivated++;
+      }
+
+      if (deactivated === 0) {
+        log.info("No repos are currently active");
+      }
+      return;
+    }
+
+    const paths = getPositionalArgs(args);
     if (pathArg) paths.unshift(pathArg);
 
     if (paths.length === 0) {

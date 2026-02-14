@@ -2,7 +2,9 @@ import { defineCommand } from "citty";
 import { log } from "../lib/log";
 import { ispkglabVersion } from "../lib/version";
 import { c } from "../lib/color";
-import { join } from "node:path";
+import { run } from "../lib/proc";
+import { discoverWorkspace } from "../lib/workspace";
+import { join, relative } from "node:path";
 
 export default defineCommand({
   meta: {
@@ -13,41 +15,19 @@ export default defineCommand({
     const cwd = process.cwd();
     let issues = 0;
 
-    // Check package.json for pkglab versions
-    const pkgJsonPath = join(cwd, "package.json");
-    const pkgFile = Bun.file(pkgJsonPath);
-    if (await pkgFile.exists()) {
-      const pkgJson = await pkgFile.json();
-      for (const field of ["dependencies", "devDependencies"]) {
-        if (!pkgJson[field]) continue;
-        for (const [name, version] of Object.entries(pkgJson[field])) {
-          if (typeof version === "string" && ispkglabVersion(version)) {
-            log.line(`  ${c.red("✗")} ${field}.${name}: ${version}`);
-            issues++;
-          }
-        }
-      }
+    // Scan root package.json
+    issues += await scanPackageJson(cwd, "");
 
-      // Check catalog fields for pkglab versions
-      if (pkgJson.catalog) {
-        for (const [name, version] of Object.entries(pkgJson.catalog)) {
-          if (typeof version === "string" && ispkglabVersion(version)) {
-            log.line(`  ${c.red("✗")} catalog.${name}: ${version}`);
-            issues++;
-          }
-        }
+    // Discover workspace sub-packages and scan each
+    try {
+      const workspace = await discoverWorkspace(cwd);
+      for (const pkg of workspace.packages) {
+        if (pkg.dir === workspace.root) continue;
+        const rel = relative(cwd, pkg.dir);
+        issues += await scanPackageJson(pkg.dir, rel);
       }
-      if (pkgJson.catalogs) {
-        for (const [catName, entries] of Object.entries(pkgJson.catalogs)) {
-          if (!entries || typeof entries !== "object") continue;
-          for (const [name, version] of Object.entries(entries as Record<string, string>)) {
-            if (typeof version === "string" && ispkglabVersion(version)) {
-              log.line(`  ${c.red("✗")} catalogs.${catName}.${name}: ${version}`);
-              issues++;
-            }
-          }
-        }
-      }
+    } catch {
+      // Not a workspace or discovery failed, root-only scan is fine
     }
 
     // Check .npmrc for pkglab markers
@@ -63,33 +43,26 @@ export default defineCommand({
 
     // Check git staged files
     try {
-      const proc = Bun.spawn(["git", "diff", "--cached", "--name-only"], {
-        cwd,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const output = await new Response(proc.stdout).text();
-      const staged = output.trim().split("\n").filter(Boolean);
+      const result = await run(["git", "diff", "--cached", "--name-only"], { cwd });
+      const staged = result.stdout.trim().split("\n").filter(Boolean);
 
       if (staged.includes(".npmrc")) {
         log.line(`  ${c.red("✗")} .npmrc is staged for commit`);
         issues++;
       }
 
-      // Check staged package.json for pkglab versions
-      if (staged.includes("package.json")) {
-        const showProc = Bun.spawn(["git", "show", ":package.json"], {
-          cwd,
-          stdout: "pipe",
-          stderr: "pipe",
-        });
-        const stagedContent = await new Response(showProc.stdout).text();
+      // Check all staged package.json files (root and sub-packages)
+      const stagedPkgJsons = staged.filter(
+        (f) => f === "package.json" || f.endsWith("/package.json"),
+      );
+      for (const pkgJsonFile of stagedPkgJsons) {
+        const showResult = await run(["git", "show", `:${pkgJsonFile}`], { cwd });
         if (
-          stagedContent.includes("0.0.0-pkglab.") ||
-          stagedContent.includes("0.0.0-pkglab-")
+          showResult.stdout.includes("0.0.0-pkglab.") ||
+          showResult.stdout.includes("0.0.0-pkglab-")
         ) {
           log.line(
-            `  ${c.red("✗")} Staged package.json contains pkglab versions`,
+            `  ${c.red("✗")} Staged ${pkgJsonFile} contains pkglab versions`,
           );
           issues++;
         }
@@ -108,3 +81,46 @@ export default defineCommand({
     }
   },
 });
+
+async function scanPackageJson(dir: string, label: string): Promise<number> {
+  const pkgJsonPath = join(dir, "package.json");
+  const pkgFile = Bun.file(pkgJsonPath);
+  if (!(await pkgFile.exists())) return 0;
+
+  let issues = 0;
+  const prefix = label ? `${label}/` : "";
+  const pkgJson = await pkgFile.json();
+
+  for (const field of ["dependencies", "devDependencies"]) {
+    if (!pkgJson[field]) continue;
+    for (const [name, version] of Object.entries(pkgJson[field])) {
+      if (typeof version === "string" && ispkglabVersion(version)) {
+        log.line(`  ${c.red("✗")} ${prefix}${field}.${name}: ${version}`);
+        issues++;
+      }
+    }
+  }
+
+  // Check catalog fields for pkglab versions
+  if (pkgJson.catalog) {
+    for (const [name, version] of Object.entries(pkgJson.catalog)) {
+      if (typeof version === "string" && ispkglabVersion(version)) {
+        log.line(`  ${c.red("✗")} ${prefix}catalog.${name}: ${version}`);
+        issues++;
+      }
+    }
+  }
+  if (pkgJson.catalogs) {
+    for (const [catName, entries] of Object.entries(pkgJson.catalogs)) {
+      if (!entries || typeof entries !== "object") continue;
+      for (const [name, version] of Object.entries(entries as Record<string, string>)) {
+        if (typeof version === "string" && ispkglabVersion(version)) {
+          log.line(`  ${c.red("✗")} ${prefix}catalogs.${catName}.${name}: ${version}`);
+          issues++;
+        }
+      }
+    }
+  }
+
+  return issues;
+}

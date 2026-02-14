@@ -4,7 +4,7 @@ import { loadConfig } from "../lib/config";
 import { log } from "../lib/log";
 
 export default defineCommand({
-  meta: { name: "status", description: "Show server info and status" },
+  meta: { name: "status", description: "Show local registry status" },
   async run() {
     const config = await loadConfig();
     const status = await getDaemonStatus();

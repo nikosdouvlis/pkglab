@@ -19,13 +19,6 @@ export class DaemonAlreadyRunningError extends pkglabError {
   }
 }
 
-export class PortInUseError extends pkglabError {
-  constructor(port: number) {
-    super(`Port ${port} is already in use`);
-    this.name = "PortInUseError";
-  }
-}
-
 export class LockAcquisitionError extends pkglabError {
   constructor(msg: string) {
     super(msg);
@@ -47,9 +40,3 @@ export class NpmrcConflictError extends pkglabError {
   }
 }
 
-export class PackageManagerAmbiguousError extends pkglabError {
-  constructor(msg: string) {
-    super(msg);
-    this.name = "PackageManagerAmbiguousError";
-  }
-}

@@ -3,13 +3,12 @@ import { getDaemonStatus } from "../lib/daemon";
 import { loadConfig } from "../lib/config";
 import { paths } from "../lib/paths";
 import { loadAllRepos } from "../lib/repo-state";
-import { isSkipWorktreeSet, applySkipWorktree, addRegistryToNpmrc } from "../lib/consumer";
+import { MARKER_START, isSkipWorktreeSet, applySkipWorktree, addRegistryToNpmrc } from "../lib/consumer";
+import { BACKUP_SUFFIX } from "../lib/publisher";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-
-const MARKER_START = "# pkglab-start";
 
 export default defineCommand({
   meta: { name: "doctor", description: "Health check for pkglab environment" },
@@ -99,6 +98,23 @@ export default defineCommand({
         log.line(`  ${c.red("✗")} ${displayName}: could not check skip-worktree`);
         issues++;
       }
+    }
+
+    // Check for leftover publish backups in cwd
+    const glob = new Bun.Glob(`**/package.json${BACKUP_SUFFIX}`);
+    const backups: string[] = [];
+    for await (const match of glob.scan({ cwd: process.cwd(), absolute: true })) {
+      if (match.includes("node_modules/")) continue;
+      backups.push(match);
+    }
+    if (backups.length > 0) {
+      log.line(`  ${c.red("✗")} Found ${backups.length} leftover publish backup(s):`);
+      for (const b of backups) {
+        log.line(`      ${b}`);
+      }
+      log.line(`    These are original package.json files from a crashed publish.`);
+      log.line(`    Run ${c.cyan("pkglab pub")} again to auto-recover, or rename them back manually.`);
+      issues += backups.length;
     }
 
     if (issues === 0) {

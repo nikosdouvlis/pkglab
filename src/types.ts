@@ -1,6 +1,26 @@
 export interface pkglabConfig {
+  version?: number;
   port: number;
   prune_keep: number;
+}
+
+export interface PackageJson {
+  name?: string;
+  version?: string;
+  private?: boolean;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  files?: string[];
+  main?: string;
+  module?: string;
+  types?: string;
+  bin?: string | Record<string, string>;
+  exports?: Record<string, unknown>;
+  workspaces?: string[] | { packages: string[] };
+  bundledDependencies?: string[];
+  [key: string]: unknown;
 }
 
 export interface RepoState {
@@ -21,7 +41,7 @@ export interface PackageLink {
 export interface WorkspacePackage {
   name: string;
   dir: string;
-  packageJson: Record<string, any>;
+  packageJson: PackageJson;
   publishable: boolean;
 }
 

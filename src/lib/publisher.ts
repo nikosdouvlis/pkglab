@@ -1,6 +1,5 @@
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { cp, rm, mkdir } from "node:fs/promises";
+import { rename, rm } from "node:fs/promises";
 import type {
   PublishPlan,
   PublishEntry,
@@ -10,6 +9,7 @@ import type {
 import { log } from "./log";
 import { run, npmEnvWithAuth } from "./proc";
 import { extractTag } from "./version";
+import { registryUrl } from "./registry";
 
 export function buildPublishPlan(
   packages: WorkspacePackage[],
@@ -55,7 +55,7 @@ export async function executePublish(
   config: pkglabConfig,
   options: PublishOptions = {},
 ): Promise<void> {
-  const registryUrl = `http://127.0.0.1:${config.port}`;
+  const url = registryUrl(config);
 
   const results = await Promise.allSettled(
     plan.packages.map(async (entry, index) => {
@@ -63,7 +63,7 @@ export async function executePublish(
         log.info(`Publishing ${entry.name}@${entry.version}`);
       }
       try {
-        await publishSinglePackage(entry, registryUrl, plan.catalogs);
+        await publishSinglePackage(entry, url, plan.catalogs);
         options.onPublished?.(index);
         return `${entry.name}@${entry.version}`;
       } catch (error) {
@@ -97,13 +97,13 @@ export async function executePublish(
       const rollbackFailures: string[] = [];
       await Promise.all(
         published.map(async (spec) => {
-          const ok = await rollbackPackage(spec, registryUrl);
+          const ok = await rollbackPackage(spec, url);
           if (!ok) rollbackFailures.push(spec);
         }),
       );
       if (rollbackFailures.length > 0) {
         log.error(
-          `Rollback incomplete — these packages may still exist in registry: ${rollbackFailures.join(", ")}`,
+          `Rollback incomplete, these packages may still exist in registry: ${rollbackFailures.join(", ")}`,
         );
       }
     }
@@ -112,83 +112,105 @@ export async function executePublish(
   }
 }
 
+export const BACKUP_SUFFIX = ".pkglab";
+
 async function publishSinglePackage(
   entry: PublishEntry,
   registryUrl: string,
   catalogs: Record<string, Record<string, string>>,
 ): Promise<void> {
-  const safeName = entry.name.replace("/", "-").replace("@", "");
-  const tempDir = join(tmpdir(), `pkglab-${safeName}-${Date.now()}`);
-  await mkdir(tempDir, { recursive: true });
+  const pkgJsonPath = join(entry.dir, "package.json");
+  const backupPath = join(entry.dir, `package.json${BACKUP_SUFFIX}`);
+  const npmrcPath = join(entry.dir, ".npmrc");
+  const npmrcBackupPath = join(entry.dir, `.npmrc${BACKUP_SUFFIX}`);
 
-  try {
-    await cp(entry.dir, tempDir, {
-      recursive: true,
-      filter: (src) => {
-        const base = src.slice(entry.dir.length + 1);
-        if (base === "node_modules" || base === ".git" || base === ".turbo") return false;
-        if (base.startsWith("node_modules/") || base.startsWith(".git/") || base.startsWith(".turbo/")) return false;
-        return true;
-      },
-    });
+  // Recover any leftover backups from a previous crashed publish
+  await recoverBackup(backupPath, pkgJsonPath);
+  await recoverBackup(npmrcBackupPath, npmrcPath);
 
-    const pkgJsonPath = join(tempDir, "package.json");
-    const pkgJson = await Bun.file(pkgJsonPath).json();
+  // Read and modify package.json in memory
+  const pkgJson = await Bun.file(pkgJsonPath).json();
+  pkgJson.version = entry.version;
 
-    pkgJson.version = entry.version;
+  const runtimeFields = ["dependencies", "peerDependencies", "optionalDependencies"];
 
-    const runtimeFields = ["dependencies", "peerDependencies", "optionalDependencies"];
-
-    for (const field of [...runtimeFields, "devDependencies"]) {
-      if (!pkgJson[field]) continue;
-      const isRuntime = runtimeFields.includes(field);
-      for (const [name, version] of Object.entries(pkgJson[field])) {
-        if (entry.rewrittenDeps[name]) {
-          pkgJson[field][name] = entry.rewrittenDeps[name];
-        } else if (
-          typeof version === "string" &&
-          version.startsWith("workspace:")
-        ) {
-          const inner = (version as string).slice("workspace:".length);
-          if (isRuntime && (inner === "^" || inner === "~" || inner === "*")) {
-            throw new Error(
-              `${entry.name} has workspace dep "${name}" (${version}) that is not in the publish set. ` +
-              `This is a bug in cascade computation.`,
-            );
-          }
-          pkgJson[field][name] = resolveWorkspaceProtocol(version as string);
-        } else if (
-          typeof version === "string" &&
-          version.startsWith("catalog:")
-        ) {
-          pkgJson[field][name] = resolveCatalogProtocol(
-            version as string,
-            name,
-            catalogs,
+  for (const field of [...runtimeFields, "devDependencies"]) {
+    if (!pkgJson[field]) continue;
+    const isRuntime = runtimeFields.includes(field);
+    for (const [name, version] of Object.entries(pkgJson[field])) {
+      if (entry.rewrittenDeps[name]) {
+        pkgJson[field][name] = entry.rewrittenDeps[name];
+      } else if (
+        typeof version === "string" &&
+        version.startsWith("workspace:")
+      ) {
+        const inner = (version as string).slice("workspace:".length);
+        if (isRuntime && (inner === "^" || inner === "~" || inner === "*")) {
+          throw new Error(
+            `${entry.name} has workspace dep "${name}" (${version}) that is not in the publish set. ` +
+            `This is a bug in cascade computation.`,
           );
         }
+        pkgJson[field][name] = resolveWorkspaceProtocol(version as string);
+      } else if (
+        typeof version === "string" &&
+        version.startsWith("catalog:")
+      ) {
+        pkgJson[field][name] = resolveCatalogProtocol(
+          version as string,
+          name,
+          catalogs,
+        );
       }
     }
+  }
 
+  // Check if .npmrc already exists
+  const hadNpmrc = await Bun.file(npmrcPath).exists();
+
+  // Rename originals to .pkglab backups
+  await rename(pkgJsonPath, backupPath);
+  if (hadNpmrc) {
+    await rename(npmrcPath, npmrcBackupPath);
+  }
+
+  try {
+    // Write modified package.json
     await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
 
-    // Write .npmrc with registry + dummy auth so npm doesn't require login
+    // Write .npmrc with registry + dummy auth
     const registryHost = registryUrl.replace(/^https?:/, "");
     const npmrc = `registry=${registryUrl}\n${registryHost}/:_authToken=pkglab-local\n`;
-    await Bun.write(join(tempDir, ".npmrc"), npmrc);
+    await Bun.write(npmrcPath, npmrc);
 
     const tag = extractTag(entry.version);
     const distTag = tag ? `pkglab-${tag}` : "pkglab";
 
     const result = await run(
-      ["npm", "publish", "--registry", registryUrl, "--tag", distTag, "--access", "public"],
-      { cwd: tempDir },
+      ["bun", "publish", "--registry", registryUrl, "--tag", distTag, "--access", "public"],
+      { cwd: entry.dir },
     );
     if (result.exitCode !== 0) {
-      throw new Error(`npm publish failed for ${entry.name}: ${result.stderr}`);
+      throw new Error(`bun publish failed for ${entry.name}: ${result.stderr}`);
     }
   } finally {
-    await rm(tempDir, { recursive: true, force: true });
+    // Restore originals: rm temp, rename backup back
+    await rm(pkgJsonPath, { force: true }).catch(() => {});
+    await rename(backupPath, pkgJsonPath).catch(() => {});
+    if (hadNpmrc) {
+      await rm(npmrcPath, { force: true }).catch(() => {});
+      await rename(npmrcBackupPath, npmrcPath).catch(() => {});
+    } else {
+      await rm(npmrcPath, { force: true }).catch(() => {});
+    }
+  }
+}
+
+async function recoverBackup(backupPath: string, targetPath: string): Promise<void> {
+  if (await Bun.file(backupPath).exists()) {
+    log.warn(`Recovering leftover backup: ${backupPath}`);
+    await rm(targetPath, { force: true });
+    await rename(backupPath, targetPath);
   }
 }
 

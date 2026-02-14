@@ -2,23 +2,12 @@ import { join } from "node:path";
 import { paths } from "./paths";
 import { log } from "./log";
 import { c } from "./color";
+import { getVersion } from "./version";
 
 const CHECK_FILE = join(paths.home, "update-check.json");
 
 async function writeCache(latest: string): Promise<void> {
   await Bun.write(CHECK_FILE, JSON.stringify({ latestVersion: latest }));
-}
-
-declare const __PKGLAB_VERSION__: string | undefined;
-
-async function getCurrentVersion(): Promise<string | null> {
-  try {
-    const pkgPath = join(import.meta.dir, "../../package.json");
-    const pkg = await Bun.file(pkgPath).json();
-    return pkg.version ?? null;
-  } catch {
-    return typeof __PKGLAB_VERSION__ !== "undefined" ? __PKGLAB_VERSION__ : null;
-  }
 }
 
 async function fetchLatestVersion(): Promise<string | null> {
@@ -45,8 +34,8 @@ function isNewer(latest: string, current: string): boolean {
 
 // Call early so the fetch runs in the background while the user interacts.
 export async function prefetchUpdateCheck(): Promise<() => Promise<void>> {
-  const current = await getCurrentVersion();
-  if (!current) return async () => {};
+  const current = await getVersion();
+  if (current === "0.0.0") return async () => {};
 
   // Kick off fetch immediately so it runs in the background
   const fetchPromise = fetchLatestVersion();
@@ -75,12 +64,3 @@ function printBanner(current: string, latest: string): void {
   log.line("");
 }
 
-// Legacy one-shot for callers that don't need the prefetch pattern
-export async function checkForUpdate(): Promise<void> {
-  try {
-    const showUpdate = await prefetchUpdateCheck();
-    await showUpdate();
-  } catch {
-    // never block startup
-  }
-}

@@ -1,11 +1,8 @@
 import { join, basename } from "node:path";
-import { realpath, readdir, rename, unlink } from "node:fs/promises";
-import { parse, stringify } from "yaml";
+import { realpath, readdir, unlink } from "node:fs/promises";
 import { paths } from "./paths";
 import { log } from "./log";
 import type { RepoState } from "../types";
-
-const NEW_FORMAT = /^[0-9a-f]{8}--/;
 
 export async function canonicalRepoPath(dir: string): Promise<string> {
   return realpath(dir);
@@ -37,10 +34,10 @@ export async function loadRepoByPath(
 ): Promise<RepoState | null> {
   const canonical = await canonicalRepoPath(repoPath);
   const filename = repoFileName(canonical);
-  const file = Bun.file(join(paths.reposDir, `${filename}.yaml`));
+  const file = Bun.file(join(paths.reposDir, `${filename}.json`));
   if (!(await file.exists())) return null;
   const text = await file.text();
-  return parse(text) as RepoState;
+  return JSON.parse(text) as RepoState;
 }
 
 export async function saveRepoByPath(
@@ -49,8 +46,8 @@ export async function saveRepoByPath(
 ): Promise<void> {
   const canonical = await canonicalRepoPath(repoPath);
   const filename = repoFileName(canonical);
-  const filePath = join(paths.reposDir, `${filename}.yaml`);
-  await Bun.write(filePath, stringify(state));
+  const filePath = join(paths.reposDir, `${filename}.json`);
+  await Bun.write(filePath, JSON.stringify(state, null, 2) + "\n");
 }
 
 export async function deleteRepoByPath(repoPath: string): Promise<void> {
@@ -63,7 +60,7 @@ export async function deleteRepoByPath(repoPath: string): Promise<void> {
     canonical = repoPath;
   }
   const filename = repoFileName(canonical);
-  const filePath = join(paths.reposDir, `${filename}.yaml`);
+  const filePath = join(paths.reposDir, `${filename}.json`);
   await unlink(filePath).catch((e: any) => {
     if (e?.code !== "ENOENT") throw e;
   });
@@ -74,50 +71,12 @@ export async function findRepoByPath(
 ): Promise<{ displayName: string; state: RepoState } | null> {
   const canonical = await canonicalRepoPath(repoPath);
   const filename = repoFileName(canonical);
-  const file = Bun.file(join(paths.reposDir, `${filename}.yaml`));
+  const file = Bun.file(join(paths.reposDir, `${filename}.json`));
   if (!(await file.exists())) return null;
   const text = await file.text();
-  const state = parse(text) as RepoState;
+  const state = JSON.parse(text) as RepoState;
   const displayName = await getRepoDisplayName(state.path);
   return { displayName, state };
-}
-
-async function migrateOldFiles(
-  yamlFiles: string[]
-): Promise<string[]> {
-  const migrated: string[] = [];
-  const oldFiles = yamlFiles.filter((f) => !NEW_FORMAT.test(f));
-  const newFiles = yamlFiles.filter((f) => NEW_FORMAT.test(f));
-
-  for (const oldFile of oldFiles) {
-    try {
-      const oldPath = join(paths.reposDir, oldFile);
-      const text = await Bun.file(oldPath).text();
-      const state = parse(text) as RepoState;
-      if (!state?.path) {
-        log.warn(`Skipping migration for ${oldFile}: no path in state`);
-        continue;
-      }
-      const newName = repoFileName(state.path);
-      const newFile = `${newName}.yaml`;
-      if (newFile === oldFile) {
-        migrated.push(newFile);
-        continue;
-      }
-      const newPath = join(paths.reposDir, newFile);
-      if (await Bun.file(newPath).exists()) {
-        log.warn(`Migration conflict: ${newFile} already exists, skipping ${oldFile}`);
-        continue;
-      }
-      await rename(oldPath, newPath);
-      log.dim(`  Migrated repo: ${oldFile} -> ${newFile}`);
-      migrated.push(newFile);
-    } catch {
-      log.warn(`Failed to migrate repo file: ${oldFile}`);
-    }
-  }
-
-  return [...newFiles, ...migrated];
 }
 
 export async function loadAllRepos(): Promise<
@@ -125,18 +84,20 @@ export async function loadAllRepos(): Promise<
 > {
   try {
     const files = await readdir(paths.reposDir);
-    let yamlFiles = files.filter((f) => f.endsWith(".yaml"));
+    const jsonFiles = files.filter((f) => f.endsWith(".json"));
 
-    const hasOldFormat = yamlFiles.some((f) => !NEW_FORMAT.test(f));
-    if (hasOldFormat) {
-      yamlFiles = await migrateOldFiles(yamlFiles);
+    // Warn if old YAML repo files exist
+    const yamlFiles = files.filter((f) => f.endsWith(".yaml"));
+    if (yamlFiles.length > 0 && jsonFiles.length === 0) {
+      log.warn("Old YAML repo files detected. Run: pkglab reset --hard");
+      return [];
     }
 
     const entries = await Promise.all(
-      yamlFiles.map(async (file) => {
+      jsonFiles.map(async (file) => {
         try {
           const text = await Bun.file(join(paths.reposDir, file)).text();
-          const state = parse(text) as RepoState;
+          const state = JSON.parse(text) as RepoState;
           if (!state) return null;
           const displayName = await getRepoDisplayName(state.path);
           return { displayName, state };

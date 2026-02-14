@@ -2,6 +2,7 @@ import { defineCommand } from "citty";
 import { getDaemonStatus } from "../../lib/daemon";
 import { loadConfig } from "../../lib/config";
 import { listPackageNames, removePackage } from "../../lib/registry";
+import { getPositionalArgs } from "../../lib/args";
 import { log } from "../../lib/log";
 import { DaemonNotRunningError } from "../../lib/errors";
 
@@ -18,7 +19,7 @@ export default defineCommand({
     const config = await loadConfig();
     const toRemove = args.all
       ? await listPackageNames()
-      : ((args as any)._ as string[] | undefined) ?? [];
+      : getPositionalArgs(args);
 
     if (args.all && toRemove.length === 0) {
       log.info("No pkglab packages in the registry");

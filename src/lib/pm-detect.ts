@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import type { WorkspaceTool } from "./workspace";
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 
@@ -42,44 +41,5 @@ export async function detectPackageManager(
     const parent = join(dir, "..");
     if (parent === dir) return "npm";
     dir = parent;
-  }
-}
-
-export function packageManagerFromTool(tool: WorkspaceTool): PackageManager {
-  switch (tool) {
-    case "pnpm": return "pnpm";
-    case "yarn": return "yarn";
-    case "bolt": return "yarn";
-    case "root": return "npm";
-    case "lerna": return "npm";
-    case "rush": return "npm";
-    default: return "npm";
-  }
-}
-
-export function installCommand(
-  pm: PackageManager,
-  pkg: string,
-  version: string
-): string[] {
-  const spec = `${pkg}@${version}`;
-  switch (pm) {
-    case "npm": return ["npm", "install", spec];
-    case "pnpm": return ["pnpm", "add", spec];
-    case "yarn": return ["yarn", "add", `${pkg}@${version}`];
-    case "bun": return ["bun", "add", spec];
-  }
-}
-
-export function batchInstallCommand(
-  pm: PackageManager,
-  packages: { name: string; version: string }[],
-): string[] {
-  const specs = packages.map((p) => `${p.name}@${p.version}`);
-  switch (pm) {
-    case "pnpm": return ["pnpm", "add", ...specs];
-    case "yarn": return ["yarn", "add", ...specs];
-    case "npm": return ["npm", "install", ...specs];
-    case "bun": return ["bun", "add", ...specs];
   }
 }

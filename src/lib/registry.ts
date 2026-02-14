@@ -4,7 +4,7 @@ import type { pkglabConfig } from "../types";
 import { paths } from "./paths";
 import { ispkglabVersion } from "./version";
 
-function registryUrl(config: pkglabConfig): string {
+export function registryUrl(config: pkglabConfig): string {
   return `http://127.0.0.1:${config.port}`;
 }
 

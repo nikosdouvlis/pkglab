@@ -9,9 +9,10 @@ import {
 import {
   removeRegistryFromNpmrc,
   removeSkipWorktree,
-  updatePackageJsonVersion,
-  removePackageJsonDependency,
+  restorePackage,
 } from "../../lib/consumer";
+import { detectPackageManager } from "../../lib/pm-detect";
+import { run } from "../../lib/proc";
 import { log } from "../../lib/log";
 import type { RepoState } from "../../types";
 import { exists } from "node:fs/promises";
@@ -69,24 +70,20 @@ export default defineCommand({
 
       log.info(`Resetting ${displayName}...`);
       for (const [pkgName, link] of Object.entries(state.packages)) {
-        for (const t of link.targets) {
-          const targetDir = join(state.path, t.dir);
-          if (t.original) {
-            await updatePackageJsonVersion(targetDir, pkgName, t.original);
-          } else {
-            await removePackageJsonDependency(targetDir, pkgName);
-          }
-        }
-        const firstOriginal = link.targets[0]?.original;
-        if (firstOriginal) {
-          log.dim(`  ${pkgName} -> ${firstOriginal}`);
-        } else {
-          log.dim(`  ${pkgName} removed (no original version)`);
-        }
+        await restorePackage(state.path, pkgName, link.targets, link.catalogName, link.catalogFormat);
       }
 
       await removeRegistryFromNpmrc(state.path);
       await removeSkipWorktree(state.path);
+
+      // Run pm install to sync node_modules after restoring versions
+      const pm = await detectPackageManager(state.path);
+      log.dim(`  ${pm} install`);
+      const result = await run([pm, "install"], { cwd: state.path });
+      if (result.exitCode !== 0) {
+        log.warn(`Install failed for ${displayName}, run '${pm} install' manually`);
+      }
+
       await deleteRepoByPath(state.path);
       log.success(`Reset ${displayName}`);
     }

@@ -1,3 +1,4 @@
+import { unlink } from "node:fs/promises";
 import { paths } from "./paths";
 import { loadConfig } from "./config";
 import { DaemonAlreadyRunningError } from "./errors";
@@ -16,7 +17,6 @@ export async function startDaemon(): Promise<DaemonInfo> {
   // Clean stale PID if exists
   const pidFile = Bun.file(paths.pid);
   if (await pidFile.exists()) {
-    const { unlink } = await import("node:fs/promises");
     await unlink(paths.pid);
   }
 
@@ -91,7 +91,6 @@ export async function stopDaemon(): Promise<void> {
     process.kill(status.pid, "SIGKILL");
   }
 
-  const { unlink } = await import("node:fs/promises");
   await unlink(paths.pid).catch(() => {});
 }
 
@@ -117,13 +116,11 @@ export async function getDaemonStatus(): Promise<DaemonInfo | null> {
   if (typeof pid !== "number" || !Number.isFinite(pid) || pid <= 0) return null;
 
   if (!isProcessAlive(pid)) {
-    const { unlink } = await import("node:fs/promises");
     await unlink(paths.pid).catch(() => {});
     return null;
   }
 
   if (!(await validatePid(pid, startedAt))) {
-    const { unlink } = await import("node:fs/promises");
     await unlink(paths.pid).catch(() => {});
     return null;
   }

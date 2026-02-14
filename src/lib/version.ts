@@ -1,5 +1,22 @@
+import { join } from "node:path";
 import { log } from "./log";
 import { pkglabError } from "./errors";
+
+declare const __PKGLAB_VERSION__: string | undefined;
+
+/**
+ * Read the CLI version from package.json, falling back to the compile-time
+ * constant or "0.0.0" if neither is available.
+ */
+export async function getVersion(): Promise<string> {
+  try {
+    const pkgPath = join(import.meta.dir, "../../package.json");
+    const pkg = await Bun.file(pkgPath).json();
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return typeof __PKGLAB_VERSION__ !== "undefined" ? __PKGLAB_VERSION__ : "0.0.0";
+  }
+}
 
 const PKGLAB_BASE = "0.0.0-pkglab";
 

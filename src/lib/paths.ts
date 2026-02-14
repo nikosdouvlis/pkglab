@@ -5,7 +5,7 @@ const pkglab_HOME = join(homedir(), ".pkglab");
 
 export const paths = {
   home: pkglab_HOME,
-  config: join(pkglab_HOME, "config.yaml"),
+  config: join(pkglab_HOME, "config.json"),
   pid: join(pkglab_HOME, "pid"),
   publishLock: join(pkglab_HOME, "publish.lock"),
   reposDir: join(pkglab_HOME, "repos"),

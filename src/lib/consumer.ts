@@ -8,9 +8,9 @@ import { run } from "./proc";
 import { getActiveRepos, saveRepoByPath } from "./repo-state";
 import { createMultiSpinner } from "./spinner";
 import type { SpinnerLine } from "./spinner";
-import type { PublishPlan } from "../types";
+import type { PublishPlan, PublishEntry, RepoState } from "../types";
 
-const MARKER_START = "# pkglab-start";
+export const MARKER_START = "# pkglab-start";
 const MARKER_END = "# pkglab-end";
 
 export async function addRegistryToNpmrc(
@@ -142,6 +142,49 @@ export async function removePackageJsonDependency(
   await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
 }
 
+/**
+ * Restore a single package to its original version. Handles catalog entries,
+ * packages with original versions, and packages that were added by pkglab
+ * (no original version, so the dependency is removed).
+ */
+export async function restorePackage(
+  repoPath: string,
+  pkgName: string,
+  targets: Array<{ dir: string; original: string }>,
+  catalogName?: string,
+  catalogFormat?: "package-json" | "pnpm-workspace",
+): Promise<void> {
+  if (catalogName) {
+    const catalogResult = await findCatalogRoot(repoPath);
+    const original = targets[0]?.original ?? "";
+    if (catalogResult && original) {
+      await updateCatalogVersion(catalogResult.root, pkgName, original, catalogName, catalogFormat ?? catalogResult.format);
+      log.info(`Restored ${pkgName} to ${original} (catalog)`);
+    } else if (!catalogResult) {
+      log.warn(`Could not find catalog root for ${pkgName}, restoring in package.json`);
+      if (original) {
+        const targetDir = join(repoPath, targets[0]?.dir ?? ".");
+        await updatePackageJsonVersion(targetDir, pkgName, original);
+      }
+    }
+    return;
+  }
+  for (const t of targets) {
+    const targetDir = join(repoPath, t.dir);
+    if (t.original) {
+      await updatePackageJsonVersion(targetDir, pkgName, t.original);
+    } else {
+      await removePackageJsonDependency(targetDir, pkgName);
+    }
+  }
+  const firstOriginal = targets[0]?.original;
+  if (firstOriginal) {
+    log.info(`Restored ${pkgName} to ${firstOriginal}`);
+  } else {
+    log.info(`Removed ${pkgName} (was added by pkglab, no original version)`);
+  }
+}
+
 export type CatalogFormat = "package-json" | "pnpm-workspace";
 
 export interface VersionEntry {
@@ -271,16 +314,22 @@ export async function findCatalogRoot(startDir: string): Promise<{ root: string;
   }
 }
 
+export interface CatalogData {
+  catalog?: Record<string, string>;
+  catalogs?: Record<string, Record<string, string>>;
+  [key: string]: unknown;
+}
+
 /**
  * Load catalog data from either package.json or pnpm-workspace.yaml.
  */
-export async function loadCatalogData(rootDir: string, format: CatalogFormat): Promise<any> {
+export async function loadCatalogData(rootDir: string, format: CatalogFormat): Promise<CatalogData> {
   if (format === "pnpm-workspace") {
     const { parse } = await import("yaml");
     const text = await Bun.file(join(rootDir, "pnpm-workspace.yaml")).text();
-    return parse(text);
+    return parse(text) as CatalogData;
   }
-  return Bun.file(join(rootDir, "package.json")).json();
+  return Bun.file(join(rootDir, "package.json")).json() as Promise<CatalogData>;
 }
 
 /**
@@ -290,7 +339,7 @@ export async function loadCatalogData(rootDir: string, format: CatalogFormat): P
  * Returns null if the package isn't in any catalog.
  */
 export function findCatalogEntry(
-  data: any,
+  data: CatalogData,
   pkgName: string,
 ): { catalogName: string; version: string } | null {
   if (data?.catalog?.[pkgName] !== undefined) {
@@ -298,8 +347,8 @@ export function findCatalogEntry(
   }
   if (data?.catalogs) {
     for (const [name, entries] of Object.entries(data.catalogs)) {
-      if (entries && typeof entries === "object" && (entries as any)[pkgName] !== undefined) {
-        return { catalogName: name, version: (entries as any)[pkgName] };
+      if (entries && typeof entries === "object" && entries[pkgName] !== undefined) {
+        return { catalogName: name, version: entries[pkgName] };
       }
     }
   }
@@ -421,6 +470,32 @@ async function disableBunManifestCache(dir: string): Promise<() => Promise<void>
   };
 }
 
+interface RepoWorkItem {
+  displayName: string;
+  state: RepoState;
+  pm: PackageManager;
+  packages: PublishEntry[];
+}
+
+async function buildVersionEntries(
+  repo: RepoWorkItem,
+): Promise<{ entries: VersionEntry[]; catalogRoot: string | undefined }> {
+  const entries: VersionEntry[] = repo.packages.map(e => {
+    const link = repo.state.packages[e.name];
+    return {
+      name: e.name,
+      version: e.version,
+      catalogName: link?.catalogName,
+      catalogFormat: link?.catalogFormat,
+      targets: link?.targets.map(t => ({ dir: t.dir })) ?? [{ dir: "." }],
+    };
+  });
+  const catalogResult = entries.some(e => e.catalogName)
+    ? await findCatalogRoot(repo.state.path)
+    : null;
+  return { entries, catalogRoot: catalogResult?.root };
+}
+
 export async function updateActiveRepos(
   plan: PublishPlan,
   verbose: boolean,
@@ -469,21 +544,11 @@ export async function updateActiveRepos(
       await Promise.all(
         work.map(async (repo, r) => {
           const repoTasks = tasks.filter((t) => t.repoIdx === r);
-          const entries: VersionEntry[] = repo.packages.map(e => {
-            const link = repo.state.packages[e.name];
-            return {
-              name: e.name,
-              version: e.version,
-              catalogName: link?.catalogName,
-              catalogFormat: link?.catalogFormat,
-              targets: link?.targets.map(t => ({ dir: t.dir })) ?? [{ dir: "." }],
-            };
-          });
-          const catalogResult = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : null;
+          const { entries, catalogRoot } = await buildVersionEntries(repo);
 
           await installWithVersionUpdates({
             repoPath: repo.state.path,
-            catalogRoot: catalogResult?.root,
+            catalogRoot,
             entries,
             pm: repo.pm,
           });
@@ -503,21 +568,11 @@ export async function updateActiveRepos(
     log.info("\nUpdating active repos:");
     await Promise.all(
       work.map(async (repo) => {
-        const entries: VersionEntry[] = repo.packages.map(e => {
-          const link = repo.state.packages[e.name];
-          return {
-            name: e.name,
-            version: e.version,
-            catalogName: link?.catalogName,
-            catalogFormat: link?.catalogFormat,
-            targets: link?.targets.map(t => ({ dir: t.dir })) ?? [{ dir: "." }],
-          };
-        });
-        const catalogResult = entries.some(e => e.catalogName) ? await findCatalogRoot(repo.state.path) : null;
+        const { entries, catalogRoot } = await buildVersionEntries(repo);
 
         await installWithVersionUpdates({
           repoPath: repo.state.path,
-          catalogRoot: catalogResult?.root,
+          catalogRoot,
           entries,
           pm: repo.pm,
           onCommand: (cmd, _cwd) => log.dim(`  ${cmd.join(" ")}`),

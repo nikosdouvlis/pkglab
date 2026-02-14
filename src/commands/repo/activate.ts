@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
 import {
+  loadAllRepos,
   loadRepoByPath,
   saveRepoByPath,
   getRepoDisplayName,
@@ -7,12 +8,14 @@ import {
 } from "../../lib/repo-state";
 import { addRegistryToNpmrc, applySkipWorktree } from "../../lib/consumer";
 import { loadConfig } from "../../lib/config";
+import { getPositionalArgs } from "../../lib/args";
 import { log } from "../../lib/log";
 
 export default defineCommand({
   meta: { name: "on", description: "Activate repo for auto-updates" },
   args: {
     name: { type: "positional", description: "Repo path", required: false },
+    all: { type: "boolean", description: "Activate all repos", default: false },
   },
   async run({ args }) {
     const pathArg = args.name as string | undefined;
@@ -37,7 +40,34 @@ export default defineCommand({
       return true;
     };
 
-    const paths = ((args as any)._ as string[] | undefined) ?? [];
+    // --all: activate every known repo
+    if (args.all) {
+      const repos = await loadAllRepos();
+      if (repos.length === 0) {
+        log.info("No repos registered");
+        return;
+      }
+
+      let activated = 0;
+      for (const { state } of repos) {
+        if (state.active) continue;
+        await addRegistryToNpmrc(state.path, config.port);
+        await applySkipWorktree(state.path);
+        state.active = true;
+        state.lastUsed = Date.now();
+        await saveRepoByPath(state.path, state);
+        const displayName = await getRepoDisplayName(state.path);
+        log.success(`Activated ${displayName}`);
+        activated++;
+      }
+
+      if (activated === 0) {
+        log.info("All repos are already active");
+      }
+      return;
+    }
+
+    const paths = getPositionalArgs(args);
     if (pathArg) paths.unshift(pathArg);
 
     if (paths.length > 0) {

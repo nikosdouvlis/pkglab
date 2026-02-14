@@ -26,6 +26,7 @@ import { detectPackageManager } from "../lib/pm-detect";
 import { discoverWorkspace } from "../lib/workspace";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
+import { getPositionalArgs, normalizeScope } from "../lib/args";
 import type { pkglabConfig, RepoState } from "../types";
 
 function parsePackageArg(input: string): { name: string; tag?: string } {
@@ -86,12 +87,40 @@ const NPMRC_NOTICE =
   "pkglab has applied --skip-worktree to prevent accidental commits.\n" +
   "Run pkglab restore --all to restore your .npmrc.";
 
+/**
+ * Discover workspace and collect root + sub-package package.json data.
+ * Returns undefined if the path is not a workspace.
+ */
+async function collectWorkspacePackageJsons(
+  repoPath: string,
+): Promise<Array<{ path: string; relDir: string; packageJson: Record<string, any> }> | undefined> {
+  try {
+    const ws = await discoverWorkspace(repoPath);
+    const rootPkgJson = await Bun.file(join(repoPath, "package.json")).json();
+    return [
+      { path: join(repoPath, "package.json"), relDir: ".", packageJson: rootPkgJson },
+      ...ws.packages
+        .filter(p => p.dir !== repoPath && p.dir !== ws.root)
+        .map(p => ({
+          path: join(p.dir, "package.json"),
+          relDir: relative(repoPath, p.dir) || ".",
+          packageJson: p.packageJson,
+        })),
+    ];
+  } catch {
+    // Not a workspace (standalone project)
+    return undefined;
+  }
+}
+
 async function batchInstallPackages(
   config: pkglabConfig,
   repoPath: string,
   packages: ResolvedPackage[],
   catalog?: boolean,
   packagejson?: string,
+  dryRun?: boolean,
+  verbose?: boolean,
 ): Promise<void> {
   let effectivePath = repoPath;
   let catalogRoot: string | undefined;
@@ -108,13 +137,17 @@ async function batchInstallPackages(
       const entry = findCatalogEntry(data, pkg.name);
       if (entry) {
         catalogNames.set(pkg.name, entry.catalogName);
-        if (!catalog) {
+        if (verbose) {
+          log.info(`Catalog detected for ${pkg.name}: ${entry.catalogName} (${found.format})`);
+        } else if (!catalog) {
           log.dim(`  auto-detected catalog for ${pkg.name}`);
         }
       } else if (catalog) {
         const source = found.format === "pnpm-workspace" ? "pnpm-workspace.yaml" : "workspace root package.json";
         log.error(`${pkg.name} is not in any catalog. Add it to the catalog field in ${source} first.`);
         process.exit(1);
+      } else if (verbose) {
+        log.dim(`  ${pkg.name}: not found in any catalog, using direct mode`);
       }
     }
     if (catalogNames.size > 0) {
@@ -125,6 +158,8 @@ async function batchInstallPackages(
   } else if (catalog) {
     log.error("No catalog found. The workspace root needs a 'catalog' or 'catalogs' field in package.json or pnpm-workspace.yaml.");
     process.exit(1);
+  } else if (verbose) {
+    log.dim("  No catalog found in workspace");
   }
 
   // Stale deps detection: always scan the target package.json for stale pkglab versions
@@ -147,7 +182,14 @@ async function batchInstallPackages(
       }
     }
 
+    if (verbose && staleDeps.length === 0) {
+      log.dim("  No stale pkglab dependencies found");
+    }
+
     if (staleDeps.length > 0) {
+      if (verbose) {
+        log.info(`Found ${staleDeps.length} stale pkglab dependencies`);
+      }
       const unresolvable: string[] = [];
 
       for (const dep of staleDeps) {
@@ -158,7 +200,11 @@ async function batchInstallPackages(
 
         if (latestVersion) {
           packages.push({ name: dep.name, version: latestVersion, tag: tag ?? undefined });
-          log.dim(`  Upgrading stale ${dep.name}@${dep.version} to ${latestVersion}`);
+          if (verbose) {
+            log.info(`Upgrading stale ${dep.name}@${dep.version} -> ${latestVersion}`);
+          } else {
+            log.dim(`  Upgrading stale ${dep.name}@${dep.version} to ${latestVersion}`);
+          }
         } else {
           unresolvable.push(dep.name);
         }
@@ -176,35 +222,33 @@ async function batchInstallPackages(
   }
 
   // Phase 2: npmrc setup (shared)
-  const { isFirstTime } = await addRegistryToNpmrc(effectivePath, config.port);
-  if (isFirstTime) {
-    await applySkipWorktree(effectivePath);
-    log.info(NPMRC_NOTICE);
+  if (dryRun) {
+    log.dim("  Would update .npmrc with local registry entries");
+  } else {
+    const { isFirstTime } = await addRegistryToNpmrc(effectivePath, config.port);
+    if (isFirstTime) {
+      await applySkipWorktree(effectivePath);
+      log.info(NPMRC_NOTICE);
+    }
   }
 
   // Phase 3: Build version entries and install
   const relPackageJsonDir = packageJsonDir ? relative(effectivePath, packageJsonDir) : undefined;
 
   // When no -p flag, scan workspace packages to find all sub-packages that use each dep
-  let workspacePackageJsons: Array<{ dir: string; relDir: string; packageJson: Record<string, any> }> | undefined;
+  let workspacePackageJsons: Array<{ path: string; relDir: string; packageJson: Record<string, any> }> | undefined;
   if (!packagejson) {
-    try {
-      const ws = await discoverWorkspace(effectivePath);
-      // Include root package.json plus all workspace packages
-      const rootPkgJson = await Bun.file(join(effectivePath, "package.json")).json();
-      workspacePackageJsons = [
-        { dir: effectivePath, relDir: ".", packageJson: rootPkgJson },
-        ...ws.packages
-          .filter(p => p.dir !== effectivePath && p.dir !== ws.root)
-          .map(p => ({
-            dir: p.dir,
-            relDir: relative(effectivePath, p.dir) || ".",
-            packageJson: p.packageJson,
-          })),
-      ];
-    } catch {
-      // Not a workspace (standalone project), fall back to root only
+    workspacePackageJsons = await collectWorkspacePackageJsons(effectivePath);
+    if (verbose && workspacePackageJsons) {
+      log.info(`Workspace scan: found ${workspacePackageJsons.length} package.json files`);
+      for (const wsPkg of workspacePackageJsons) {
+        log.dim(`  ${wsPkg.relDir === "." ? "(root)" : wsPkg.relDir}`);
+      }
+    } else if (verbose) {
+      log.dim("  Not a workspace, targeting root package.json only");
     }
+  } else if (verbose) {
+    log.dim(`  Targeting single directory: ${packagejson} (skipping workspace scan)`);
   }
 
   const entries: VersionEntry[] = packages.map(pkg => {
@@ -216,22 +260,27 @@ async function batchInstallPackages(
       targets = [{ dir: relPackageJsonDir ?? "." }];
     } else if (workspacePackageJsons) {
       // Scan workspace packages for this dep
-      const found: Array<{ dir: string }> = [];
+      const foundTargets: Array<{ dir: string }> = [];
       for (const wsPkg of workspacePackageJsons) {
         for (const field of ["dependencies", "devDependencies"] as const) {
           const deps = wsPkg.packageJson[field];
           if (!deps || !(pkg.name in deps)) continue;
           const depVersion = deps[pkg.name];
-          if (typeof depVersion === "string" && depVersion.startsWith("catalog:")) continue;
-          found.push({ dir: wsPkg.relDir });
+          if (typeof depVersion === "string" && depVersion.startsWith("catalog:")) {
+            if (verbose) {
+              log.dim(`  ${wsPkg.relDir === "." ? "(root)" : wsPkg.relDir}: ${pkg.name} uses catalog: protocol, skipping`);
+            }
+            continue;
+          }
+          foundTargets.push({ dir: wsPkg.relDir });
           break; // found in this package, no need to check devDependencies too
         }
       }
-      if (found.length > 0) {
-        const dirs = found.map(t => t.dir === "." ? "(root)" : t.dir).join(", ");
+      if (foundTargets.length > 0) {
+        const dirs = foundTargets.map(t => t.dir === "." ? "(root)" : t.dir).join(", ");
         log.dim(`  ${pkg.name} -> ${dirs}`);
       }
-      targets = found.length > 0 ? found : [{ dir: "." }];
+      targets = foundTargets.length > 0 ? foundTargets : [{ dir: "." }];
     } else {
       // Standalone project, single target at root
       targets = [{ dir: "." }];
@@ -246,7 +295,32 @@ async function batchInstallPackages(
     };
   });
 
+  // Dry run: show what would happen and return early
+  if (dryRun) {
+    log.info("Dry run: the following changes would be applied");
+    log.line("");
+    for (const entry of entries) {
+      const mode = entry.catalogName ? `catalog (${entry.catalogName})` : "direct";
+      log.info(`${entry.name}@${entry.version} [${mode}]`);
+      for (const t of entry.targets) {
+        const dir = t.dir === "." ? "(root)" : t.dir;
+        if (entry.catalogName) {
+          log.dim(`  catalog entry updated at workspace root`);
+        } else {
+          log.dim(`  package.json modified in ${dir}`);
+        }
+      }
+    }
+    log.line("");
+    const pm = await detectPackageManager(effectivePath);
+    log.dim(`  Would run: ${pm} install`);
+    return;
+  }
+
   const pm = await detectPackageManager(effectivePath);
+  if (verbose) {
+    log.dim(`  Package manager: ${pm}`);
+  }
   const previousVersions = await installWithVersionUpdates({
     repoPath: effectivePath,
     catalogRoot,
@@ -364,36 +438,28 @@ async function interactivePick(fixedTag?: string): Promise<ResolvedPackage[]> {
   return resolved;
 }
 
-function normalizeScope(input: string): string {
-  const stripped = input.startsWith("@") ? input.slice(1) : input;
-  if (!stripped || stripped.includes("/")) {
-    log.error(`Invalid scope: "${input}". Use a scope name like "clerk" or "@clerk".`);
-    process.exit(1);
-  }
-  return `@${stripped}/`;
-}
 
 async function resolveScopePackages(
   repoPath: string,
   scope: string,
   tag: string | undefined,
+  verbose?: boolean,
 ): Promise<ResolvedPackage[]> {
   const prefix = normalizeScope(scope);
+  if (!prefix) {
+    log.error(`Invalid scope: "${scope}". Use a scope name like "clerk" or "@clerk".`);
+    process.exit(1);
+  }
 
   // Scan workspace
-  let allPackageJsons: Array<{ packageJson: Record<string, any> }>;
-  try {
-    const ws = await discoverWorkspace(repoPath);
-    const rootPkgJson = await Bun.file(join(ws.root, "package.json")).json();
-    allPackageJsons = [
-      { packageJson: rootPkgJson },
-      ...ws.packages
-        .filter(p => p.dir !== ws.root)
-        .map(p => ({ packageJson: p.packageJson })),
-    ];
-  } catch {
+  const allPackageJsons = await collectWorkspacePackageJsons(repoPath);
+  if (!allPackageJsons) {
     log.error("--scope requires a workspace. No workspace detected.");
     process.exit(1);
+  }
+
+  if (verbose) {
+    log.info(`Scanning ${allPackageJsons.length} package.json files for scope ${prefix}*`);
   }
 
   // Collect unique dep names matching scope
@@ -406,7 +472,12 @@ async function resolveScopePackages(
         if (depName.startsWith(prefix)) {
           const depVersion = deps[depName];
           // Skip catalog: protocol entries (handled by catalog auto-detection)
-          if (typeof depVersion === "string" && depVersion.startsWith("catalog:")) continue;
+          if (typeof depVersion === "string" && depVersion.startsWith("catalog:")) {
+            if (verbose) {
+              log.dim(`  Skipping ${depName} (uses catalog: protocol)`);
+            }
+            continue;
+          }
           scopedDeps.add(depName);
         }
       }
@@ -451,7 +522,7 @@ async function resolveScopePackages(
 }
 
 export default defineCommand({
-  meta: { name: "add", description: "Add a pkglab package to this repo" },
+  meta: { name: "add", description: "Add pkglab packages to this repo" },
   args: {
     name: {
       type: "positional",
@@ -460,6 +531,7 @@ export default defineCommand({
     },
     catalog: {
       type: "boolean",
+      alias: "c",
       description: "Update the workspace catalog instead of individual package.json",
       default: false,
     },
@@ -475,16 +547,30 @@ export default defineCommand({
     },
     scope: {
       type: "string",
+      alias: "s",
       description: "Add all published packages matching a scope (e.g. clerk or @clerk)",
+    },
+    "dry-run": {
+      type: "boolean",
+      description: "Show what would be installed without making changes",
+      default: false,
+    },
+    verbose: {
+      type: "boolean",
+      alias: "v",
+      description: "Show detailed output",
+      default: false,
     },
   },
   async run({ args }) {
     const config = await loadConfig();
-    const names = ((args as any)._ as string[] | undefined) ?? [];
+    const names = getPositionalArgs(args);
     const catalog = args.catalog as boolean;
     const packagejson = args.packagejson as string | undefined;
     const scope = args.scope as string | undefined;
     const tag = args.tag as string | undefined;
+    const dryRun = args["dry-run"] as boolean;
+    const verbose = args.verbose as boolean;
 
     // Validation
     if (scope && names.length > 0) {
@@ -506,6 +592,11 @@ export default defineCommand({
       }
     }
 
+    if (dryRun && names.length === 0 && !scope) {
+      log.error("--dry-run requires package names or --scope. Interactive mode is not supported with --dry-run.");
+      process.exit(1);
+    }
+
     const [, repoPath] = await Promise.all([
       ensureDaemonRunning(),
       canonicalRepoPath(process.cwd()),
@@ -513,7 +604,7 @@ export default defineCommand({
 
     let resolved: ResolvedPackage[];
     if (scope) {
-      resolved = await resolveScopePackages(repoPath, scope, tag);
+      resolved = await resolveScopePackages(repoPath, scope, tag, verbose);
     } else if (names.length === 0) {
       resolved = await interactivePick(tag);
     } else {
@@ -523,8 +614,10 @@ export default defineCommand({
     }
 
     if (resolved.length > 0) {
-      await batchInstallPackages(config, repoPath, resolved, catalog, packagejson);
-      await ensureNpmrcForActiveRepos(config.port);
+      await batchInstallPackages(config, repoPath, resolved, catalog, packagejson, dryRun, verbose);
+      if (!dryRun) {
+        await ensureNpmrcForActiveRepos(config.port);
+      }
     }
   },
 });

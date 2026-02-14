@@ -1,16 +1,21 @@
 import { defineCommand } from "citty";
+import { getDaemonStatus } from "../../lib/daemon";
 import { listAllPackages } from "../../lib/registry";
 import { extractTag, extractTimestamp } from "../../lib/version";
 import { log } from "../../lib/log";
 import { c } from "../../lib/color";
+import { DaemonNotRunningError } from "../../lib/errors";
 
 export default defineCommand({
-  meta: { name: "ls", description: "List packages in Verdaccio" },
+  meta: { name: "ls", description: "List packages in local registry" },
   async run() {
+    const status = await getDaemonStatus();
+    if (!status?.running) throw new DaemonNotRunningError();
+
     const pkglabPackages = await listAllPackages();
 
     if (pkglabPackages.length === 0) {
-      log.info("No packages published to Verdaccio");
+      log.info("No packages published to local registry");
       return;
     }
 

@@ -14,19 +14,19 @@ Top-level:
 - `pkglab status` — show registry status
 - `pkglab logs` — show registry logs
 - `pkglab pub [name...]` — publish workspace packages to local registry, auto-updates active consumer repos. Accepts multiple names. Fingerprints packages and skips unchanged ones. Flags: `--single` skip cascade/fingerprinting, `--shallow` targets + deps only (no dependent expansion), `--force`/`-f` ignore fingerprints (republish all), `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--dry-run`, `--verbose`/`-v`
-- `pkglab add [name[@tag]...]` — add pkglab packages to the current repo. Accepts multiple names. No args for interactive picker. Batch installs in one command. Auto-detects when a package exists in a workspace catalog and uses catalog mode automatically. `--catalog` enables strict mode (errors if the package is not in any catalog). Supports both bun/npm catalogs (package.json) and pnpm catalogs (pnpm-workspace.yaml). In a workspace, auto-scans all sub-packages for the dependency and updates all of them (sub-packages using `catalog:` protocol are skipped, handled by catalog auto-detection). `--packagejson`/`-p` opts out of workspace scanning and targets a single sub-package directory (e.g. `-p apps/dashboard` from monorepo root). `--tag`/`-t` applies a tag to all packages (`pkglab add pkg --tag feat1` is equivalent to `pkglab add pkg@feat1`), errors if combined with inline `@tag` syntax. `--scope` replaces all packages of a given scope in the workspace (e.g. `--scope clerk` or `--scope @clerk`), normalizes to `@clerk/`, scans workspace root + sub-packages for matching deps, verifies all are published before modifying files. Cannot combine `--scope` with positional package names. Targets are remembered for restore.
-- `pkglab restore <name>` — restore a pkglab package to its original version across all targets that were updated by `pkglab add`, runs pm install to sync node_modules. `--all` restores all packages in the repo.
+- `pkglab add [name[@tag]...]` — add pkglab packages to the current repo. Accepts multiple names. No args for interactive picker. Batch installs in one command. Auto-detects when a package exists in a workspace catalog and uses catalog mode automatically. `--catalog`/`-c` enables strict mode (errors if the package is not in any catalog). Supports both bun/npm catalogs (package.json) and pnpm catalogs (pnpm-workspace.yaml). In a workspace, auto-scans all sub-packages for the dependency and updates all of them (sub-packages using `catalog:` protocol are skipped, handled by catalog auto-detection). `--packagejson`/`-p` opts out of workspace scanning and targets a single sub-package directory (e.g. `-p apps/dashboard` from monorepo root). `--tag`/`-t` applies a tag to all packages (`pkglab add pkg --tag feat1` is equivalent to `pkglab add pkg@feat1`), errors if combined with inline `@tag` syntax. `--scope`/`-s` replaces all packages of a given scope in the workspace (e.g. `--scope clerk` or `--scope @clerk`), normalizes to `@clerk/`, scans workspace root + sub-packages for matching deps, verifies all are published before modifying files. Cannot combine `--scope` with positional package names. `--dry-run` previews what would be installed without making changes. `--verbose`/`-v` shows detailed output about workspace scanning and decisions. Targets are remembered for restore.
+- `pkglab restore <name...>` — restore pkglab packages to their original versions across all targets that were updated by `pkglab add`, runs pm install to sync node_modules. Accepts multiple names. `--all` restores all packages in the repo. `--scope <scope>` restores all packages matching a scope (mirrors add `--scope`). `--tag`/`-t` restores only packages installed with a specific tag.
 - `pkglab doctor` — diagnose issues
-- `pkglab check` — check package status
+- `pkglab check` — check for pkglab artifacts in workspace root and sub-packages
 - `pkglab reset --hard` — wipe all pkglab data and Verdaccio storage
 - `pkglab reset --fingerprints` — clear fingerprint cache, forces full republish on next pub
 
 Subcommands:
 - `pkglab repo ls` — list consumer repos
-- `pkglab repo on [name...]` — activate repos (accepts multiple paths)
-- `pkglab repo off [name...]` — deactivate repos (accepts multiple paths)
-- `pkglab repo reset [name]` — reset repo state. `--all` to reset every repo, `--stale` to remove repos whose directories no longer exist
-- `pkglab pkg ls` — list published packages
+- `pkglab repo on [name...]` — activate repos (accepts multiple paths). `--all` to activate every repo
+- `pkglab repo off [name...]` — deactivate repos (accepts multiple paths). `--all` to deactivate every repo
+- `pkglab repo reset [name]` — reset repo state, restores original versions and runs pm install. `--all` to reset every repo, `--stale` to remove repos whose directories no longer exist
+- `pkglab pkg ls` — list published packages (checks if registry is running)
 - `pkglab pkg rm <name...>` — remove packages from registry (also `--all`)
 
 ## Workflow
@@ -35,7 +35,7 @@ Subcommands:
 2. `pkglab pub` — publish workspace packages (from the library repo)
 3. `pkglab add <pkg>` — install a pkglab package in a consumer repo (run from consumer repo dir)
 4. Iterate: make changes to the library, run `pkglab pub` again — active consumer repos are auto-updated
-5. `pkglab restore <pkg>` or `pkglab restore --all` — restore original versions when done
+5. `pkglab restore <pkg...>` or `pkglab restore --all` — restore original versions when done
 6. `pkglab down` — stop the registry
 
 For multi-worktree workflows, use tags to isolate version channels:
