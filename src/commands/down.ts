@@ -8,15 +8,20 @@ export default defineCommand({
   meta: { name: "down", description: "Stop pkglab services" },
   async run() {
     // Stop listener if running (needs workspace context)
+    let workspaceRoot: string | undefined;
     try {
       const workspace = await discoverWorkspace(process.cwd());
-      const listenerStatus = await getListenerDaemonStatus(workspace.root);
-      if (listenerStatus?.running) {
-        await stopListener(workspace.root);
-        log.success("Listener stopped");
-      }
+      workspaceRoot = workspace.root;
     } catch {
       // Not in a workspace, no listener to stop
+    }
+
+    if (workspaceRoot) {
+      const listenerStatus = await getListenerDaemonStatus(workspaceRoot);
+      if (listenerStatus?.running) {
+        await stopListener(workspaceRoot);
+        log.success("Listener stopped");
+      }
     }
 
     // Stop Verdaccio

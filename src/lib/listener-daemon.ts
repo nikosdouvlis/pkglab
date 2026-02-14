@@ -36,7 +36,7 @@ export async function getListenerDaemonStatus(
         return null;
       }
       const psTime = new Date(result.stdout.trim()).getTime();
-      if (Math.abs(psTime - data.startedAt) > 5000) {
+      if (!Number.isFinite(psTime) || Math.abs(psTime - data.startedAt) > 5000) {
         await unlink(pidPath).catch(() => {});
         return null;
       }
@@ -108,15 +108,21 @@ export async function ensureListenerRunning(
   if (await isListenerRunning(socketPath)) return;
 
   log.info("Starting listener...");
-  const info = await startListenerDaemon(workspaceRoot);
-  log.success(`Listener running (PID ${info.pid})`);
+  try {
+    const info = await startListenerDaemon(workspaceRoot);
+    log.success(`Listener running (PID ${info.pid})`);
+  } catch {
+    // Another process may have won the race
+    if (await isListenerRunning(socketPath)) return;
+    throw new Error("Failed to start listener daemon");
+  }
 }
 
 export async function stopListener(workspaceRoot: string): Promise<void> {
   const status = await getListenerDaemonStatus(workspaceRoot);
   if (!status?.running) return;
 
-  process.kill(status.pid, "SIGTERM");
+  try { process.kill(status.pid, "SIGTERM"); } catch {}
 
   // Wait for process to exit
   for (let i = 0; i < 20; i++) {
@@ -126,7 +132,7 @@ export async function stopListener(workspaceRoot: string): Promise<void> {
 
   // Force kill if still alive
   if (isProcessAlive(status.pid)) {
-    process.kill(status.pid, "SIGKILL");
+    try { process.kill(status.pid, "SIGKILL"); } catch {}
   }
 
   const pidPath = getListenerPidPath(workspaceRoot);

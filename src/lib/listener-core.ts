@@ -29,6 +29,8 @@ export function createListener(opts: {
   workspaceRoot: string;
   verbose: boolean;
   logger: ListenerLogger;
+  childStdout?: "inherit" | "ignore" | number;
+  childStderr?: "inherit" | "ignore" | number;
 }): ListenerHandle {
   const { socketPath, workspaceRoot, verbose, logger } = opts;
 
@@ -122,8 +124,8 @@ export function createListener(opts: {
 
         const proc = Bun.spawn(cmd, {
           cwd: workspaceRoot,
-          stdout: "inherit",
-          stderr: "inherit",
+          stdout: opts.childStdout ?? "inherit",
+          stderr: opts.childStderr ?? "inherit",
         });
 
         const exitCode = await proc.exited;

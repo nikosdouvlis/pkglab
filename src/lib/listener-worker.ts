@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { appendFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
+import { appendFileSync, writeFileSync, mkdirSync, unlinkSync, openSync } from "node:fs";
 import {
   getListenerSocketPath,
   getListenerPidPath,
@@ -27,16 +27,6 @@ export async function main(workspaceRoot: string): Promise<void> {
     unlinkSync(socketPath);
   } catch {}
 
-  // Write PID file
-  writeFileSync(
-    pidPath,
-    JSON.stringify({
-      pid: process.pid,
-      workspaceRoot,
-      startedAt: Date.now(),
-    })
-  );
-
   // Create logger that writes to log file
   const writeLog = (level: string, msg: string) => {
     const ts = new Date().toISOString();
@@ -50,12 +40,30 @@ export async function main(workspaceRoot: string): Promise<void> {
     dim: (msg) => writeLog("DEBUG", msg),
   };
 
+  // Open log file for child process stdout/stderr redirection
+  const logFd = openSync(logPath, "a");
+
   const handle = createListener({
     socketPath,
     workspaceRoot,
     verbose: false,
     logger,
+    childStdout: logFd,
+    childStderr: logFd,
   });
+
+  // Write PID file AFTER socket is successfully bound
+  writeFileSync(
+    pidPath,
+    JSON.stringify({
+      pid: process.pid,
+      workspaceRoot,
+      startedAt: Date.now(),
+    })
+  );
+
+  // Signal ready AFTER PID is written
+  console.log("READY");
 
   // Clean up on exit
   const cleanup = () => {
@@ -70,7 +78,4 @@ export async function main(workspaceRoot: string): Promise<void> {
   };
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
-
-  // Signal ready to parent process
-  console.log("READY");
 }
