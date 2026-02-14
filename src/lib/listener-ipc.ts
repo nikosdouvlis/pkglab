@@ -94,6 +94,15 @@ export async function sendPing(socketPath: string, message: PingMessage): Promis
   });
 }
 
+export function getListenerPidPath(workspaceRoot: string): string {
+  return getListenerSocketPath(workspaceRoot).replace(/\.sock$/, ".pid");
+}
+
+export function getListenerLogPath(workspaceRoot: string): string {
+  const hash = new Bun.CryptoHasher("sha256").update(workspaceRoot).digest("hex").slice(0, 12);
+  return join("/tmp/pkglab", `listener-${hash}.log`);
+}
+
 /**
  * Check if a listener is running and connectable at the given socket path.
  */

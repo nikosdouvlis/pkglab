@@ -19,6 +19,20 @@ if (process.argv.includes("--__prune")) {
   process.exit(0);
 }
 
+// Hidden flag: listener daemon for a workspace
+if (process.argv.includes("--__listener")) {
+  const idx = process.argv.indexOf("--__listener");
+  const workspaceRoot = process.argv[idx + 1];
+  if (!workspaceRoot) {
+    console.error("--__listener requires a workspace root path");
+    process.exit(1);
+  }
+  const { main } = await import("./lib/listener-worker");
+  await main(workspaceRoot);
+  // Keep process alive (listener server is listening)
+  await new Promise(() => {});
+}
+
 import { defineCommand, runMain } from "citty";
 import { ensurepkglabDirs } from "./lib/config";
 import { getVersion } from "./lib/version";

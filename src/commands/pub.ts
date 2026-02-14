@@ -27,6 +27,7 @@ import { loadFingerprintState, saveFingerprintState } from "../lib/fingerprint-s
 import { run } from "../lib/proc";
 import { getPositionalArgs } from "../lib/args";
 import { getListenerSocketPath, sendPing } from "../lib/listener-ipc";
+import { ensureListenerRunning } from "../lib/listener-daemon";
 import {
   buildConsumerWorkItems,
   buildVersionEntries,
@@ -437,6 +438,7 @@ export default defineCommand({
           `Cannot use --ping with ${incompatible.map((f) => "--" + f).join(", ")}`
         );
       }
+      await ensureListenerRunning(workspace.root);
       const targets = resolveTargets(args, workspace);
       const socketPath = getListenerSocketPath(workspace.root);
       await sendPing(socketPath, {
