@@ -7,7 +7,7 @@ import type {
   pkglabConfig,
 } from "../types";
 import { log } from "./log";
-import { run, npmEnvWithAuth } from "./proc";
+import { run } from "./proc";
 import { extractTag } from "./version";
 import { registryUrl } from "./registry";
 
@@ -48,6 +48,7 @@ export interface PublishOptions {
   verbose?: boolean;
   onPublished?: (index: number) => void;
   onFailed?: (index: number) => void;
+  onPackagePublished?: (entry: PublishEntry) => void;
 }
 
 export async function executePublish(
@@ -73,6 +74,7 @@ export async function executePublish(
         try {
           await publishSinglePackage(entry, url, plan.catalogs);
           options.onPublished?.(index);
+          options.onPackagePublished?.(entry);
           return `${entry.name}@${entry.version}`;
         } catch (error) {
           options.onFailed?.(index);
@@ -81,16 +83,13 @@ export async function executePublish(
       }),
     );
 
-    const published: string[] = [];
     const failed: string[] = [];
     let firstError: Error | undefined;
 
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
-      const spec = `${plan.packages[i].name}@${plan.packages[i].version}`;
-      if (result.status === "fulfilled") {
-        published.push(spec);
-      } else {
+      if (result.status === "rejected") {
+        const spec = `${plan.packages[i].name}@${plan.packages[i].version}`;
         failed.push(spec);
         if (!firstError) firstError = result.reason;
       }
@@ -98,24 +97,6 @@ export async function executePublish(
 
     if (failed.length > 0) {
       log.error(`Failed to publish: ${failed.join(", ")}`);
-
-      // Rollback the ones that succeeded
-      if (published.length > 0) {
-        log.error("Rolling back successful publishes...");
-        const rollbackFailures: string[] = [];
-        await Promise.all(
-          published.map(async (spec) => {
-            const ok = await rollbackPackage(spec, url);
-            if (!ok) rollbackFailures.push(spec);
-          }),
-        );
-        if (rollbackFailures.length > 0) {
-          log.error(
-            `Rollback incomplete, these packages may still exist in registry: ${rollbackFailures.join(", ")}`,
-          );
-        }
-      }
-
       throw firstError;
     }
   } finally {
@@ -239,26 +220,6 @@ async function recoverBackup(backupPath: string, targetPath: string): Promise<vo
     log.warn(`Recovering leftover backup: ${backupPath}`);
     await rm(targetPath, { force: true });
     await rename(backupPath, targetPath);
-  }
-}
-
-async function rollbackPackage(
-  spec: string,
-  registryUrl: string,
-): Promise<boolean> {
-  try {
-    const result = await run(
-      ["npm", "unpublish", spec, "--registry", registryUrl, "--force"],
-      { env: npmEnvWithAuth(registryUrl) },
-    );
-    if (result.exitCode !== 0) {
-      log.warn(`Failed to rollback ${spec}`);
-      return false;
-    }
-    return true;
-  } catch {
-    log.warn(`Failed to rollback ${spec}`);
-    return false;
   }
 }
 

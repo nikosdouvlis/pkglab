@@ -470,14 +470,41 @@ async function disableBunManifestCache(dir: string): Promise<() => Promise<void>
   };
 }
 
-interface RepoWorkItem {
+export interface RepoWorkItem {
   displayName: string;
   state: RepoState;
   pm: PackageManager;
   packages: PublishEntry[];
 }
 
-async function buildVersionEntries(
+/**
+ * Build per-repo work items: which packages to update and the package manager to use.
+ * Filters to repos that have at least one package from the plan matching by tag.
+ */
+export async function buildConsumerWorkItems(
+  plan: PublishPlan,
+  tag?: string,
+): Promise<RepoWorkItem[]> {
+  const activeRepos = await getActiveRepos();
+  if (activeRepos.length === 0) return [];
+
+  const pubTag = tag ?? null;
+  const repoWork = await Promise.all(
+    activeRepos.map(async ({ displayName, state }) => {
+      const pm = await detectPackageManager(state.path);
+      const packages = plan.packages.filter((e) => {
+        const link = state.packages[e.name];
+        if (!link) return false;
+        const linkTag = link.tag ?? null;
+        return linkTag === pubTag;
+      });
+      return { displayName, state, pm, packages };
+    }),
+  );
+  return repoWork.filter((r) => r.packages.length > 0);
+}
+
+export async function buildVersionEntries(
   repo: RepoWorkItem,
 ): Promise<{ entries: VersionEntry[]; catalogRoot: string | undefined }> {
   const entries: VersionEntry[] = repo.packages.map(e => {

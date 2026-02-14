@@ -52,6 +52,9 @@ export function createMultiSpinner(lines: SpinnerLine[]) {
     fail(index: number) {
       entries[index].failed = true;
     },
+    setText(index: number, text: string) {
+      entries[index].text = text;
+    },
     stop() {
       if (interval) clearInterval(interval);
       if (isTTY) render();

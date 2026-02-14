@@ -15,17 +15,24 @@ import { buildPublishPlan, executePublish } from "../lib/publisher";
 import { setDistTag } from "../lib/registry";
 import { generateVersion, sanitizeTag } from "../lib/version";
 import { acquirePublishLock } from "../lib/lock";
-import { getActiveRepos } from "../lib/repo-state";
+import { getActiveRepos, saveRepoByPath } from "../lib/repo-state";
 import { prefetchUpdateCheck } from "../lib/update-check";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import { createMultiSpinner } from "../lib/spinner";
+import type { SpinnerLine } from "../lib/spinner";
 import { pkglabError } from "../lib/errors";
 import { fingerprintPackages } from "../lib/fingerprint";
 import { loadFingerprintState, saveFingerprintState } from "../lib/fingerprint-state";
 import { run } from "../lib/proc";
 import { getPositionalArgs } from "../lib/args";
-import type { WorkspacePackage } from "../types";
+import {
+  buildConsumerWorkItems,
+  buildVersionEntries,
+  installWithVersionUpdates,
+} from "../lib/consumer";
+import type { RepoWorkItem } from "../lib/consumer";
+import type { WorkspacePackage, PublishEntry } from "../types";
 
 type ChangeReason = "changed" | "propagated" | "unchanged";
 
@@ -433,7 +440,7 @@ export default defineCommand({
         .map((name) => findPackage(workspace.packages, name))
         .filter(Boolean) as typeof workspace.packages;
 
-      await publishPackages(publishSet, [], workspace.root, config, tag, verbose, args["dry-run"] as boolean);
+      await publishPackages(publishSet, [], workspace.root, config, tag, verbose, args["dry-run"] as boolean, new Map(), undefined, undefined, undefined, workspace.packages);
       await showUpdate();
       return;
     }
@@ -466,6 +473,7 @@ export default defineCommand({
       cascade.reason,
       cascade.fingerprints,
       cascade.cascadePackages,
+      workspace.packages,
     );
     await showUpdate();
   },
@@ -483,6 +491,7 @@ async function publishPackages(
   reason?: Map<string, ChangeReason>,
   fingerprints?: Map<string, { hash: string; fileCount: number }>,
   allCascadePackages?: WorkspacePackage[],
+  workspacePackages?: WorkspacePackage[],
 ): Promise<void> {
   const catalogs = await loadCatalogs(workspaceRoot);
 
@@ -518,11 +527,41 @@ async function publishPackages(
     log.info(`Will publish ${plan.packages.length} packages:`);
   }
 
+  // Build consumer work items before publishing so we can stream installs
+  const consumerWork = await buildConsumerWorkItems(plan, tag);
+
+  // Compute the required set for each repo: which packages from the publish batch
+  // must be in the registry before the repo's install can succeed.
+  // This includes direct packages and their transitive workspace deps.
+  const requiredSets = new Map<RepoWorkItem, Set<string>>();
+  if (consumerWork.length > 0 && workspacePackages) {
+    const graph = buildDependencyGraph(workspacePackages);
+    const transitiveDeps = precomputeTransitiveDeps(graph);
+    const publishNames = new Set(plan.packages.map((p) => p.name));
+
+    for (const repo of consumerWork) {
+      const required = new Set<string>();
+      for (const entry of repo.packages) {
+        if (publishNames.has(entry.name)) {
+          required.add(entry.name);
+        }
+        const deps = transitiveDeps.get(entry.name) ?? [];
+        for (const dep of deps) {
+          if (publishNames.has(dep)) {
+            required.add(dep);
+          }
+        }
+      }
+      requiredSets.set(repo, required);
+    }
+  }
+
   const releaseLock = await acquirePublishLock();
   try {
     const publishStart = performance.now();
 
     if (verbose) {
+      // Verbose mode: log messages as they happen, no unified spinner
       for (const entry of plan.packages) {
         const r = reason?.get(entry.name);
         if (r) {
@@ -536,18 +575,128 @@ async function publishPackages(
         const ver = existingVersions.get(pkg.name) ?? "unknown";
         log.line(`  ${c.dim("\u25CB")} ${c.dim(`${pkg.name} (unchanged, ${ver})`)}`);
       }
-      await executePublish(plan, config, { verbose: true }, workspaceRoot);
+
+      // Streaming consumer updates in verbose mode
+      const publishedPackages = new Set<string>();
+      const pendingRepos = new Set(consumerWork);
+      const repoInstallPromises: Promise<void>[] = [];
+
+      await executePublish(plan, config, {
+        verbose: true,
+        onPackagePublished(entry: PublishEntry) {
+          publishedPackages.add(entry.name);
+          for (const repo of pendingRepos) {
+            const required = requiredSets.get(repo);
+            if (!required) continue;
+            const allReady = [...required].every((name) => publishedPackages.has(name));
+            if (allReady) {
+              pendingRepos.delete(repo);
+              log.info(`Starting install for ${repo.displayName}`);
+              repoInstallPromises.push(
+                runRepoInstall(repo).then(() => {
+                  log.success(`  ${repo.displayName}: updated ${repo.packages.map((e) => e.name).join(", ")}`);
+                }),
+              );
+            }
+          }
+        },
+      }, workspaceRoot);
+
+      // Mark repos that depend on failed packages
+      for (const repo of pendingRepos) {
+        const required = requiredSets.get(repo);
+        if (required) {
+          const missing = [...required].filter((name) => !publishedPackages.has(name));
+          if (missing.length > 0) {
+            log.warn(`Skipped ${repo.displayName} (publish failed for ${missing.join(", ")})`);
+          }
+        }
+      }
+
+      // Wait for any in-flight consumer installs
+      await Promise.all(repoInstallPromises);
     } else {
+      // Non-verbose: unified spinner with publish lines + consumer repo lines
       log.info("Publishing...");
-      const spinner = createMultiSpinner(
-        plan.packages.map((e) => `${e.name}@${e.version}`),
+      const spinnerLines: SpinnerLine[] = plan.packages.map(
+        (e) => `${e.name}@${e.version}`,
       );
+
+      // Add consumer repo lines to the spinner (header + per-package lines)
+      const repoPackageIndices = new Map<RepoWorkItem, number[]>();
+
+      for (const repo of consumerWork) {
+        spinnerLines.push({ text: `${repo.displayName} ${c.dim(repo.state.path)}`, header: true });
+        const indices: number[] = [];
+        for (const entry of repo.packages) {
+          indices.push(spinnerLines.length);
+          const required = requiredSets.get(repo);
+          const depsOnly = required
+            ? [...required].filter((n) => n !== entry.name)
+            : [];
+          const suffix = depsOnly.length > 0 ? " (and its deps)" : "";
+          spinnerLines.push(`waiting for ${entry.name}${suffix}`);
+        }
+        repoPackageIndices.set(repo, indices);
+      }
+
+      const spinner = createMultiSpinner(spinnerLines);
       spinner.start();
+
+      const publishedPackages = new Set<string>();
+      const pendingRepos = new Set(consumerWork);
+      const repoInstallPromises: Promise<void>[] = [];
+
       try {
         await executePublish(plan, config, {
           onPublished: (i) => spinner.complete(i),
           onFailed: (i) => spinner.fail(i),
+          onPackagePublished(entry: PublishEntry) {
+            publishedPackages.add(entry.name);
+            for (const repo of pendingRepos) {
+              const required = requiredSets.get(repo);
+              if (!required) continue;
+              const allReady = [...required].every((name) => publishedPackages.has(name));
+              if (allReady) {
+                pendingRepos.delete(repo);
+                const indices = repoPackageIndices.get(repo)!;
+                for (const idx of indices) {
+                  spinner.setText(idx, `installing ${repo.packages[indices.indexOf(idx)].name}`);
+                }
+                repoInstallPromises.push(
+                  runRepoInstall(repo).then(() => {
+                    for (let i = 0; i < repo.packages.length; i++) {
+                      spinner.setText(indices[i], `updated ${repo.packages[i].name}`);
+                      spinner.complete(indices[i]);
+                    }
+                  }).catch((err) => {
+                    for (const idx of indices) {
+                      spinner.fail(idx);
+                    }
+                    throw err;
+                  }),
+                );
+              }
+            }
+          },
         }, workspaceRoot);
+
+        // Mark repos that depend on failed packages
+        for (const repo of pendingRepos) {
+          const required = requiredSets.get(repo);
+          if (!required) continue;
+          const missing = [...required].filter((name) => !publishedPackages.has(name));
+          if (missing.length > 0) {
+            const indices = repoPackageIndices.get(repo)!;
+            for (let i = 0; i < repo.packages.length; i++) {
+              spinner.setText(indices[i], `skipped ${repo.packages[i].name}`);
+              spinner.fail(indices[i]);
+            }
+          }
+        }
+
+        // Wait for any in-flight consumer installs
+        await Promise.all(repoInstallPromises);
       } finally {
         spinner.stop();
       }
@@ -561,10 +710,6 @@ async function publishPackages(
 
     const elapsed = ((performance.now() - publishStart) / 1000).toFixed(2);
     log.success(`Published ${plan.packages.length} packages in ${elapsed}s`);
-
-    // Auto-update active consumer repos
-    const { updateActiveRepos } = await import("../lib/consumer");
-    await updateActiveRepos(plan, verbose, tag);
 
     // Save fingerprint state AFTER consumer updates so a failed update retries on next pub
     if (fingerprints && allCascadePackages) {
@@ -589,4 +734,22 @@ async function publishPackages(
   } finally {
     await releaseLock();
   }
+}
+
+async function runRepoInstall(
+  repo: RepoWorkItem,
+): Promise<void> {
+  const { entries, catalogRoot } = await buildVersionEntries(repo);
+
+  await installWithVersionUpdates({
+    repoPath: repo.state.path,
+    catalogRoot,
+    entries,
+    pm: repo.pm,
+  });
+
+  for (const entry of repo.packages) {
+    repo.state.packages[entry.name].current = entry.version;
+  }
+  await saveRepoByPath(repo.state.path, repo.state);
 }
