@@ -16,6 +16,7 @@ import { setDistTag } from "../lib/registry";
 import { generateVersion, sanitizeTag } from "../lib/version";
 import { acquirePublishLock } from "../lib/lock";
 import { getActiveRepos } from "../lib/repo-state";
+import { prefetchUpdateCheck } from "../lib/update-check";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import { createMultiSpinner } from "../lib/spinner";
@@ -409,6 +410,7 @@ export default defineCommand({
   },
   async run({ args }) {
     const verbose = args.verbose as boolean;
+    const showUpdate = await prefetchUpdateCheck();
 
     const tag = await resolveTag(args);
     if (verbose && tag) {
@@ -432,6 +434,7 @@ export default defineCommand({
         .filter(Boolean) as typeof workspace.packages;
 
       await publishPackages(publishSet, [], workspace.root, config, tag, verbose, args["dry-run"] as boolean);
+      await showUpdate();
       return;
     }
 
@@ -446,6 +449,7 @@ export default defineCommand({
     if (cascade.publishSet.length === 0) {
       log.line("");
       log.success("Nothing to publish");
+      await showUpdate();
       return;
     }
     log.line("");
@@ -463,6 +467,7 @@ export default defineCommand({
       cascade.fingerprints,
       cascade.cascadePackages,
     );
+    await showUpdate();
   },
 });
 

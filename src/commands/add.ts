@@ -27,6 +27,7 @@ import { discoverWorkspace } from "../lib/workspace";
 import { log } from "../lib/log";
 import { c } from "../lib/color";
 import { getPositionalArgs, normalizeScope } from "../lib/args";
+import { prefetchUpdateCheck } from "../lib/update-check";
 import type { pkglabConfig, RepoState, WorkspacePackage } from "../types";
 
 type WorkspaceDiscovery = {
@@ -582,6 +583,7 @@ export default defineCommand({
     },
   },
   async run({ args }) {
+    const showUpdate = await prefetchUpdateCheck();
     const config = await loadConfig();
     const names = getPositionalArgs(args);
     const catalog = args.catalog as boolean;
@@ -641,5 +643,6 @@ export default defineCommand({
         await ensureNpmrcForActiveRepos(config.port);
       }
     }
+    await showUpdate();
   },
 });

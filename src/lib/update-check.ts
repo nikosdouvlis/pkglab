@@ -5,9 +5,26 @@ import { c } from "./color";
 import { getVersion } from "./version";
 
 const CHECK_FILE = join(paths.home, "update-check.json");
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+interface CacheData {
+  latestVersion: string;
+  checkedAt: number;
+}
+
+async function readCache(): Promise<CacheData | null> {
+  try {
+    const file = Bun.file(CHECK_FILE);
+    if (!(await file.exists())) return null;
+    return await file.json() as CacheData;
+  } catch {
+    return null;
+  }
+}
 
 async function writeCache(latest: string): Promise<void> {
-  await Bun.write(CHECK_FILE, JSON.stringify({ latestVersion: latest }));
+  const data: CacheData = { latestVersion: latest, checkedAt: Date.now() };
+  await Bun.write(CHECK_FILE, JSON.stringify(data));
 }
 
 async function fetchLatestVersion(): Promise<string | null> {
@@ -37,14 +54,17 @@ export async function prefetchUpdateCheck(): Promise<() => Promise<void>> {
   const current = await getVersion();
   if (current === "0.0.0") return async () => {};
 
-  // Kick off fetch immediately so it runs in the background
-  const fetchPromise = fetchLatestVersion();
+  const cached = await readCache();
+  const isFresh = cached && (Date.now() - cached.checkedAt) < CACHE_TTL_MS;
+
+  // Use cached result if fresh, otherwise kick off a background fetch
+  const fetchPromise = isFresh ? null : fetchLatestVersion();
 
   return async () => {
     try {
-      const latest = await fetchPromise;
+      const latest = fetchPromise ? await fetchPromise : cached?.latestVersion;
       if (latest) {
-        await writeCache(latest);
+        if (fetchPromise) await writeCache(latest);
         if (isNewer(latest, current)) {
           printBanner(current, latest);
         }
@@ -63,4 +83,3 @@ function printBanner(current: string, latest: string): void {
   log.line(`  Run ${c.cyan("bun install -g pkglab")} to update`);
   log.line("");
 }
-

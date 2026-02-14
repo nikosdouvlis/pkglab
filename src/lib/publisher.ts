@@ -198,6 +198,8 @@ async function publishSinglePackage(
 }
 
 // Write .npmrc at the workspace root with registry auth.
+// Must be at the root because Bun ignores package-level .npmrc when
+// XDG_CONFIG_HOME is set (common on Linux/CI). See https://github.com/oven-sh/bun/issues/23128
 // Returns a cleanup function that restores the original state.
 async function writeWorkspaceNpmrc(
   workspaceRoot: string,
