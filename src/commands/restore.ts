@@ -11,8 +11,7 @@ import {
 } from "../lib/repo-state";
 import { getPositionalArgs, normalizeScope } from "../lib/args";
 import { extractTag } from "../lib/version";
-import { detectPackageManager } from "../lib/pm-detect";
-import { run } from "../lib/proc";
+import { runInstall } from "../lib/pm-detect";
 import { log } from "../lib/log";
 
 
@@ -112,12 +111,7 @@ export default defineCommand({
     }
 
     // Run pm install once
-    const pm = await detectPackageManager(repoPath);
-    log.dim(`  ${pm} install`);
-    const result = await run([pm, "install"], { cwd: repoPath });
-    if (result.exitCode !== 0) {
-      log.warn(`Install failed, run '${pm} install' manually`);
-    }
+    await runInstall(repoPath);
 
     if (toRestore.length === 1) {
       log.success(`Restored ${toRestore[0]}`);

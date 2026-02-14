@@ -3,7 +3,15 @@ import { paths } from "./paths";
 import { loadConfig } from "./config";
 import { DaemonAlreadyRunningError } from "./errors";
 import type { DaemonInfo } from "../types";
-import { isProcessAlive, run } from "./proc";
+import {
+  isProcessAlive,
+  run,
+  waitForReady,
+  waitForExit,
+  timeout,
+  gracefulStop,
+  validatePidStartTime,
+} from "./proc";
 import { log } from "./log";
 
 export async function startDaemon(): Promise<DaemonInfo> {
@@ -78,19 +86,7 @@ export async function stopDaemon(): Promise<void> {
   const status = await getDaemonStatus();
   if (!status?.running) return;
 
-  process.kill(status.pid, "SIGTERM");
-
-  // Wait for process to exit
-  for (let i = 0; i < 20; i++) {
-    await Bun.sleep(250);
-    if (!isProcessAlive(status.pid)) break;
-  }
-
-  // Force kill if still alive
-  if (isProcessAlive(status.pid)) {
-    process.kill(status.pid, "SIGKILL");
-  }
-
+  await gracefulStop(status.pid);
   await unlink(paths.pid).catch(() => {});
 }
 
@@ -131,17 +127,7 @@ export async function getDaemonStatus(): Promise<DaemonInfo | null> {
 
 async function validatePid(pid: number, startedAt?: number): Promise<boolean> {
   if (startedAt) {
-    // Use process start time comparison: if the process was started
-    // within a reasonable window of our recorded time, it's likely ours
-    try {
-      const result = await run(["ps", "-p", String(pid), "-o", "lstart="], {});
-      if (result.exitCode !== 0) return false;
-      const psTime = new Date(result.stdout.trim()).getTime();
-      // Allow 5 second tolerance for start time difference
-      return Math.abs(psTime - startedAt) < 5000;
-    } catch {
-      return false;
-    }
+    return validatePidStartTime(pid, startedAt);
   }
   // Fallback: check command string (legacy pidfiles without startedAt)
   try {
@@ -153,35 +139,3 @@ async function validatePid(pid: number, startedAt?: number): Promise<boolean> {
   }
 }
 
-async function waitForReady(proc: ReturnType<typeof Bun.spawn>): Promise<"ready"> {
-  const stdout = proc.stdout;
-  if (!stdout || typeof stdout === "number") {
-    throw new Error("stdout is not a readable stream");
-  }
-  const reader = (stdout as ReadableStream<Uint8Array>).getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) throw new Error("stdout closed before READY");
-      buffer += decoder.decode(value, { stream: true });
-      if (buffer.includes("READY")) return "ready";
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-async function waitForExit(proc: ReturnType<typeof Bun.spawn>): Promise<"exited"> {
-  await proc.exited;
-  return "exited";
-}
-
-function timeout(ms: number): { promise: Promise<"timeout">; cancel: () => void } {
-  let timer: ReturnType<typeof setTimeout>;
-  const promise = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), ms);
-  });
-  return { promise, cancel: () => clearTimeout(timer!) };
-}

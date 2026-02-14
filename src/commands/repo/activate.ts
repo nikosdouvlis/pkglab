@@ -2,11 +2,10 @@ import { defineCommand } from "citty";
 import {
   loadAllRepos,
   loadRepoByPath,
-  saveRepoByPath,
   getRepoDisplayName,
   canonicalRepoPath,
+  activateRepo,
 } from "../../lib/repo-state";
-import { addRegistryToNpmrc, applySkipWorktree } from "../../lib/consumer";
 import { loadConfig } from "../../lib/config";
 import { getPositionalArgs } from "../../lib/args";
 import { log } from "../../lib/log";
@@ -21,7 +20,7 @@ export default defineCommand({
     const pathArg = args.name as string | undefined;
     const config = await loadConfig();
 
-    const activateRepo = async (repoPath: string) => {
+    const activate = async (repoPath: string) => {
       const canonical = await canonicalRepoPath(repoPath);
       const state = await loadRepoByPath(canonical);
       if (!state) {
@@ -29,12 +28,7 @@ export default defineCommand({
         return false;
       }
 
-      await addRegistryToNpmrc(state.path, config.port);
-      await applySkipWorktree(state.path);
-
-      state.active = true;
-      state.lastUsed = Date.now();
-      await saveRepoByPath(state.path, state);
+      await activateRepo(state, config.port);
       const displayName = await getRepoDisplayName(state.path);
       log.success(`Activated ${displayName}`);
       return true;
@@ -51,11 +45,7 @@ export default defineCommand({
       let activated = 0;
       for (const { state } of repos) {
         if (state.active) continue;
-        await addRegistryToNpmrc(state.path, config.port);
-        await applySkipWorktree(state.path);
-        state.active = true;
-        state.lastUsed = Date.now();
-        await saveRepoByPath(state.path, state);
+        await activateRepo(state, config.port);
         const displayName = await getRepoDisplayName(state.path);
         log.success(`Activated ${displayName}`);
         activated++;
@@ -72,7 +62,7 @@ export default defineCommand({
 
     if (paths.length > 0) {
       for (const p of paths) {
-        const success = await activateRepo(p);
+        const success = await activate(p);
         if (!success) process.exit(1);
       }
     } else {
@@ -87,7 +77,7 @@ export default defineCommand({
       if (selected.length === 0) return;
 
       for (const { state } of selected) {
-        await activateRepo(state.path);
+        await activate(state.path);
       }
     }
   },

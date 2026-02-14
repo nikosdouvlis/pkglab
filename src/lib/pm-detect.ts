@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import { run } from "./proc";
+import { log } from "./log";
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 
@@ -42,4 +44,16 @@ export async function detectPackageManager(
     if (parent === dir) return "npm";
     dir = parent;
   }
+}
+
+export async function runInstall(repoPath: string, opts?: { label?: string }): Promise<boolean> {
+  const pm = await detectPackageManager(repoPath);
+  log.dim(`  ${pm} install`);
+  const result = await run([pm, "install"], { cwd: repoPath });
+  if (result.exitCode !== 0) {
+    const suffix = opts?.label ? ` for ${opts.label}` : "";
+    log.warn(`Install failed${suffix}, run '${pm} install' manually`);
+    return false;
+  }
+  return true;
 }

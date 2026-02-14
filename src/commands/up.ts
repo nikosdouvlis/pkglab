@@ -36,7 +36,7 @@ export default defineCommand({
     const repos = await loadAllRepos();
     if (repos.length > 0) {
       // Propagate port to .npmrc in linked repos
-      const { addRegistryToNpmrc, applySkipWorktree } = await import("../lib/consumer");
+      const { addRegistryToNpmrc } = await import("../lib/consumer");
       for (const { displayName, state } of repos) {
         if (Object.keys(state.packages).length > 0) {
           try {
@@ -54,13 +54,9 @@ export default defineCommand({
       });
 
       if (selected.length > 0) {
-        const { saveRepoByPath } = await import("../lib/repo-state");
+        const { activateRepo } = await import("../lib/repo-state");
         for (const { displayName, state } of selected) {
-          await addRegistryToNpmrc(state.path, info.port);
-          await applySkipWorktree(state.path);
-          state.active = true;
-          state.lastUsed = Date.now();
-          await saveRepoByPath(state.path, state);
+          await activateRepo(state, info.port);
           log.success(`Activated ${displayName}`);
         }
       }

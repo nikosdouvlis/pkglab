@@ -8,6 +8,7 @@ import {
 } from "../../lib/repo-state";
 import { getPositionalArgs } from "../../lib/args";
 import { log } from "../../lib/log";
+import type { RepoState } from "../../types";
 
 export default defineCommand({
   meta: { name: "off", description: "Deactivate repo for auto-updates" },
@@ -17,6 +18,13 @@ export default defineCommand({
   },
   async run({ args }) {
     const pathArg = args.name as string | undefined;
+
+    const deactivateRepo = async (state: RepoState) => {
+      state.active = false;
+      await saveRepoByPath(state.path, state);
+      const displayName = await getRepoDisplayName(state.path);
+      log.success(`Deactivated ${displayName}`);
+    };
 
     // --all: deactivate every known repo
     if (args.all) {
@@ -29,10 +37,7 @@ export default defineCommand({
       let deactivated = 0;
       for (const { state } of repos) {
         if (!state.active) continue;
-        state.active = false;
-        await saveRepoByPath(state.path, state);
-        const displayName = await getRepoDisplayName(state.path);
-        log.success(`Deactivated ${displayName}`);
+        await deactivateRepo(state);
         deactivated++;
       }
 
@@ -56,10 +61,8 @@ export default defineCommand({
 
       if (selected.length === 0) return;
 
-      for (const { displayName, state } of selected) {
-        state.active = false;
-        await saveRepoByPath(state.path, state);
-        log.success(`Deactivated ${displayName}`);
+      for (const { state } of selected) {
+        await deactivateRepo(state);
       }
 
       return;
@@ -74,10 +77,7 @@ export default defineCommand({
         process.exit(1);
       }
 
-      state.active = false;
-      await saveRepoByPath(state.path, state);
-      const displayName = await getRepoDisplayName(state.path);
-      log.success(`Deactivated ${displayName}`);
+      await deactivateRepo(state);
     }
   },
 });

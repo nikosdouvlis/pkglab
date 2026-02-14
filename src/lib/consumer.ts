@@ -1,13 +1,10 @@
 import { join } from "node:path";
 import { log } from "./log";
-import { c } from "./color";
 import { NpmrcConflictError } from "./errors";
 import { detectPackageManager } from "./pm-detect";
 import type { PackageManager } from "./pm-detect";
 import { run } from "./proc";
-import { getActiveRepos, saveRepoByPath } from "./repo-state";
-import { createMultiSpinner } from "./spinner";
-import type { SpinnerLine } from "./spinner";
+import { getActiveRepos } from "./repo-state";
 import type { PublishPlan, PublishEntry, RepoState } from "../types";
 
 export const MARKER_START = "# pkglab-start";
@@ -521,96 +518,4 @@ export async function buildVersionEntries(
     ? await findCatalogRoot(repo.state.path)
     : null;
   return { entries, catalogRoot: catalogResult?.root };
-}
-
-export async function updateActiveRepos(
-  plan: PublishPlan,
-  verbose: boolean,
-  tag?: string,
-): Promise<void> {
-  const activeRepos = await getActiveRepos();
-  if (activeRepos.length === 0) return;
-
-  // Build per-repo work items: which packages to update and the install command
-  const pubTag = tag ?? null;
-  const repoWork = await Promise.all(
-    activeRepos.map(async ({ displayName, state }) => {
-      const pm = await detectPackageManager(state.path);
-      const packages = plan.packages.filter((e) => {
-        const link = state.packages[e.name];
-        if (!link) return false;
-        // Match by tag: untagged pub updates untagged consumers, tagged pub updates matching tag
-        const linkTag = link.tag ?? null;
-        return linkTag === pubTag;
-      });
-      return { displayName, state, pm, packages };
-    }),
-  );
-  const work = repoWork.filter((r) => r.packages.length > 0);
-
-  if (work.length === 0) return;
-
-  if (!verbose) {
-    // Build grouped spinner lines with task index tracking
-    const spinnerLines: SpinnerLine[] = [];
-    const tasks: { repoIdx: number; spinnerIdx: number }[] = [];
-
-    for (let r = 0; r < work.length; r++) {
-      const { displayName, state, packages } = work[r];
-      spinnerLines.push({ text: `${displayName} ${c.dim(state.path)}`, header: true });
-      for (const entry of packages) {
-        tasks.push({ repoIdx: r, spinnerIdx: spinnerLines.length });
-        spinnerLines.push(`updated ${entry.name}`);
-      }
-    }
-
-    const repoSpinner = createMultiSpinner(spinnerLines);
-    repoSpinner.start();
-
-    try {
-      await Promise.all(
-        work.map(async (repo, r) => {
-          const repoTasks = tasks.filter((t) => t.repoIdx === r);
-          const { entries, catalogRoot } = await buildVersionEntries(repo);
-
-          await installWithVersionUpdates({
-            repoPath: repo.state.path,
-            catalogRoot,
-            entries,
-            pm: repo.pm,
-          });
-
-          // Mark all tasks complete and update state
-          for (let i = 0; i < repo.packages.length; i++) {
-            repo.state.packages[repo.packages[i].name].current = repo.packages[i].version;
-            repoSpinner.complete(repoTasks[i].spinnerIdx);
-          }
-          await saveRepoByPath(repo.state.path, repo.state);
-        }),
-      );
-    } finally {
-      repoSpinner.stop();
-    }
-  } else {
-    log.info("\nUpdating active repos:");
-    await Promise.all(
-      work.map(async (repo) => {
-        const { entries, catalogRoot } = await buildVersionEntries(repo);
-
-        await installWithVersionUpdates({
-          repoPath: repo.state.path,
-          catalogRoot,
-          entries,
-          pm: repo.pm,
-          onCommand: (cmd, _cwd) => log.dim(`  ${cmd.join(" ")}`),
-        });
-
-        for (const entry of repo.packages) {
-          repo.state.packages[entry.name].current = entry.version;
-        }
-        await saveRepoByPath(repo.state.path, repo.state);
-        log.success(`  ${repo.displayName}: updated ${repo.packages.map((e) => e.name).join(", ")}`);
-      }),
-    );
-  }
 }

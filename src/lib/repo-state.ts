@@ -126,6 +126,15 @@ export async function getActiveRepos(): Promise<
   return all.filter((entry) => entry.state.active);
 }
 
+export async function activateRepo(state: RepoState, port: number): Promise<void> {
+  const { addRegistryToNpmrc, applySkipWorktree } = await import("./consumer");
+  await addRegistryToNpmrc(state.path, port);
+  await applySkipWorktree(state.path);
+  state.active = true;
+  state.lastUsed = Date.now();
+  await saveRepoByPath(state.path, state);
+}
+
 export async function deactivateAllRepos(): Promise<void> {
   const all = await loadAllRepos();
   for (const { state } of all) {

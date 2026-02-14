@@ -11,8 +11,7 @@ import {
   removeSkipWorktree,
   restorePackage,
 } from "../../lib/consumer";
-import { detectPackageManager } from "../../lib/pm-detect";
-import { run } from "../../lib/proc";
+import { runInstall } from "../../lib/pm-detect";
 import { log } from "../../lib/log";
 import type { RepoState } from "../../types";
 import { exists } from "node:fs/promises";
@@ -77,12 +76,7 @@ export default defineCommand({
       await removeSkipWorktree(state.path);
 
       // Run pm install to sync node_modules after restoring versions
-      const pm = await detectPackageManager(state.path);
-      log.dim(`  ${pm} install`);
-      const result = await run([pm, "install"], { cwd: state.path });
-      if (result.exitCode !== 0) {
-        log.warn(`Install failed for ${displayName}, run '${pm} install' manually`);
-      }
+      await runInstall(state.path, { label: displayName });
 
       await deleteRepoByPath(state.path);
       log.success(`Reset ${displayName}`);

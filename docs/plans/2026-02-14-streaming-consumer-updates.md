@@ -73,6 +73,6 @@ other-repo /path/to/other                (header)
 publishPackages needs:
 - The dependency graph (from workspace packages, same as runCascade builds)
 - The publish plan (already has this)
-- Consumer repo work items (already computed in updateActiveRepos, move earlier)
+- Consumer repo work items (from buildConsumerWorkItems, move earlier)
 
 The graph can be rebuilt cheaply from workspace.packages (buildDependencyGraph + precomputeTransitiveDeps). No need to thread it through from runCascade.
