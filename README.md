@@ -10,6 +10,7 @@ Also available as `pkgl` for short (so efficient ✨).
 
 - [Features](#features)
 - [Quick start](#quick-start)
+- [Quick start - monorepo dev scripts](#quick-start---monorepo-dev-scripts)
 - [Install](#install)
 - [The problem](#the-problem)
 - [How it works](#how-it-works)
@@ -70,6 +71,37 @@ pkglab restore --all                         # everything in this repo
 # Stop the registry
 pkglab down
 ```
+
+## Quick start - monorepo dev scripts
+
+If your packages have a watch/dev mode (tsup, tsc, rspack, etc.), you can wire pkglab into the workflow so rebuilds automatically publish to the local registry.
+
+The manual workflow: run your dev server in one package, run `pkglab pub` from the root workspace (or `pkglab pub --root` from any sub workspace) in another when you want to push changes. Since pkglab fingerprints each package, only the ones with actual changes get republished.
+
+When multiple packages rebuild at once, the listener batches them into a single publish cycle instead of separate ones. Each tag gets its own queue lane, so worktree publishes don't interfere.
+
+For a fully automated loop, use the listener mode to coalesce watch rebuilds into batched publishes:
+
+```bash
+# Terminal 1 (optional): publish listener (coalesces rapid signals into one publish cycle)
+# This is an optional step as publishing will run this automatically as a
+# detached process - if you choose this, you can always stop it with `pkglab down` and
+# view the logs with `pkglab logs -f`
+pkglab listen
+
+# Terminal 2: watch builds with auto-publish on each successful rebuild
+pnpm dev -- --onSuccess 'pkglab pub --ping'
+```
+
+Most dev servers have some kind of `onSuccess` hook you can run `pkglab pub --ping` in - for example, `tsup` & `tsdown` are using `onSuccess`, so each change would trigger a `dev build -> pkglab pub --ping -> package publishing` automatically.
+
+You can also wire `pub --ping` into your build runner so publishes happen automatically after every rebuild. For example, with turbo's `--on-complete` hook:
+
+```bash
+pkglab listen & turbo dev --on-complete 'pkglab pub --ping'
+```
+
+For a real-world example, we use this workflow in the [Clerk JavaScript SDK monorepo](https://github.com/clerk/javascript).
 
 ## Install
 
