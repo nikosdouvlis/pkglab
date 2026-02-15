@@ -1,6 +1,6 @@
 {
   "name": "pkglab",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Local package development CLI with an embedded Verdaccio registry",
   "keywords": [
     "local",
@@ -26,10 +26,10 @@
     "bin"
   ],
   "optionalDependencies": {
-    "pkglab-darwin-arm64": "0.7.0",
-    "pkglab-darwin-x64": "0.7.0",
-    "pkglab-linux-arm64": "0.7.0",
-    "pkglab-linux-x64": "0.7.0"
+    "pkglab-darwin-arm64": "0.8.0",
+    "pkglab-darwin-x64": "0.8.0",
+    "pkglab-linux-arm64": "0.8.0",
+    "pkglab-linux-x64": "0.8.0"
   },
   "engines": {
     "node": ">=18"
