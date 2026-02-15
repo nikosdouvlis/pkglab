@@ -349,7 +349,7 @@ try {
     // No active repos = no dependent expansion, so pkg-c is NOT included.
     assert(r.stdout.includes('@test/pkg-a'), 'dependency @test/pkg-a included in publish');
     assert(r.stdout.includes('@test/pkg-b'), '@test/pkg-b included in publish');
-    assert(!r.stdout.includes('@test/pkg-c'), 'pkg-c excluded (no active repos)');
+    assert(!r.stdout.includes('\u25B2 @test/pkg-c'), 'pkg-c not published (no active repos)');
     assert(r.stdout.includes('2 packages'), 'publishes 2 packages (target + dep)');
   }
 
@@ -365,8 +365,8 @@ try {
     assert(r.code === 0, 'pkglab pub @test/pkg-b succeeds');
     assert(r.stdout.includes('@test/pkg-a'), 'dep @test/pkg-a in scope');
     assert(r.stdout.includes('@test/pkg-b'), '@test/pkg-b in scope');
-    // pkg-c should NOT appear because pkg-a is unchanged
-    assert(!r.stdout.includes('@test/pkg-c'), 'pkg-c excluded (dep pkg-a unchanged)');
+    // pkg-c should NOT be published because pkg-a is unchanged
+    assert(!r.stdout.includes('\u25B2 @test/pkg-c'), 'pkg-c not published (dep pkg-a unchanged)');
     assert(r.stdout.includes('1 to publish'), 'only 1 package to publish (pkg-b)');
   }
 
@@ -380,8 +380,8 @@ try {
     const r = await pkglab(['pub', '@test/pkg-a'], { cwd: producerDir });
     assert(r.code === 0, 'pkglab pub @test/pkg-a succeeds');
     assert(r.stdout.includes('@test/pkg-a'), '@test/pkg-a included in publish');
-    assert(!r.stdout.includes('@test/pkg-b'), 'pkg-b excluded (no active repos)');
-    assert(!r.stdout.includes('@test/pkg-c'), 'pkg-c excluded (no active repos)');
+    assert(!r.stdout.includes('\u25B2 @test/pkg-b'), 'pkg-b not published (no active repos)');
+    assert(!r.stdout.includes('\u25B2 @test/pkg-c'), 'pkg-c not published (no active repos)');
     assert(r.stdout.includes('1 packages'), 'publishes 1 package (target only)');
   }
 

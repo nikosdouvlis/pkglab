@@ -416,10 +416,9 @@ function printScopeSummary(cascade: CascadeResult): void {
     }
   }
 
-  if (activeRepos.length > 0) {
-    for (const { name, via } of allSkippedDependents) {
-      log.line(`  ${c.dim('\u00B7')} ${c.dim(name)}  ${c.dim(`dependent (via ${via}), no consumers`)}`);
-    }
+  for (const { name, via } of allSkippedDependents) {
+    const label = activeRepos.length > 0 ? 'no consumers' : 'no active repos';
+    log.line(`  ${c.dim('\u00B7')} ${c.dim(name)}  ${c.dim(`dependent (via ${via}), ${label}`)}`);
   }
 }
 
