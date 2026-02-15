@@ -1,5 +1,11 @@
 # pkglab
 
+## 0.10.0
+
+### Minor Changes
+
+- 40caa09: Redirect registry worker output to log file so `pkglab logs -f` shows pings and publish events. Fix pnpm lockfile patching for monorepo sub-package consumers by walking up to find pnpm-lock.yaml. Add lockfile patch status to pub spinner output.
+
 ## 0.9.0
 
 ### Minor Changes
