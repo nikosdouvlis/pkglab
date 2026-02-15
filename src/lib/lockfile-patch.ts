@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { log } from './log';
 import { run } from './proc';
@@ -63,15 +63,27 @@ export async function patchPnpmLockfile(
   lockfileDir: string,
   entries: LockfilePatchEntry[],
 ): Promise<boolean> {
-  const lockfilePath = join(lockfileDir, 'pnpm-lock.yaml');
-  const lockfile = Bun.file(lockfilePath);
+  // Walk upward to find pnpm-lock.yaml (lives at the workspace root,
+  // but lockfileDir may be a sub-package within the monorepo)
+  let lockfilePath: string | undefined;
+  let dir = lockfileDir;
+  while (true) {
+    const candidate = join(dir, 'pnpm-lock.yaml');
+    if (await Bun.file(candidate).exists()) {
+      lockfilePath = candidate;
+      break;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
 
-  if (!(await lockfile.exists())) {
-    log.dim('lockfile patch: pnpm-lock.yaml not found, skipping');
+  if (!lockfilePath) {
     return false;
   }
 
-  const original = await lockfile.text();
+  const original = await Bun.file(lockfilePath).text();
+  const lockfileRoot = dirname(lockfilePath);
   let patched = original;
 
   // Phase 1: replace version strings globally (covers importers, packages, snapshots).
@@ -105,7 +117,7 @@ export async function patchPnpmLockfile(
   // Run pnpm install with frozen lockfile to apply without resolution
   const result = await run(
     ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts', '--prefer-offline'],
-    { cwd: lockfileDir },
+    { cwd: lockfileRoot },
   );
 
   if (result.exitCode === 0) {

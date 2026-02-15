@@ -727,7 +727,9 @@ async function publishPackages(
                 }
                 log.info(`Starting install for ${repo.displayName}`);
                 repoInstallPromises.push(
-                  runRepoInstall(repo, { tag, port: config.port, verbose: true }, getIntegrityMap, noPmOptimizations).then(status => {
+                  runRepoInstall(repo, { tag, port: config.port, verbose: true }, getIntegrityMap, noPmOptimizations, n => {
+                    log.dim(`  lockfile patched (${n} entries, frozen install)`);
+                  }).then(status => {
                     if (status === 'ok') {
                       log.success(`  ${repo.displayName}: updated ${repo.packages.map(e => e.name).join(', ')}`);
                     }
@@ -763,8 +765,14 @@ async function publishPackages(
       // Add consumer repo lines to the spinner (header + per-package lines)
       const repoPackageIndices = new Map<RepoWorkItem, number[]>();
 
+      const repoLockfileIndex = new Map<RepoWorkItem, number>();
+
       for (const repo of consumerWork) {
         spinnerLines.push({ text: `${repo.displayName} ${c.dim(repo.state.path)}`, header: true });
+        if (repo.pm === 'pnpm') {
+          repoLockfileIndex.set(repo, spinnerLines.length);
+          spinnerLines.push('patching lockfile');
+        }
         const indices: number[] = [];
         for (const entry of repo.packages) {
           indices.push(spinnerLines.length);
@@ -807,8 +815,17 @@ async function publishPackages(
                     spinner.setText(idx, `installing ${repo.packages[indices.indexOf(idx)].name}`);
                   }
                   repoInstallPromises.push(
-                    runRepoInstall(repo, { tag, port: config.port, verbose: false }, getIntegrityMap, noPmOptimizations)
-                      .then(status => {
+                    runRepoInstall(repo, { tag, port: config.port, verbose: false }, getIntegrityMap, noPmOptimizations, n => {
+                      const lfIdx = repoLockfileIndex.get(repo);
+                      if (lfIdx !== undefined) {
+                        spinner.setText(lfIdx, `lockfile patched (${n} entries, frozen install)`);
+                        spinner.complete(lfIdx);
+                      }
+                    }).then(status => {
+                        const lfIdx = repoLockfileIndex.get(repo);
+                        if (lfIdx !== undefined) {
+                          spinner.complete(lfIdx);
+                        }
                         if (status === 'skipped') {
                           for (let i = 0; i < repo.packages.length; i++) {
                             spinner.setText(indices[i], `skipped ${repo.packages[i].name} (hook aborted)`);
@@ -900,6 +917,7 @@ async function runRepoInstall(
   hookOpts?: { tag: string | undefined; port: number; verbose: boolean },
   getIntegrityMap?: () => Promise<Map<string, string>>,
   noPmOptimizations = false,
+  onLockfilePatched?: (entryCount: number) => void,
 ): Promise<'ok' | 'skipped'> {
   const { entries, catalogRoot } = await buildVersionEntries(repo);
 
@@ -968,6 +986,7 @@ async function runRepoInstall(
       pm: repo.pm,
       patchEntries,
       noPmOptimizations,
+      onLockfilePatched,
     });
 
     for (const entry of repo.packages) {

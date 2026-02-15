@@ -48,6 +48,12 @@ export interface WorkspaceStatus {
   lanes: LaneStatus[];
 }
 
+let logFd: number | undefined;
+
+export function setLogFd(fd: number): void {
+  logFd = fd;
+}
+
 function formatTimestamp(): string {
   return '[' + new Date().toLocaleTimeString('en-GB', { hour12: false }) + ']';
 }
@@ -175,8 +181,8 @@ async function drainLanes(ws: WorkspaceState, workspaceRoot: string): Promise<vo
 
       const proc = Bun.spawn(cmd, {
         cwd: workspaceRoot,
-        stdout: 'inherit',
-        stderr: 'inherit',
+        stdout: logFd ?? 'inherit',
+        stderr: logFd ?? 'inherit',
       });
 
       const exitCode = await proc.exited;

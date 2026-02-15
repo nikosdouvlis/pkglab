@@ -211,6 +211,7 @@ interface InstallWithVersionUpdatesOpts {
   patchEntries?: import('./lockfile-patch').LockfilePatchEntry[];
   noPmOptimizations?: boolean;
   onCommand?: (cmd: string[], cwd: string) => void;
+  onLockfilePatched?: (entryCount: number) => void;
 }
 
 /**
@@ -256,6 +257,7 @@ export async function installWithVersionUpdates(
     const patchDir = catalogRoot ?? repoPath;
     const patched = await patchPnpmLockfile(patchDir, opts.patchEntries);
     if (patched) {
+      opts.onLockfilePatched?.(opts.patchEntries.length);
       return previousVersions;
     }
     // Patch failed (lockfile restored), fall through to regular install
