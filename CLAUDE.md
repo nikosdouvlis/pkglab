@@ -14,8 +14,8 @@ Top-level:
 - `pkglab down` — stop the registry
 - `pkglab status` — show registry status
 - `pkglab logs` — show registry logs
-- `pkglab pub [name...]` — publish workspace packages to local registry, auto-updates active consumer repos. Accepts multiple names. Fingerprints packages and skips unchanged ones. Flags: `--single` skip cascade/fingerprinting, `--shallow` targets + deps only (no dependent expansion), `--force`/`-f` ignore fingerprints (republish all), `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--root` publish all packages regardless of cwd (same as running from workspace root, errors if combined with positional names), `--ping` send signal to a running listener instead of publishing directly (errors if no listener running), `--dry-run`, `--verbose`/`-v`
-- `pkglab listen` — start a coordinator (foreground) that accepts publish signals from `pub --ping` and coalesces them into batched publish cycles. Per-workspace (uses Unix socket at `~/.pkglab/listeners/`). Each tag gets its own queue lane. Useful for debugging. In normal use, `pub --ping` auto-starts the listener as a background daemon (logs to `/tmp/pkglab/`). `--verbose`/`-v` for detailed socket activity.
+- `pkglab pub [name...]` - publish workspace packages to local registry, auto-updates active consumer repos. Accepts multiple names. Fingerprints packages and skips unchanged ones. Uses mtime+size gating to skip content hashing for unchanged files (disable with `PKGLAB_NO_MTIME_CACHE=1`). Flags: `--single` skip cascade/fingerprinting, `--shallow` targets + deps only (no dependent expansion), `--force`/`-f` ignore fingerprints (republish all), `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--root` publish all packages regardless of cwd (same as running from workspace root, errors if combined with positional names), `--ping` send publish request to the registry server via HTTP instead of publishing directly, `--dry-run`, `--verbose`/`-v` (includes per-phase timing: fingerprint, cascade, publish, consumer)
+- `pkglab listen` - (deprecated) shows a deprecation notice and displays publish queue status from the registry. Publish coalescing is now built into the registry server. The old Unix socket listener is no longer used.
 - `pkglab add [name[@tag]...]` — add pkglab packages to the current repo. Accepts multiple names. No args for interactive picker. Batch installs in one command. Auto-detects when a package exists in a workspace catalog and uses catalog mode automatically. `--catalog`/`-c` enables strict mode (errors if the package is not in any catalog). Supports both bun/npm catalogs (package.json) and pnpm catalogs (pnpm-workspace.yaml). In a workspace, auto-scans all sub-packages for the dependency and updates all of them (sub-packages using `catalog:` protocol are skipped, handled by catalog auto-detection). `--packagejson`/`-p` opts out of workspace scanning and targets a single sub-package directory (e.g. `-p apps/dashboard` from monorepo root). `--tag`/`-t` applies a tag to all packages (`pkglab add pkg --tag feat1` is equivalent to `pkglab add pkg@feat1`), errors if combined with inline `@tag` syntax. `--scope`/`-s` replaces all packages of a given scope in the workspace (e.g. `--scope clerk` or `--scope @clerk`), normalizes to `@clerk/`, scans workspace root + sub-packages for matching deps, verifies all are published before modifying files. Cannot combine `--scope` with positional package names. `--dry-run` previews what would be installed without making changes. `--verbose`/`-v` shows detailed output about workspace scanning and decisions. Targets are remembered for restore.
 - `pkglab restore <name...>` — restore pkglab packages to their original versions across all targets that were updated by `pkglab add`, runs pm install to sync node_modules. Accepts multiple names. `--all` restores all packages in the repo. `--scope <scope>` restores all packages matching a scope (mirrors add `--scope`). `--tag`/`-t` restores only packages installed with a specific tag.
 - `pkglab doctor` — diagnose issues
@@ -54,7 +54,7 @@ For multi-worktree workflows, use tags to isolate version channels:
 - `src/index.ts` — entry point, registers all commands via lazy imports
 - `src/commands/` — one file per command, each exports `defineCommand()` as default
 - `src/commands/repos/`, `src/commands/pkg/` — subcommand groups with their own index.ts
-- `src/lib/` — shared utilities (config, daemon, publisher, registry, fingerprint, etc.)
+- `src/lib/` - shared utilities (config, daemon, publisher, registry, fingerprint, publish-queue, publish-ping, etc.)
 - `src/types.ts` — all shared interfaces
 
 Config and state live in `~/.pkglab/`. Verdaccio storage at `~/.pkglab/verdaccio/storage/`. Fingerprint state at `~/.pkglab/fingerprints.json`.
@@ -81,7 +81,7 @@ Config and state live in `~/.pkglab/`. Verdaccio storage at `~/.pkglab/verdaccio
 
 Phase 1 (initial scope): targets + their transitive workspace deps, closed under deps (every publishable package has its workspace deps in the set).
 
-Fingerprinting: each package in scope is fingerprinted using `Bun.Glob` + `Bun.CryptoHasher` (SHA-256) to hash the publishable file set (the `files` field, always-included files, and entry points from main/module/types/bin/exports). Falls back to `npm pack --dry-run --json` for packages with bundledDependencies. Packages are classified in topological order:
+Fingerprinting: each package in scope is fingerprinted using `Bun.Glob` + `Bun.CryptoHasher` (SHA-256) to hash the publishable file set (the `files` field, always-included files, and entry points from main/module/types/bin/exports). Falls back to `npm pack --dry-run --json` for packages with bundledDependencies. On repeat runs, mtime+size metadata is checked first: if all files match the previous run's stats, the cached hash is reused without reading file contents. File stats are persisted alongside hashes in `~/.pkglab/fingerprints.json`. Set `PKGLAB_NO_MTIME_CACHE=1` to disable the fast path and always content-hash. Packages are classified in topological order:
 
 - "changed": content hash differs from previous publish
 - "propagated": content same, but a workspace dep was changed/propagated
@@ -119,6 +119,6 @@ IMPORTANT: After changing commands, flags, or CLI behavior, always update README
 
 ## /cmt Skill Config
 
-Scopes: pub, pkgs, repos, daemon, consumer, registry, version, config, hooks
+Scopes: pub, pkgs, repos, daemon, consumer, registry, version, config, hooks, perf
 
 IMPORTANT: Changesets are MANDATORY for every commit made with /cmt. Always create a changeset file in `.changeset/` with the appropriate bump level (patch for fixes, minor for features) and stage it together with the code changes. Never commit without a changeset.

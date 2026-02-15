@@ -80,27 +80,21 @@ If your packages have a watch/dev mode (tsup, tsc, rspack, etc.), you can wire p
 
 The manual workflow: run your dev server in one package, run `pkglab pub` from the root workspace (or `pkglab pub --root` from any sub workspace) in another when you want to push changes. Since pkglab fingerprints each package, only the ones with actual changes get republished.
 
-When multiple packages rebuild at once, the listener batches them into a single publish cycle instead of separate ones. Each tag gets its own queue lane, so worktree publishes don't interfere.
+When multiple packages rebuild at once, the registry server batches them into a single publish cycle instead of separate ones. Each tag gets its own queue lane, so worktree publishes don't interfere. The coalescing logic runs inside the registry process, so no separate listener is needed.
 
-For a fully automated loop, use the listener mode to coalesce watch rebuilds into batched publishes:
+For a fully automated loop, wire `pub --ping` into your dev server's success hook:
 
 ```bash
-# Terminal 1 (optional): publish listener (coalesces rapid signals into one publish cycle)
-# This is an optional step as publishing will run this automatically as a
-# detached process - if you choose this, you can always stop it with `pkglab down` and
-# view the logs with `pkglab logs -f`
-pkglab listen
-
-# Terminal 2: watch builds with auto-publish on each successful rebuild
+# Watch builds with auto-publish on each successful rebuild
 pnpm dev -- --onSuccess 'pkglab pub --ping'
 ```
 
-Most dev servers have some kind of `onSuccess` hook you can run `pkglab pub --ping` in - for example, `tsup` & `tsdown` are using `onSuccess`, so each change would trigger a `dev build -> pkglab pub --ping -> package publishing` automatically.
+Most dev servers have some kind of `onSuccess` hook you can run `pkglab pub --ping` in, for example, `tsup` & `tsdown` are using `onSuccess`, so each change would trigger a `dev build -> pkglab pub --ping -> package publishing` automatically.
 
 You can also wire `pub --ping` into your build runner so publishes happen automatically after every rebuild. For example, with turbo's `--on-complete` hook:
 
 ```bash
-pkglab listen & turbo dev --on-complete 'pkglab pub --ping'
+turbo dev --on-complete 'pkglab pub --ping'
 ```
 
 For a real-world example, we use this workflow in the [Clerk JavaScript SDK monorepo](https://github.com/clerk/javascript).
@@ -149,8 +143,8 @@ The registry server starts in ~60ms, uses ~44MB of memory, and publishes 22 pack
 
 - `pkglab up` -start the local registry. Deactivates repos from the previous session, then offers a picker to reactivate the ones you need.
 - `pkglab down` -stop the registry.
-- `pkglab pub [name...]` -publish packages to the local registry. Accepts multiple names. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade, including sibling workspace deps of dependents. Fingerprints each package and skips unchanged ones: only packages with content changes or whose deps changed get a new version. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade and fingerprinting), `--shallow` (targets + deps only, no dependent expansion), `--force`/`-f` (ignore fingerprints, republish all), `--verbose`/`-v`, `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch), `--root` (publish all packages regardless of cwd), `--ping` (send signal to a running listener instead of publishing directly).
-- `pkglab listen` -start a coordinator that accepts publish signals from `pub --ping` and coalesces them into batched publish cycles. Scoped per workspace (uses a Unix socket). Each tag gets its own queue lane. Useful for watch-mode workflows where many packages rebuild simultaneously and would otherwise trigger overlapping publishes. `--verbose`/`-v` for detailed output.
+- `pkglab pub [name...]` -publish packages to the local registry. Accepts multiple names. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade, including sibling workspace deps of dependents. Fingerprints each package and skips unchanged ones: only packages with content changes or whose deps changed get a new version. Uses mtime+size metadata to skip content hashing on repeat runs when files haven't changed. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade and fingerprinting), `--shallow` (targets + deps only, no dependent expansion), `--force`/`-f` (ignore fingerprints, republish all), `--verbose`/`-v` (includes per-phase timing), `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch), `--root` (publish all packages regardless of cwd), `--ping` (send publish request to the registry server instead of publishing directly).
+- `pkglab listen` -(deprecated) shows queue status from the registry. Publish coalescing is now built into the registry server.
 - `pkglab add [name[@tag]...]` -install pkglab packages in the current repo. Accepts multiple names, batch installs in one command. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. Append `@tag` to pin to a tag (e.g. `pkglab add @clerk/pkg@feat1`), or use `--tag`/`-t` to apply a tag to all packages at once (`pkglab add pkg --tag feat1`). Cannot combine `--tag` with inline `@tag` syntax. `--scope`/`-s` replaces all packages of a given scope in the workspace (e.g. `--scope clerk` or `--scope @clerk`), scanning workspace root + sub-packages for matching deps and verifying all are published before modifying files. Cannot combine `--scope` with positional package names. No args for an interactive picker. Auto-detects catalog entries and updates the catalog source directly (see [Catalog support](#catalog-support)). `--catalog`/`-c` enables strict mode, erroring if a package is not in any catalog. In a workspace, auto-scans all sub-packages for the dependency and updates all of them (sub-packages using `catalog:` protocol are skipped, handled by catalog auto-detection). `--packagejson`/`-p` opts out of workspace scanning and targets a single sub-package directory (e.g. `pkglab add @clerk/nextjs -p apps/dashboard` from the monorepo root). `--dry-run` previews what would be installed without making changes. `--verbose`/`-v` shows detailed output about workspace scanning and decisions. All targets are remembered for restore.
 - `pkglab restore <name...>` -restore pkglab packages to their original versions across all targets that were updated by `pkglab add` (catalog, sub-packages, or both). Accepts multiple names. Runs the package manager install to sync node_modules, cleans `.npmrc` if no packages remain, and removes skip-worktree. `--all` restores every pkglab package in the repo. `--scope <scope>` restores all packages matching a scope (mirrors add `--scope`). `--tag`/`-t` restores only packages installed with a specific tag.
 - `pkglab status` -show whether the registry is running and on which port.
@@ -328,6 +322,8 @@ Trade-off: adding a previously-skipped package via `pkglab add` gives the last-p
 Logs are written to `/tmp/pkglab/verdaccio.log`.
 
 To use the legacy Verdaccio backend instead of the built-in Bun registry, set `PKGLAB_VERDACCIO=1` before starting the daemon.
+
+Set `PKGLAB_NO_MTIME_CACHE=1` to disable the mtime-based fingerprint fast path and always do full content hashing.
 
 ## Repo hooks
 
