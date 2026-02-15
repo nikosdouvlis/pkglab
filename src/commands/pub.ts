@@ -1,6 +1,6 @@
 import { defineCommand } from 'citty';
 
-import type { RepoWorkItem } from '../lib/consumer';
+import type { RepoWorkItem, LockfilePatchEntry } from '../lib/consumer';
 import type { SpinnerLine } from '../lib/spinner';
 import type { WorkspacePackage, PublishEntry } from '../types';
 
@@ -8,6 +8,7 @@ import { getPositionalArgs } from '../lib/args';
 import { c } from '../lib/color';
 import { loadConfig } from '../lib/config';
 import { buildConsumerWorkItems, buildVersionEntries, installWithVersionUpdates } from '../lib/consumer';
+import { fetchIntegrityHashes } from '../lib/lockfile-patch';
 import { backendLabel, ensureDaemonRunning } from '../lib/daemon';
 import { pkglabError } from '../lib/errors';
 import { fingerprintPackages, type PackageFingerprint } from '../lib/fingerprint';
@@ -653,6 +654,22 @@ async function publishPackages(
   const releaseLock = await acquirePublishLock();
   let publishMs = 0;
   let consumerMs = 0;
+
+  // Lazy integrity hash fetcher for pnpm lockfile patching.
+  // Starts fetching on the first call (triggered when the first package is published),
+  // and subsequent calls reuse the same promise. By the time a consumer repo's
+  // required packages are all published, the fetch has likely completed.
+  let integrityPromise: Promise<Map<string, string>> | null = null;
+  const getIntegrityMap = (): Promise<Map<string, string>> => {
+    if (!integrityPromise) {
+      integrityPromise = fetchIntegrityHashes(
+        config.port,
+        plan.packages.map(e => ({ name: e.name, version: e.version })),
+      );
+    }
+    return integrityPromise;
+  };
+
   try {
     const publishStart = performance.now();
 
@@ -699,7 +716,7 @@ async function publishPackages(
                 }
                 log.info(`Starting install for ${repo.displayName}`);
                 repoInstallPromises.push(
-                  runRepoInstall(repo, { tag, port: config.port, verbose: true }).then(status => {
+                  runRepoInstall(repo, { tag, port: config.port, verbose: true }, getIntegrityMap).then(status => {
                     if (status === 'ok') {
                       log.success(`  ${repo.displayName}: updated ${repo.packages.map(e => e.name).join(', ')}`);
                     }
@@ -779,7 +796,7 @@ async function publishPackages(
                     spinner.setText(idx, `installing ${repo.packages[indices.indexOf(idx)].name}`);
                   }
                   repoInstallPromises.push(
-                    runRepoInstall(repo, { tag, port: config.port, verbose: false })
+                    runRepoInstall(repo, { tag, port: config.port, verbose: false }, getIntegrityMap)
                       .then(status => {
                         if (status === 'skipped') {
                           for (let i = 0; i < repo.packages.length; i++) {
@@ -870,6 +887,7 @@ async function publishPackages(
 async function runRepoInstall(
   repo: RepoWorkItem,
   hookOpts?: { tag: string | undefined; port: number; verbose: boolean },
+  getIntegrityMap?: () => Promise<Map<string, string>>,
 ): Promise<'ok' | 'skipped'> {
   const { entries, catalogRoot } = await buildVersionEntries(repo);
 
@@ -905,6 +923,31 @@ async function runRepoInstall(
     }
   }
 
+  // Build lockfile patch entries for pnpm repos
+  let patchEntries: LockfilePatchEntry[] | undefined;
+  if (repo.pm === 'pnpm' && getIntegrityMap) {
+    const integrityMap = await getIntegrityMap();
+    if (integrityMap.size > 0) {
+      patchEntries = [];
+      for (const pkg of repo.packages) {
+        const oldVersion = repo.state.packages[pkg.name]?.current;
+        const integrity = integrityMap.get(pkg.name);
+        if (oldVersion && integrity) {
+          patchEntries.push({
+            name: pkg.name,
+            oldVersion,
+            newVersion: pkg.version,
+            integrity,
+          });
+        }
+      }
+      // If we couldn't build entries for all packages, skip patching
+      if (patchEntries.length !== repo.packages.length) {
+        patchEntries = undefined;
+      }
+    }
+  }
+
   // Install and save state
   try {
     await installWithVersionUpdates({
@@ -912,6 +955,7 @@ async function runRepoInstall(
       catalogRoot,
       entries,
       pm: repo.pm,
+      patchEntries,
     });
 
     for (const entry of repo.packages) {

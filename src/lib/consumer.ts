@@ -4,10 +4,13 @@ import type { PublishPlan, PublishEntry, RepoState } from '../types';
 import type { PackageManager } from './pm-detect';
 
 import { NpmrcConflictError } from './errors';
+import { patchPnpmLockfile } from './lockfile-patch';
 import { log } from './log';
 import { detectPackageManager } from './pm-detect';
 import { run } from './proc';
 import { getActiveRepos } from './repo-state';
+
+export type { LockfilePatchEntry } from './lockfile-patch';
 
 export const MARKER_START = '# pkglab-start';
 const MARKER_END = '# pkglab-end';
@@ -205,6 +208,7 @@ interface InstallWithVersionUpdatesOpts {
   catalogRoot?: string;
   entries: VersionEntry[];
   pm: PackageManager;
+  patchEntries?: import('./lockfile-patch').LockfilePatchEntry[];
   onCommand?: (cmd: string[], cwd: string) => void;
 }
 
@@ -244,6 +248,16 @@ export async function installWithVersionUpdates(
       }
       previousVersions.set(entry.name, targets);
     }
+  }
+
+  // Fast path: for pnpm, try lockfile patching to skip resolution
+  if (pm === 'pnpm' && opts.patchEntries && opts.patchEntries.length > 0) {
+    const patchDir = catalogRoot ?? repoPath;
+    const patched = await patchPnpmLockfile(patchDir, opts.patchEntries);
+    if (patched) {
+      return previousVersions;
+    }
+    // Patch failed (lockfile restored), fall through to regular install
   }
 
   // Step 2: determine install command - always use pm install
