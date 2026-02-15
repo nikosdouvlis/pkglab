@@ -1,5 +1,18 @@
 # pkglab
 
+## 0.9.0
+
+### Minor Changes
+
+- 8d14a02: Replace Unix socket IPC with HTTP endpoint on registry server. Publish coalescing now runs inside the Verbunccio process via POST /-/pkglab/publish. The listen command shows a deprecation notice and queue status. Old listener files kept for now.
+- e8ce241: Patch pnpm lockfiles directly to skip resolution during consumer updates. For pnpm consumers, pkglab now replaces version strings and integrity hashes in pnpm-lock.yaml, then runs `pnpm install --frozen-lockfile` to skip the expensive dependency resolution phase. Falls back to regular install if patching fails. Only affects pnpm consumers.
+- e5cb54c: Performance optimizations for pub command: mtime-gated fingerprinting skips content hashing when files are unchanged, graph pass-through eliminates redundant dependency graph rebuilds, per-phase timing instrumentation (visible with --verbose), and --prefer-offline for pnpm/bun consumer installs.
+
+### Patch Changes
+
+- 6e37608: Skip lifecycle scripts during consumer installs for faster updates. All package managers now use `--ignore-scripts` by default, with automatic fallback to a full install if it fails.
+- 4d87ec4: Fix lockfile patching for pnpm consumers with transitive pkglab dependencies. Previously, integrity hashes were only updated for directly tracked packages, causing ERR_PNPM_TARBALL_INTEGRITY errors when the lockfile also contained pkglab packages pulled in as transitive dependencies. Now builds patch entries from all published packages so every pkglab package in the lockfile gets its integrity hash updated.
+
 ## 0.8.0
 
 ### Minor Changes
