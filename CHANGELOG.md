@@ -1,5 +1,11 @@
 # pkglab
 
+## 0.6.1
+
+### Patch Changes
+
+- e2ed76b: Show skipped dependents in pub scope summary when there are no active repos
+
 ## 0.6.0
 
 ### Minor Changes
