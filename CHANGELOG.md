@@ -1,5 +1,11 @@
 # pkglab
 
+## 0.6.2
+
+### Patch Changes
+
+- 31e4c61: Fix release workflow tag push using explicit tag ref instead of --follow-tags
+
 ## 0.6.1
 
 ### Patch Changes
