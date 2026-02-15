@@ -1,6 +1,6 @@
 {
   "name": "pkglab-darwin-arm64",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "pkglab macOS ARM64 binary",
   "homepage": "https://github.com/nikosdouvlis/pkglab",
   "bugs": "https://github.com/nikosdouvlis/pkglab/issues",
