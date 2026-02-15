@@ -1,4 +1,7 @@
+import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
+
+import { enqueuePublish, getQueueStatus, type PublishRequest } from './publish-queue';
 import type VerbunccioStorage from './verbunccio-storage';
 
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
@@ -413,6 +416,44 @@ async function handleSetDistTag(
   });
 }
 
+// Handle POST /-/pkglab/publish
+async function handlePublishQueue(req: Request): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return jsonResponse(400, { error: 'bad_request', reason: 'invalid JSON body' });
+  }
+
+  const workspaceRoot = body.workspaceRoot;
+  if (typeof workspaceRoot !== 'string' || workspaceRoot.length === 0) {
+    return jsonResponse(400, { error: 'bad_request', reason: 'workspaceRoot is required' });
+  }
+
+  if (!existsSync(workspaceRoot)) {
+    return jsonResponse(400, { error: 'bad_request', reason: 'workspaceRoot directory does not exist' });
+  }
+
+  const targets = body.targets;
+  if (!Array.isArray(targets) || !targets.every(t => typeof t === 'string')) {
+    return jsonResponse(400, { error: 'bad_request', reason: 'targets must be an array of strings' });
+  }
+
+  const req_: PublishRequest = {
+    workspaceRoot,
+    targets: targets as string[],
+    tag: typeof body.tag === 'string' ? body.tag : undefined,
+    force: body.force === true,
+    shallow: body.shallow === true,
+    single: body.single === true,
+    root: body.root === true,
+    dryRun: body.dryRun === true,
+  };
+
+  const result = enqueuePublish(req_);
+  return jsonResponse(202, { jobId: result.jobId, status: result.status });
+}
+
 // Route system paths (/-/ prefix)
 function routeSystemPath(
   req: Request,
@@ -461,6 +502,17 @@ function routeSystemPath(
       }
       return handleSetDistTag(req, storage, decodedPkg.value, decodedTag.value);
     }
+  }
+
+  // POST /-/pkglab/publish -- enqueue a publish request
+  if (method === 'POST' && pathname === '/-/pkglab/publish') {
+    return handlePublishQueue(req);
+  }
+
+  // GET /-/pkglab/publish/status -- return current queue state
+  if (method === 'GET' && pathname === '/-/pkglab/publish/status') {
+    const status = getQueueStatus();
+    return jsonResponse(200, { workspaces: status });
   }
 
   // Anything else under /-/

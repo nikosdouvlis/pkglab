@@ -22,8 +22,7 @@ import {
   precomputeTransitiveDependents,
 } from '../lib/graph';
 import { runPreHook, runPostHook, runErrorHook } from '../lib/hooks';
-import { ensureListenerRunning } from '../lib/listener-daemon';
-import { getListenerSocketPath, sendPing } from '../lib/listener-ipc';
+import { sendPublishRequest } from '../lib/publish-ping';
 import { acquirePublishLock } from '../lib/lock';
 import { log } from '../lib/log';
 import { run } from '../lib/proc';
@@ -467,13 +466,14 @@ export default defineCommand({
     const tag = await resolveTag(args);
     const workspace = await discoverWorkspace(process.cwd());
 
-    // --ping: fast path, send signal to listener and exit
+    // --ping: fast path, POST to registry and exit
     if (args.ping) {
-      await ensureListenerRunning(workspace.root);
+      await ensureDaemonRunning();
+      const config = await loadConfig();
       const targets = resolveTargets(args, workspace);
-      const socketPath = getListenerSocketPath(workspace.root);
-      await sendPing(socketPath, {
-        names: targets,
+      await sendPublishRequest(config.port, {
+        workspaceRoot: workspace.root,
+        targets,
         tag,
         root: args.root,
         force: args.force,
@@ -481,7 +481,7 @@ export default defineCommand({
         shallow: args.shallow,
         dryRun: args['dry-run'],
       });
-      log.success('Ping sent to listener');
+      log.success('Publish request sent to registry');
       return;
     }
 
