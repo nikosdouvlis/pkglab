@@ -1,5 +1,15 @@
 # pkglab
 
+## 0.7.0
+
+### Minor Changes
+
+- 8f4f3ae: Add per-repo lifecycle hooks system. Consumer repos can place executable scripts in `.pkglab/hooks/` to run custom logic at key moments: before/after add, restore, and publish-triggered updates. Hooks receive a typed JSON payload as argv[1] with package details, registry URL, and event info. Includes `pkglab hooks init` to scaffold the hooks directory with type definitions and example stubs.
+
+### Patch Changes
+
+- e09da5e: Use CHANGELOG.md for GitHub release notes instead of auto-generated notes
+
 ## 0.6.2
 
 ### Patch Changes
