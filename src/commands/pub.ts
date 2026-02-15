@@ -21,6 +21,7 @@ import {
   precomputeTransitiveDeps,
   precomputeTransitiveDependents,
 } from '../lib/graph';
+import { runPreHook, runPostHook, runErrorHook } from '../lib/hooks';
 import { ensureListenerRunning } from '../lib/listener-daemon';
 import { getListenerSocketPath, sendPing } from '../lib/listener-ipc';
 import { acquirePublishLock } from '../lib/lock';
@@ -674,8 +675,10 @@ async function publishPackages(
                 pendingRepos.delete(repo);
                 log.info(`Starting install for ${repo.displayName}`);
                 repoInstallPromises.push(
-                  runRepoInstall(repo).then(() => {
-                    log.success(`  ${repo.displayName}: updated ${repo.packages.map(e => e.name).join(', ')}`);
+                  runRepoInstall(repo, { tag, port: config.port, verbose: true }).then(status => {
+                    if (status === 'ok') {
+                      log.success(`  ${repo.displayName}: updated ${repo.packages.map(e => e.name).join(', ')}`);
+                    }
                   }),
                 );
               }
@@ -745,11 +748,18 @@ async function publishPackages(
                     spinner.setText(idx, `installing ${repo.packages[indices.indexOf(idx)].name}`);
                   }
                   repoInstallPromises.push(
-                    runRepoInstall(repo)
-                      .then(() => {
-                        for (let i = 0; i < repo.packages.length; i++) {
-                          spinner.setText(indices[i], `updated ${repo.packages[i].name}`);
-                          spinner.complete(indices[i]);
+                    runRepoInstall(repo, { tag, port: config.port, verbose: false })
+                      .then(status => {
+                        if (status === 'skipped') {
+                          for (let i = 0; i < repo.packages.length; i++) {
+                            spinner.setText(indices[i], `skipped ${repo.packages[i].name} (hook aborted)`);
+                            spinner.fail(indices[i]);
+                          }
+                        } else {
+                          for (let i = 0; i < repo.packages.length; i++) {
+                            spinner.setText(indices[i], `updated ${repo.packages[i].name}`);
+                            spinner.complete(indices[i]);
+                          }
                         }
                       })
                       .catch(err => {
@@ -821,18 +831,78 @@ async function publishPackages(
   }
 }
 
-async function runRepoInstall(repo: RepoWorkItem): Promise<void> {
+async function runRepoInstall(
+  repo: RepoWorkItem,
+  hookOpts?: { tag: string | undefined; port: number; verbose: boolean },
+): Promise<'ok' | 'skipped'> {
   const { entries, catalogRoot } = await buildVersionEntries(repo);
 
-  await installWithVersionUpdates({
-    repoPath: repo.state.path,
-    catalogRoot,
-    entries,
-    pm: repo.pm,
-  });
+  // Build hook context if hook opts provided
+  const hookCtx = hookOpts
+    ? {
+        event: 'update' as const,
+        packages: repo.packages.map(e => ({
+          name: e.name,
+          version: e.version,
+          previous: repo.state.packages[e.name]?.current,
+        })),
+        tag: hookOpts.tag ?? null,
+        repoPath: repo.state.path,
+        registryUrl: `http://127.0.0.1:${hookOpts.port}`,
+        packageManager: repo.pm,
+      }
+    : null;
 
-  for (const entry of repo.packages) {
-    repo.state.packages[entry.name].current = entry.version;
+  // Pre-update hook
+  if (hookCtx) {
+    const preResult = await runPreHook(hookCtx);
+    if (preResult.status === 'ok') {
+      log.success(`  pre-update (${(preResult.durationMs / 1000).toFixed(1)}s)`);
+    } else if (preResult.status === 'aborted' || preResult.status === 'failed' || preResult.status === 'timed_out') {
+      const label = preResult.status === 'timed_out' ? 'timed out' : `aborted (exit ${preResult.exitCode ?? 1})`;
+      log.warn(`  pre-update ${label} - skipped`);
+      await runErrorHook({
+        ...hookCtx,
+        error: { stage: 'pre-hook', message: `pre-update hook ${label}`, failedHook: 'pre-update' },
+      });
+      return 'skipped';
+    }
   }
-  await saveRepoByPath(repo.state.path, repo.state);
+
+  // Install and save state
+  try {
+    await installWithVersionUpdates({
+      repoPath: repo.state.path,
+      catalogRoot,
+      entries,
+      pm: repo.pm,
+    });
+
+    for (const entry of repo.packages) {
+      repo.state.packages[entry.name].current = entry.version;
+    }
+    await saveRepoByPath(repo.state.path, repo.state);
+  } catch (err) {
+    if (hookCtx) {
+      const message = err instanceof Error ? err.message : String(err);
+      await runErrorHook({
+        ...hookCtx,
+        error: { stage: 'operation', message, failedHook: null },
+      });
+    }
+    throw err;
+  }
+
+  // Post-update hook
+  if (hookCtx) {
+    const postResult = await runPostHook(hookCtx);
+    if (postResult.status === 'ok') {
+      log.success(`  post-update (${(postResult.durationMs / 1000).toFixed(1)}s)`);
+    } else if (postResult.status === 'failed' || postResult.status === 'timed_out') {
+      const label = postResult.status === 'timed_out' ? 'timed out' : `failed (exit ${postResult.exitCode ?? 1})`;
+      log.warn(`  post-update hook ${label}`);
+    }
+  }
+
+  return 'ok';
 }

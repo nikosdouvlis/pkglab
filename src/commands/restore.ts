@@ -1,9 +1,11 @@
 import { defineCommand } from 'citty';
 
 import { getPositionalArgs, normalizeScope } from '../lib/args';
+import { loadConfig } from '../lib/config';
 import { removeRegistryFromNpmrc, removeSkipWorktree, restorePackage } from '../lib/consumer';
+import { runPreHook, runPostHook, runErrorHook } from '../lib/hooks';
 import { log } from '../lib/log';
-import { runInstall } from '../lib/pm-detect';
+import { detectPackageManager, runInstall } from '../lib/pm-detect';
 import { canonicalRepoPath, findRepoByPath, saveRepoByPath } from '../lib/repo-state';
 import { extractTag } from '../lib/version';
 
@@ -100,23 +102,72 @@ export default defineCommand({
       }
     }
 
-    // Restore each package
-    for (const name of toRestore) {
+    // Build hook context
+    const config = await loadConfig();
+    const pm = await detectPackageManager(repoPath);
+    const hookPackages = toRestore.map(name => {
       const link = repo.state.packages[name];
-      await restorePackage(repoPath, name, link.targets, link.catalogName, link.catalogFormat);
-      delete repo.state.packages[name];
-    }
-    await saveRepoByPath(repo.state.path, repo.state);
+      const original = link.targets[0]?.original || undefined;
+      return { name, version: original ?? link.current, previous: link.current };
+    });
+    const hookCtx = {
+      event: 'restore' as const,
+      packages: hookPackages,
+      tag: tag ?? null,
+      repoPath,
+      registryUrl: `http://127.0.0.1:${config.port}`,
+      packageManager: pm,
+    };
 
-    // Clean up .npmrc if no packages remain
-    if (Object.keys(repo.state.packages).length === 0) {
-      await removeRegistryFromNpmrc(repoPath);
-      await removeSkipWorktree(repoPath);
-      log.info('All pkglab packages removed, .npmrc restored');
+    // Pre-restore hook
+    const preResult = await runPreHook(hookCtx);
+    if (preResult.status === 'ok') {
+      log.success(`pre-restore hook (${(preResult.durationMs / 1000).toFixed(1)}s)`);
+    } else if (preResult.status === 'aborted' || preResult.status === 'failed' || preResult.status === 'timed_out') {
+      const label = preResult.status === 'timed_out' ? 'timed out' : `failed (exit ${preResult.exitCode ?? 1})`;
+      log.error(`pre-restore hook ${label}`);
+      await runErrorHook({
+        ...hookCtx,
+        error: { stage: 'pre-hook', message: `pre-restore hook ${label}`, failedHook: 'pre-restore' },
+      });
+      process.exit(1);
     }
 
-    // Run pm install once
-    await runInstall(repoPath);
+    // Restore each package, update state, clean up, install
+    try {
+      for (const name of toRestore) {
+        const link = repo.state.packages[name];
+        await restorePackage(repoPath, name, link.targets, link.catalogName, link.catalogFormat);
+        delete repo.state.packages[name];
+      }
+      await saveRepoByPath(repo.state.path, repo.state);
+
+      // Clean up .npmrc if no packages remain
+      if (Object.keys(repo.state.packages).length === 0) {
+        await removeRegistryFromNpmrc(repoPath);
+        await removeSkipWorktree(repoPath);
+        log.info('All pkglab packages removed, .npmrc restored');
+      }
+
+      // Run pm install once
+      await runInstall(repoPath);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await runErrorHook({
+        ...hookCtx,
+        error: { stage: 'operation', message, failedHook: null },
+      });
+      throw err;
+    }
+
+    // Post-restore hook
+    const postResult = await runPostHook(hookCtx);
+    if (postResult.status === 'ok') {
+      log.success(`post-restore hook (${(postResult.durationMs / 1000).toFixed(1)}s)`);
+    } else if (postResult.status === 'failed' || postResult.status === 'timed_out') {
+      const label = postResult.status === 'timed_out' ? 'timed out' : `failed (exit ${postResult.exitCode ?? 1})`;
+      log.warn(`post-restore hook ${label}`);
+    }
 
     if (toRestore.length === 1) {
       log.success(`Restored ${toRestore[0]}`);

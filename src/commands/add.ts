@@ -17,6 +17,7 @@ import {
   loadCatalogData,
 } from '../lib/consumer';
 import { ensureDaemonRunning } from '../lib/daemon';
+import { runPreHook, runPostHook, runErrorHook } from '../lib/hooks';
 import { log } from '../lib/log';
 import { detectPackageManager } from '../lib/pm-detect';
 import { getDistTags, listPackageNames } from '../lib/registry';
@@ -638,9 +639,53 @@ export default defineCommand({
     }
 
     if (resolved.length > 0) {
-      await batchInstallPackages(config, repoPath, resolved, catalog, packagejson, dryRun, verbose, cachedWorkspace);
+      // Hooks: build context and run pre-add before batchInstallPackages
       if (!dryRun) {
+        const pm = await detectPackageManager(repoPath);
+        const hookCtx = {
+          event: 'add' as const,
+          packages: resolved.map(p => ({ name: p.name, version: p.version })),
+          tag: tag ?? null,
+          repoPath,
+          registryUrl: `http://127.0.0.1:${config.port}`,
+          packageManager: pm,
+        };
+
+        const preResult = await runPreHook(hookCtx);
+        if (preResult.status === 'ok') {
+          log.success(`pre-add hook (${(preResult.durationMs / 1000).toFixed(1)}s)`);
+        } else if (preResult.status === 'aborted' || preResult.status === 'failed' || preResult.status === 'timed_out') {
+          const label = preResult.status === 'timed_out' ? 'timed out' : `failed (exit ${preResult.exitCode ?? 1})`;
+          log.error(`pre-add hook ${label}`);
+          await runErrorHook({
+            ...hookCtx,
+            error: { stage: 'pre-hook', message: `pre-add hook ${label}`, failedHook: 'pre-add' },
+          });
+          process.exit(1);
+        }
+
+        try {
+          await batchInstallPackages(config, repoPath, resolved, catalog, packagejson, dryRun, verbose, cachedWorkspace);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          await runErrorHook({
+            ...hookCtx,
+            error: { stage: 'operation', message, failedHook: null },
+          });
+          throw err;
+        }
+
         await ensureNpmrcForActiveRepos(config.port);
+
+        const postResult = await runPostHook(hookCtx);
+        if (postResult.status === 'ok') {
+          log.success(`post-add hook (${(postResult.durationMs / 1000).toFixed(1)}s)`);
+        } else if (postResult.status === 'failed' || postResult.status === 'timed_out') {
+          const label = postResult.status === 'timed_out' ? 'timed out' : `failed (exit ${postResult.exitCode ?? 1})`;
+          log.warn(`post-add hook ${label}`);
+        }
+      } else {
+        await batchInstallPackages(config, repoPath, resolved, catalog, packagejson, dryRun, verbose, cachedWorkspace);
       }
     }
     await showUpdate();
