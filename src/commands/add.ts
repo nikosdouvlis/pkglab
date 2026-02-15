@@ -319,7 +319,11 @@ async function batchInstallPackages(
     }
     log.line('');
     const pm = await detectPackageManager(effectivePath);
-    log.dim(`  Would run: ${pm} install`);
+    const dryCmd = [pm, 'install'];
+    if (pm === 'pnpm' || pm === 'bun') {
+      dryCmd.push('--prefer-offline');
+    }
+    log.dim(`  Would run: ${dryCmd.join(' ')}`);
     return;
   }
 

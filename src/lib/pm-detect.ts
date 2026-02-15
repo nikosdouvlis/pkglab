@@ -53,8 +53,12 @@ export async function detectPackageManager(startDir: string): Promise<PackageMan
 
 export async function runInstall(repoPath: string, opts?: { label?: string }): Promise<boolean> {
   const pm = await detectPackageManager(repoPath);
-  log.dim(`  ${pm} install`);
-  const result = await run([pm, 'install'], { cwd: repoPath });
+  const cmd: string[] = [pm, 'install'];
+  if (pm === 'pnpm' || pm === 'bun') {
+    cmd.push('--prefer-offline');
+  }
+  log.dim(`  ${cmd.join(' ')}`);
+  const result = await run(cmd, { cwd: repoPath });
   if (result.exitCode !== 0) {
     const suffix = opts?.label ? ` for ${opts.label}` : '';
     log.warn(`Install failed${suffix}, run '${pm} install' manually`);

@@ -1,10 +1,12 @@
 import { join } from 'node:path';
 
+import type { FileStat, PackageFingerprint } from './fingerprint';
 import { paths } from './paths';
 
 interface FingerprintEntry {
   hash: string;
   version: string;
+  fileStats?: FileStat[];
 }
 
 // Per-workspace, per-package, per-tag state
@@ -47,10 +49,26 @@ export async function loadFingerprintState(workspaceRoot: string, tag: string | 
   }
 }
 
+/**
+ * Convert loaded FingerprintMap to Map<string, PackageFingerprint> for passing
+ * to fingerprintPackages as previous state for mtime gating.
+ */
+export function toPackageFingerprints(state: FingerprintMap): Map<string, PackageFingerprint> {
+  const result = new Map<string, PackageFingerprint>();
+  for (const [name, entry] of Object.entries(state)) {
+    result.set(name, {
+      hash: entry.hash,
+      fileCount: 0,
+      fileStats: entry.fileStats,
+    });
+  }
+  return result;
+}
+
 export async function saveFingerprintState(
   workspaceRoot: string,
   tag: string | null,
-  entries: { name: string; hash: string; version: string }[],
+  entries: { name: string; hash: string; version: string; fileStats?: FileStat[] }[],
 ): Promise<void> {
   const file = Bun.file(FINGERPRINT_PATH);
   let data: FingerprintFile = {};
@@ -76,6 +94,7 @@ export async function saveFingerprintState(
     data[workspaceRoot][entry.name][key] = {
       hash: entry.hash,
       version: entry.version,
+      fileStats: entry.fileStats,
     };
   }
 

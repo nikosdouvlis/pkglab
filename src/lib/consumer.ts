@@ -250,6 +250,9 @@ export async function installWithVersionUpdates(
   // Versions are already written to package.json/catalog in step 1.
   // pm install syncs node_modules from the updated manifests.
   const cmd: string[] = [pm, 'install'];
+  if (pm === 'pnpm' || pm === 'bun') {
+    cmd.push('--prefer-offline');
+  }
   const cwd: string = catalogRoot ?? repoPath;
 
   // Step 3: disable bun manifest cache if needed

@@ -10,8 +10,8 @@ import { loadConfig } from '../lib/config';
 import { buildConsumerWorkItems, buildVersionEntries, installWithVersionUpdates } from '../lib/consumer';
 import { backendLabel, ensureDaemonRunning } from '../lib/daemon';
 import { pkglabError } from '../lib/errors';
-import { fingerprintPackages } from '../lib/fingerprint';
-import { loadFingerprintState, saveFingerprintState } from '../lib/fingerprint-state';
+import { fingerprintPackages, type PackageFingerprint } from '../lib/fingerprint';
+import { loadFingerprintState, saveFingerprintState, toPackageFingerprints } from '../lib/fingerprint-state';
 import {
   buildDependencyGraph,
   computeInitialScope,
@@ -43,7 +43,7 @@ interface CascadeResult {
   unchangedSet: WorkspacePackage[];
   reason: Map<string, ChangeReason>;
   existingVersions: Map<string, string>;
-  fingerprints: Map<string, { hash: string; fileCount: number }>;
+  fingerprints: Map<string, PackageFingerprint>;
   targetSet: Set<string>;
   expandedFrom: Map<string, string>;
   initialScope: Set<string>;
@@ -53,7 +53,7 @@ interface CascadeResult {
 
 function detectChanges(
   cascadePackages: WorkspacePackage[],
-  fingerprints: Map<string, { hash: string; fileCount: number }>,
+  fingerprints: Map<string, PackageFingerprint>,
   previousState: Record<string, { hash: string; version: string }>,
   graph: ReturnType<typeof buildDependencyGraph>,
 ): { reason: Map<string, ChangeReason>; existingVersions: Map<string, string> } {
@@ -207,7 +207,11 @@ async function runCascade(
   if (opts.verbose) {
     log.info(`Fingerprinting ${allPublishable.length} packages...`);
   }
-  const fingerprints = await fingerprintPackages(allPublishable.map(p => ({ name: p.name, dir: p.dir })));
+  const previousFingerprints = opts.force ? undefined : toPackageFingerprints(previousState);
+  const fingerprints = await fingerprintPackages(
+    allPublishable.map(p => ({ name: p.name, dir: p.dir })),
+    previousFingerprints,
+  );
 
   // Track which changed packages we've already expanded dependents from
   const expandedSet = new Set<string>();
@@ -539,7 +543,7 @@ export default defineCommand({
     }
     log.line('');
 
-    await publishPackages(
+    const publishTiming = await publishPackages(
       cascade.publishSet,
       cascade.unchangedSet,
       workspace.root,
@@ -553,9 +557,21 @@ export default defineCommand({
       cascade.cascadePackages,
       workspace.packages,
     );
+
+    if (verbose && publishTiming) {
+      const pu = Math.round(publishTiming.publishMs);
+      const co = Math.round(publishTiming.consumerMs);
+      log.dim(`Timing: publish ${pu}ms, consumer ${co}ms`);
+    }
+
     await showUpdate();
   },
 });
+
+interface PublishTiming {
+  publishMs: number;
+  consumerMs: number;
+}
 
 async function publishPackages(
   publishSet: WorkspacePackage[],
@@ -567,10 +583,10 @@ async function publishPackages(
   dryRun: boolean,
   existingVersions: Map<string, string> = new Map(),
   reason?: Map<string, ChangeReason>,
-  fingerprints?: Map<string, { hash: string; fileCount: number }>,
+  fingerprints?: Map<string, PackageFingerprint>,
   allCascadePackages?: WorkspacePackage[],
   workspacePackages?: WorkspacePackage[],
-): Promise<void> {
+): Promise<PublishTiming | undefined> {
   const catalogs = await loadCatalogs(workspaceRoot);
 
   if (dryRun) {
@@ -635,6 +651,8 @@ async function publishPackages(
   }
 
   const releaseLock = await acquirePublishLock();
+  let publishMs = 0;
+  let consumerMs = 0;
   try {
     const publishStart = performance.now();
 
@@ -658,7 +676,9 @@ async function publishPackages(
       const publishedPackages = new Set<string>();
       const pendingRepos = new Set(consumerWork);
       const repoInstallPromises: Promise<void>[] = [];
+      let consumerStart = 0;
 
+      const executeStart = performance.now();
       await executePublish(
         plan,
         config,
@@ -674,6 +694,9 @@ async function publishPackages(
               const allReady = [...required].every(name => publishedPackages.has(name));
               if (allReady) {
                 pendingRepos.delete(repo);
+                if (consumerStart === 0) {
+                  consumerStart = performance.now();
+                }
                 log.info(`Starting install for ${repo.displayName}`);
                 repoInstallPromises.push(
                   runRepoInstall(repo, { tag, port: config.port, verbose: true }).then(status => {
@@ -688,6 +711,7 @@ async function publishPackages(
         },
         workspaceRoot,
       );
+      publishMs = performance.now() - executeStart;
 
       // Mark repos that depend on failed packages
       for (const repo of pendingRepos) {
@@ -702,6 +726,7 @@ async function publishPackages(
 
       // Wait for any in-flight consumer installs
       await Promise.all(repoInstallPromises);
+      consumerMs = consumerStart > 0 ? performance.now() - consumerStart : 0;
     } else {
       // Non-verbose: unified spinner with publish lines + consumer repo lines
       log.info('Publishing...');
@@ -726,8 +751,10 @@ async function publishPackages(
       const publishedPackages = new Set<string>();
       const pendingRepos = new Set(consumerWork);
       const repoInstallPromises: Promise<void>[] = [];
+      let consumerStart = 0;
 
       try {
+        const executeStart = performance.now();
         await executePublish(
           plan,
           config,
@@ -744,6 +771,9 @@ async function publishPackages(
                 const allReady = [...required].every(name => publishedPackages.has(name));
                 if (allReady) {
                   pendingRepos.delete(repo);
+                  if (consumerStart === 0) {
+                    consumerStart = performance.now();
+                  }
                   const indices = repoPackageIndices.get(repo)!;
                   for (const idx of indices) {
                     spinner.setText(idx, `installing ${repo.packages[indices.indexOf(idx)].name}`);
@@ -776,6 +806,7 @@ async function publishPackages(
           },
           workspaceRoot,
         );
+        publishMs = performance.now() - executeStart;
 
         // Mark repos that depend on failed packages
         for (const repo of pendingRepos) {
@@ -795,6 +826,7 @@ async function publishPackages(
 
         // Wait for any in-flight consumer installs
         await Promise.all(repoInstallPromises);
+        consumerMs = consumerStart > 0 ? performance.now() - consumerStart : 0;
       } finally {
         spinner.stop();
       }
@@ -816,6 +848,7 @@ async function publishPackages(
           name: pkg.name,
           hash: fp?.hash ?? '',
           version: pkgVersion,
+          fileStats: fp?.fileStats,
         };
       });
       await saveFingerprintState(workspaceRoot, tag ?? null, entries);
@@ -827,6 +860,8 @@ async function publishPackages(
       stderr: 'ignore',
       stdin: 'ignore',
     }).unref();
+
+    return { publishMs, consumerMs };
   } finally {
     await releaseLock();
   }
