@@ -310,7 +310,7 @@ When no consumer repos are active (you haven't run `pkglab add` anywhere), the c
 
 Trade-off: adding a previously-skipped package via `pkglab add` gives the last-published version until the next `pkglab pub`.
 
-**Batched consumer installs.** When auto-updating consumer repos, pkglab batches all packages into a single install command per repo (`pnpm add a@v1 b@v2 c@v3`) instead of running one command per package. If the install fails, package.json changes are rolled back so the repo stays consistent with its node_modules.
+**Fast consumer installs.** When auto-updating consumer repos, pkglab writes version updates to package.json (or catalog), then runs a single `pm install --ignore-scripts` per repo. If install fails, it retries with scripts enabled, and rolls back package.json changes if that also fails. For pnpm consumers, pkglab patches pnpm-lock.yaml directly (replacing version strings and integrity hashes) and runs `pnpm install --frozen-lockfile` to skip the expensive resolution phase entirely. Falls back to regular install if patching fails.
 
 ## Configuration
 
