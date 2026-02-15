@@ -209,6 +209,7 @@ interface InstallWithVersionUpdatesOpts {
   entries: VersionEntry[];
   pm: PackageManager;
   patchEntries?: import('./lockfile-patch').LockfilePatchEntry[];
+  noPmOptimizations?: boolean;
   onCommand?: (cmd: string[], cwd: string) => void;
 }
 
@@ -251,7 +252,7 @@ export async function installWithVersionUpdates(
   }
 
   // Fast path: for pnpm, try lockfile patching to skip resolution
-  if (pm === 'pnpm' && opts.patchEntries && opts.patchEntries.length > 0) {
+  if (!opts.noPmOptimizations && pm === 'pnpm' && opts.patchEntries && opts.patchEntries.length > 0) {
     const patchDir = catalogRoot ?? repoPath;
     const patched = await patchPnpmLockfile(patchDir, opts.patchEntries);
     if (patched) {
@@ -266,8 +267,8 @@ export async function installWithVersionUpdates(
   // --ignore-scripts: pkglab only swaps tarball versions of already-installed
   // packages, so lifecycle scripts (postinstall, prepare) are unnecessary.
   // If install fails with --ignore-scripts, retry without it as a fallback.
-  const baseArgs = ['install', '--ignore-scripts'];
-  if (pm === 'pnpm' || pm === 'bun') {
+  const baseArgs = opts.noPmOptimizations ? ['install'] : ['install', '--ignore-scripts'];
+  if (!opts.noPmOptimizations && (pm === 'pnpm' || pm === 'bun')) {
     baseArgs.push('--prefer-offline');
   }
   const cwd: string = catalogRoot ?? repoPath;
@@ -279,11 +280,11 @@ export async function installWithVersionUpdates(
     // Step 4: notify caller
     onCommand?.([pm, ...baseArgs], cwd);
 
-    // Step 5: run install (fast path with --ignore-scripts)
+    // Step 5: run install (fast path with --ignore-scripts unless noPmOptimizations)
     let result = await run([pm, ...baseArgs], { cwd });
 
     // Step 5b: fallback without --ignore-scripts if the fast path failed
-    if (result.exitCode !== 0) {
+    if (!opts.noPmOptimizations && result.exitCode !== 0) {
       const fallbackArgs = baseArgs.filter(a => a !== '--ignore-scripts');
       result = await run([pm, ...fallbackArgs], { cwd });
     }

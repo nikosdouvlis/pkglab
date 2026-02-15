@@ -462,6 +462,11 @@ export default defineCommand({
       description: 'Send signal to listener instead of publishing',
       default: false,
     },
+    'no-pm-optimizations': {
+      type: 'boolean',
+      description: 'Skip lockfile patching and other install optimizations',
+      default: false,
+    },
   },
   async run({ args }) {
     const tag = await resolveTag(args);
@@ -523,6 +528,7 @@ export default defineCommand({
         undefined,
         undefined,
         workspace.packages,
+        args['no-pm-optimizations'],
       );
       await showUpdate();
       return;
@@ -557,6 +563,7 @@ export default defineCommand({
       cascade.fingerprints,
       cascade.cascadePackages,
       workspace.packages,
+      args['no-pm-optimizations'],
     );
 
     if (verbose && publishTiming) {
@@ -587,6 +594,7 @@ async function publishPackages(
   fingerprints?: Map<string, PackageFingerprint>,
   allCascadePackages?: WorkspacePackage[],
   workspacePackages?: WorkspacePackage[],
+  noPmOptimizations = false,
 ): Promise<PublishTiming | undefined> {
   const catalogs = await loadCatalogs(workspaceRoot);
 
@@ -659,16 +667,19 @@ async function publishPackages(
   // Starts fetching on the first call (triggered when the first package is published),
   // and subsequent calls reuse the same promise. By the time a consumer repo's
   // required packages are all published, the fetch has likely completed.
+  // Disabled by --no-pm-optimizations.
   let integrityPromise: Promise<Map<string, string>> | null = null;
-  const getIntegrityMap = (): Promise<Map<string, string>> => {
-    if (!integrityPromise) {
-      integrityPromise = fetchIntegrityHashes(
-        config.port,
-        plan.packages.map(e => ({ name: e.name, version: e.version })),
-      );
-    }
-    return integrityPromise;
-  };
+  const getIntegrityMap: (() => Promise<Map<string, string>>) | undefined = noPmOptimizations
+    ? undefined
+    : () => {
+        if (!integrityPromise) {
+          integrityPromise = fetchIntegrityHashes(
+            config.port,
+            plan.packages.map(e => ({ name: e.name, version: e.version })),
+          );
+        }
+        return integrityPromise;
+      };
 
   try {
     const publishStart = performance.now();
@@ -716,7 +727,7 @@ async function publishPackages(
                 }
                 log.info(`Starting install for ${repo.displayName}`);
                 repoInstallPromises.push(
-                  runRepoInstall(repo, { tag, port: config.port, verbose: true }, getIntegrityMap).then(status => {
+                  runRepoInstall(repo, { tag, port: config.port, verbose: true }, getIntegrityMap, noPmOptimizations).then(status => {
                     if (status === 'ok') {
                       log.success(`  ${repo.displayName}: updated ${repo.packages.map(e => e.name).join(', ')}`);
                     }
@@ -796,7 +807,7 @@ async function publishPackages(
                     spinner.setText(idx, `installing ${repo.packages[indices.indexOf(idx)].name}`);
                   }
                   repoInstallPromises.push(
-                    runRepoInstall(repo, { tag, port: config.port, verbose: false }, getIntegrityMap)
+                    runRepoInstall(repo, { tag, port: config.port, verbose: false }, getIntegrityMap, noPmOptimizations)
                       .then(status => {
                         if (status === 'skipped') {
                           for (let i = 0; i < repo.packages.length; i++) {
@@ -888,6 +899,7 @@ async function runRepoInstall(
   repo: RepoWorkItem,
   hookOpts?: { tag: string | undefined; port: number; verbose: boolean },
   getIntegrityMap?: () => Promise<Map<string, string>>,
+  noPmOptimizations = false,
 ): Promise<'ok' | 'skipped'> {
   const { entries, catalogRoot } = await buildVersionEntries(repo);
 
@@ -955,6 +967,7 @@ async function runRepoInstall(
       entries,
       pm: repo.pm,
       patchEntries,
+      noPmOptimizations,
     });
 
     for (const entry of repo.packages) {
