@@ -62,4 +62,5 @@ export interface DaemonInfo {
   pid: number;
   port: number;
   running: boolean;
+  backend?: 'verbunccio' | 'verdaccio';
 }

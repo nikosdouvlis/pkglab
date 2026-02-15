@@ -16,7 +16,7 @@ import {
   findCatalogEntry,
   loadCatalogData,
 } from '../lib/consumer';
-import { ensureDaemonRunning } from '../lib/daemon';
+import { backendLabel, ensureDaemonRunning } from '../lib/daemon';
 import { runPreHook, runPostHook, runErrorHook } from '../lib/hooks';
 import { log } from '../lib/log';
 import { detectPackageManager } from '../lib/pm-detect';
@@ -195,7 +195,7 @@ async function batchInstallPackages(
       const unresolvable: string[] = [];
 
       for (const dep of staleDeps) {
-        const distTags = await getDistTags(dep.name);
+        const distTags = await getDistTags(dep.name, config);
         const tag = extractTag(dep.version);
         const distTagKey = tag ?? 'pkglab';
         const latestVersion = distTags[distTagKey];
@@ -377,9 +377,9 @@ async function batchInstallPackages(
   }
 }
 
-async function interactivePick(fixedTag?: string): Promise<ResolvedPackage[]> {
+async function interactivePick(config: pkglabConfig, fixedTag?: string): Promise<ResolvedPackage[]> {
   const [packageNames, { filterableCheckbox }, { select }, { ExitPromptError }] = await Promise.all([
-    listPackageNames(),
+    listPackageNames(config),
     import('../lib/prompt'),
     import('@inquirer/prompts'),
     import('@inquirer/core'),
@@ -411,7 +411,7 @@ async function interactivePick(fixedTag?: string): Promise<ResolvedPackage[]> {
 
   const resolved: ResolvedPackage[] = [];
   for (const pkgName of selectedNames) {
-    const distTags = await getDistTags(pkgName);
+    const distTags = await getDistTags(pkgName, config);
     const tags = Object.keys(distTags).filter(t => t !== 'latest');
     let selectedTag: string | undefined;
 
@@ -452,6 +452,7 @@ async function interactivePick(fixedTag?: string): Promise<ResolvedPackage[]> {
 }
 
 async function resolveScopePackages(
+  config: pkglabConfig,
   repoPath: string,
   scope: string,
   tag: string | undefined,
@@ -518,7 +519,7 @@ async function resolveScopePackages(
   const resolved: ResolvedPackage[] = [];
 
   for (const depName of scopedDeps) {
-    const distTags = await getDistTags(depName);
+    const distTags = await getDistTags(depName, config);
     const distTagKey = tag ? sanitizeTag(tag) : 'pkglab';
     const version = distTags[distTagKey];
     if (!version) {
@@ -622,19 +623,20 @@ export default defineCommand({
       process.exit(1);
     }
 
-    const [, repoPath] = await Promise.all([ensureDaemonRunning(), canonicalRepoPath(process.cwd())]);
+    const [daemonInfo, repoPath] = await Promise.all([ensureDaemonRunning(), canonicalRepoPath(process.cwd())]);
+    log.dim(`Using ${backendLabel(daemonInfo)} registry server`);
 
     let resolved: ResolvedPackage[];
     let cachedWorkspace: WorkspaceDiscovery | undefined;
     if (scope) {
-      const result = await resolveScopePackages(repoPath, scope, tag, verbose);
+      const result = await resolveScopePackages(config, repoPath, scope, tag, verbose);
       resolved = result.resolved;
       cachedWorkspace = result.workspace;
     } else if (names.length === 0) {
-      resolved = await interactivePick(tag);
+      resolved = await interactivePick(config, tag);
     } else {
       const parsed = names.map(parsePackageArg);
-      const distTagResults = await Promise.all(parsed.map(p => getDistTags(p.name)));
+      const distTagResults = await Promise.all(parsed.map(p => getDistTags(p.name, config)));
       resolved = parsed.map((p, i) => resolveFromDistTags(p.name, distTagResults[i], tag ?? p.tag));
     }
 

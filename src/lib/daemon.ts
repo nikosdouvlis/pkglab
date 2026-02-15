@@ -40,17 +40,18 @@ export async function startDaemon(): Promise<DaemonInfo> {
   if (result !== 'ready') {
     proc.kill();
     if (result === 'timeout') {
-      throw new Error('Verdaccio failed to start within 10 seconds');
+      throw new Error('Registry failed to start within 10 seconds');
     }
     const stderr = await new Response(proc.stderr).text();
-    throw new Error(`Verdaccio process exited unexpectedly: ${stderr}`);
+    throw new Error(`Registry process exited unexpectedly: ${stderr}`);
   }
 
   // Write PID only after confirmed READY
-  await Bun.write(paths.pid, JSON.stringify({ pid: proc.pid, port: config.port, startedAt: Date.now() }));
+  const backend = process.env.PKGLAB_VERDACCIO === '1' ? 'verdaccio' : 'verbunccio';
+  await Bun.write(paths.pid, JSON.stringify({ pid: proc.pid, port: config.port, startedAt: Date.now(), backend }));
   proc.unref();
 
-  return { pid: proc.pid, port: config.port, running: true };
+  return { pid: proc.pid, port: config.port, running: true, backend };
 }
 
 /**
@@ -58,13 +59,19 @@ export async function startDaemon(): Promise<DaemonInfo> {
  * Used by pub/add so the user doesn't have to run `pkglab up` manually
  * after the daemon stops or crashes.
  */
+export function backendLabel(info?: DaemonInfo | null): string {
+  if (info?.backend === 'verdaccio') return 'Verdaccio';
+  if (info?.backend === 'verbunccio') return 'Bun';
+  return process.env.PKGLAB_VERDACCIO === '1' ? 'Verdaccio' : 'Bun';
+}
+
 export async function ensureDaemonRunning(): Promise<DaemonInfo> {
   const existing = await getDaemonStatus();
   if (existing?.running) {
     return existing;
   }
 
-  log.info('Starting Verdaccio...');
+  log.info(`Starting registry (${backendLabel()})...`);
   const info = await startDaemon();
   log.success(`pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
   return info;
@@ -90,12 +97,14 @@ export async function getDaemonStatus(): Promise<DaemonInfo | null> {
   let pid: number;
   let port: number | undefined;
   let startedAt: number | undefined;
+  let backend: 'verbunccio' | 'verdaccio' | undefined;
 
   try {
     const data = JSON.parse(content.trim());
     pid = data.pid;
     port = data.port;
     startedAt = data.startedAt;
+    backend = data.backend;
   } catch {
     // Legacy plain-number format
     pid = parseInt(content.trim(), 10);
@@ -116,7 +125,7 @@ export async function getDaemonStatus(): Promise<DaemonInfo | null> {
   }
 
   const config = await loadConfig();
-  return { pid, port: port ?? config.port, running: true };
+  return { pid, port: port ?? config.port, running: true, backend };
 }
 
 async function validatePid(pid: number, startedAt?: number): Promise<boolean> {
@@ -131,7 +140,8 @@ async function validatePid(pid: number, startedAt?: number): Promise<boolean> {
     }
     return (
       result.stdout.includes('verdaccio-worker') ||
-      (result.stdout.includes('bun') && result.stdout.includes('verdaccio'))
+      result.stdout.includes('verbunccio-worker') ||
+      (result.stdout.includes('bun') && (result.stdout.includes('verdaccio') || result.stdout.includes('verbunccio')))
     );
   } catch {
     return false;

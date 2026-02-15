@@ -1,10 +1,15 @@
 #!/usr/bin/env bun
 
-// Hidden flag: when the daemon spawns itself as a worker, run verdaccio directly
+// Hidden flag: when the daemon spawns itself as a worker, run the registry backend
 if (process.argv.includes('--__worker')) {
-  const { main } = await import('./lib/verdaccio-worker');
-  await main();
-  // Keep process alive (verdaccio server is listening)
+  if (process.env.PKGLAB_VERDACCIO === '1') {
+    const { main } = await import('./lib/verdaccio-worker');
+    await main();
+  } else {
+    const { main } = await import('./lib/verbunccio-worker');
+    await main();
+  }
+  // Keep process alive (server is listening)
   await new Promise(() => {});
 }
 
@@ -48,7 +53,7 @@ const cmd = defineCommand({
   meta: {
     name: 'pkglab',
     version: pkgVersion,
-    description: 'Local package development with Verdaccio',
+    description: 'Local package development CLI',
   },
   subCommands: {
     up: () => import('./commands/up').then(m => m.default),

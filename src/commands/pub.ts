@@ -8,7 +8,7 @@ import { getPositionalArgs } from '../lib/args';
 import { c } from '../lib/color';
 import { loadConfig } from '../lib/config';
 import { buildConsumerWorkItems, buildVersionEntries, installWithVersionUpdates } from '../lib/consumer';
-import { ensureDaemonRunning } from '../lib/daemon';
+import { backendLabel, ensureDaemonRunning } from '../lib/daemon';
 import { pkglabError } from '../lib/errors';
 import { fingerprintPackages } from '../lib/fingerprint';
 import { loadFingerprintState, saveFingerprintState } from '../lib/fingerprint-state';
@@ -489,7 +489,8 @@ export default defineCommand({
       log.info(`Publishing with tag: ${tag}`);
     }
 
-    await ensureDaemonRunning();
+    const daemonInfo = await ensureDaemonRunning();
+    log.dim(`Using ${backendLabel(daemonInfo)} registry server`);
 
     const config = await loadConfig();
     if (verbose) {

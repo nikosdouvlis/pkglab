@@ -5,7 +5,7 @@ import { log } from '../lib/log';
 import { prefetchUpdateCheck } from '../lib/update-check';
 
 export default defineCommand({
-  meta: { name: 'up', description: 'Start Verdaccio daemon' },
+  meta: { name: 'up', description: 'Start the local registry' },
   async run() {
     const existing = await getDaemonStatus();
     if (existing?.running) {
@@ -18,9 +18,11 @@ export default defineCommand({
     // Start fetch before interactive prompt so it runs in parallel
     const showUpdate = await prefetchUpdateCheck();
 
-    log.info('Starting Verdaccio...');
+    const backendLabel = process.env.PKGLAB_VERDACCIO === '1' ? 'Verdaccio' : 'Bun';
+    log.info(`Starting registry (${backendLabel})...`);
     const info = await startDaemon();
     log.success(`pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
+    log.dim(`Using ${backendLabel} registry server`);
 
     const { deactivateAllRepos, loadAllRepos, getActiveRepos } = await import('../lib/repo-state');
 

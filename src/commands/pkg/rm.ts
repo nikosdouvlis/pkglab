@@ -20,7 +20,7 @@ export default defineCommand({
     }
 
     const config = await loadConfig();
-    const toRemove = args.all ? await listPackageNames() : getPositionalArgs(args);
+    const toRemove = args.all ? await listPackageNames(config) : getPositionalArgs(args);
 
     if (args.all && toRemove.length === 0) {
       log.info('No pkglab packages in the registry');

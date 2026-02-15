@@ -63,7 +63,7 @@ export async function pruneAll(config: pkglabConfig, onlyTag?: string | null): P
     }
   }
 
-  const packages = await listAllPackages();
+  const packages = await listAllPackages(config);
   const toPrune = packages.filter(pkg => pkg.versions.filter(ispkglabVersion).length > 0);
 
   const results = await Promise.all(

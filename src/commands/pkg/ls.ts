@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 
 import { c } from '../../lib/color';
+import { loadConfig } from '../../lib/config';
 import { getDaemonStatus } from '../../lib/daemon';
 import { DaemonNotRunningError } from '../../lib/errors';
 import { log } from '../../lib/log';
@@ -15,7 +16,8 @@ export default defineCommand({
       throw new DaemonNotRunningError();
     }
 
-    const pkglabPackages = await listAllPackages();
+    const config = await loadConfig();
+    const pkglabPackages = await listAllPackages(config);
 
     if (pkglabPackages.length === 0) {
       log.info('No packages published to local registry');

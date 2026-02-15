@@ -6,7 +6,7 @@ export class pkglabError extends Error {
 }
 
 export class DaemonNotRunningError extends pkglabError {
-  constructor(msg = 'Verdaccio is not running. Run: pkglab up') {
+  constructor(msg = 'Registry is not running. Run: pkglab up') {
     super(msg);
     this.name = 'DaemonNotRunningError';
   }
