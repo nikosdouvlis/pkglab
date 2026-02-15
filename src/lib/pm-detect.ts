@@ -53,12 +53,20 @@ export async function detectPackageManager(startDir: string): Promise<PackageMan
 
 export async function runInstall(repoPath: string, opts?: { label?: string }): Promise<boolean> {
   const pm = await detectPackageManager(repoPath);
-  const cmd: string[] = [pm, 'install'];
+  const cmd: string[] = [pm, 'install', '--ignore-scripts'];
   if (pm === 'pnpm' || pm === 'bun') {
     cmd.push('--prefer-offline');
   }
   log.dim(`  ${cmd.join(' ')}`);
-  const result = await run(cmd, { cwd: repoPath });
+  let result = await run(cmd, { cwd: repoPath });
+
+  // Fallback without --ignore-scripts if the fast path failed
+  if (result.exitCode !== 0) {
+    const fallback = cmd.filter(a => a !== '--ignore-scripts');
+    log.dim(`  Retrying: ${fallback.join(' ')}`);
+    result = await run(fallback, { cwd: repoPath });
+  }
+
   if (result.exitCode !== 0) {
     const suffix = opts?.label ? ` for ${opts.label}` : '';
     log.warn(`Install failed${suffix}, run '${pm} install' manually`);

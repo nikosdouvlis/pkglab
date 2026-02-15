@@ -249,9 +249,12 @@ export async function installWithVersionUpdates(
   // Step 2: determine install command - always use pm install
   // Versions are already written to package.json/catalog in step 1.
   // pm install syncs node_modules from the updated manifests.
-  const cmd: string[] = [pm, 'install'];
+  // --ignore-scripts: pkglab only swaps tarball versions of already-installed
+  // packages, so lifecycle scripts (postinstall, prepare) are unnecessary.
+  // If install fails with --ignore-scripts, retry without it as a fallback.
+  const baseArgs = ['install', '--ignore-scripts'];
   if (pm === 'pnpm' || pm === 'bun') {
-    cmd.push('--prefer-offline');
+    baseArgs.push('--prefer-offline');
   }
   const cwd: string = catalogRoot ?? repoPath;
 
@@ -260,10 +263,16 @@ export async function installWithVersionUpdates(
 
   try {
     // Step 4: notify caller
-    onCommand?.(cmd, cwd);
+    onCommand?.([pm, ...baseArgs], cwd);
 
-    // Step 5: run install
-    const result = await run(cmd, { cwd });
+    // Step 5: run install (fast path with --ignore-scripts)
+    let result = await run([pm, ...baseArgs], { cwd });
+
+    // Step 5b: fallback without --ignore-scripts if the fast path failed
+    if (result.exitCode !== 0) {
+      const fallbackArgs = baseArgs.filter(a => a !== '--ignore-scripts');
+      result = await run([pm, ...fallbackArgs], { cwd });
+    }
 
     // Step 6: rollback on failure
     if (result.exitCode !== 0) {

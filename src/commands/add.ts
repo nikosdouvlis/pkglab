@@ -319,7 +319,7 @@ async function batchInstallPackages(
     }
     log.line('');
     const pm = await detectPackageManager(effectivePath);
-    const dryCmd = [pm, 'install'];
+    const dryCmd = [pm, 'install', '--ignore-scripts'];
     if (pm === 'pnpm' || pm === 'bun') {
       dryCmd.push('--prefer-offline');
     }
