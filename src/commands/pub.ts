@@ -923,27 +923,26 @@ async function runRepoInstall(
     }
   }
 
-  // Build lockfile patch entries for pnpm repos
+  // Build lockfile patch entries for pnpm repos.
+  // Include ALL published packages (not just tracked ones) because the lockfile
+  // may contain transitive pkglab dependencies that also need integrity updates.
   let patchEntries: LockfilePatchEntry[] | undefined;
   if (repo.pm === 'pnpm' && getIntegrityMap) {
-    const integrityMap = await getIntegrityMap();
-    if (integrityMap.size > 0) {
-      patchEntries = [];
-      for (const pkg of repo.packages) {
-        const oldVersion = repo.state.packages[pkg.name]?.current;
-        const integrity = integrityMap.get(pkg.name);
-        if (oldVersion && integrity) {
-          patchEntries.push({
-            name: pkg.name,
-            oldVersion,
-            newVersion: pkg.version,
-            integrity,
-          });
+    // Determine the old version from any tracked package (all share the same timestamp)
+    let oldVersion: string | undefined;
+    for (const pkg of repo.packages) {
+      oldVersion = repo.state.packages[pkg.name]?.current;
+      if (oldVersion) break;
+    }
+
+    if (oldVersion) {
+      const integrityMap = await getIntegrityMap();
+      if (integrityMap.size > 0) {
+        const newVersion = repo.packages[0].version;
+        patchEntries = [];
+        for (const [name, integrity] of integrityMap) {
+          patchEntries.push({ name, oldVersion, newVersion, integrity });
         }
-      }
-      // If we couldn't build entries for all packages, skip patching
-      if (patchEntries.length !== repo.packages.length) {
-        patchEntries = undefined;
       }
     }
   }

@@ -74,9 +74,14 @@ export async function patchPnpmLockfile(
   const original = await lockfile.text();
   let patched = original;
 
-  // Phase 1: replace version strings globally (covers importers, packages, snapshots)
+  // Phase 1: replace version strings globally (covers importers, packages, snapshots).
+  // Deduplicate since all entries typically share the same version timestamp.
+  const replacedVersions = new Set<string>();
   for (const entry of entries) {
-    patched = replaceAll(patched, entry.oldVersion, entry.newVersion);
+    if (!replacedVersions.has(entry.oldVersion)) {
+      replacedVersions.add(entry.oldVersion);
+      patched = replaceAll(patched, entry.oldVersion, entry.newVersion);
+    }
   }
 
   // Phase 2: replace integrity hashes in the packages section
@@ -108,6 +113,10 @@ export async function patchPnpmLockfile(
   }
 
   // Install failed, restore original lockfile
+  const errOutput = (result.stderr || result.stdout).trim();
+  if (errOutput) {
+    log.dim(`lockfile patch: ${errOutput.slice(0, 500)}`);
+  }
   log.dim(`lockfile patch: frozen install failed (exit ${result.exitCode}), restoring original`);
   await Bun.write(lockfilePath, original);
   return false;
