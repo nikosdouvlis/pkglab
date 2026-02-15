@@ -63,8 +63,18 @@ jobs:
         if: steps.tag-check.outputs.tagged == 'true'
         run: git push origin "v${{ steps.tag-check.outputs.version }}"
 
+      - name: Extract changelog for version
+        if: steps.tag-check.outputs.tagged == 'true'
+        id: changelog
+        run: |
+          VERSION="${{ steps.tag-check.outputs.version }}"
+          # Extract the section between this version's heading and the next version heading
+          NOTES=$(awk "/^## ${VERSION}$/{found=1; next} /^## /{if(found) exit} found{print}" CHANGELOG.md)
+          # Write to file to avoid quoting issues
+          echo "$NOTES" > /tmp/release-notes.md
+
       - name: Create GitHub Release
         if: steps.tag-check.outputs.tagged == 'true'
-        run: gh release create "v${{ steps.tag-check.outputs.version }}" --generate-notes --latest
+        run: gh release create "v${{ steps.tag-check.outputs.version }}" --notes-file /tmp/release-notes.md --latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
