@@ -59,9 +59,9 @@ jobs:
             echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Push tags
+      - name: Push tag
         if: steps.tag-check.outputs.tagged == 'true'
-        run: git push --follow-tags
+        run: git push origin "v${{ steps.tag-check.outputs.version }}"
 
       - name: Create GitHub Release
         if: steps.tag-check.outputs.tagged == 'true'
