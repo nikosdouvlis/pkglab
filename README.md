@@ -21,6 +21,7 @@ Also available as `pkgl` for short (so efficient ✨).
 - [Why not ...](#why-not-)
 - [Design decisions](#design-decisions)
 - [Configuration](#configuration)
+- [Repo hooks](#repo-hooks)
 - [Safety](#safety)
 - [Acknowledgments](#acknowledgments)
 
@@ -158,6 +159,7 @@ On top of that, **`pkglab`** handles automatic consumer updates, dependency casc
 - `pkglab pkg ls` -list published packages in the local registry, grouped by tag with the latest version per tag. Checks if the registry is running first.
 - `pkglab reset --hard` -wipe all pkglab data and Verdaccio storage. Stops the daemon if running.
 - `pkglab reset --fingerprints` -clear the fingerprint cache. Next `pub` will republish all packages regardless of content changes.
+- `pkglab hooks init` -scaffold a `.pkglab/hooks/` directory in the current repo with type definitions (`payload.d.ts`) and commented-out stubs for all 7 hook events. Hooks let consumer repos run custom scripts at lifecycle moments (before/after add, restore, and publish-triggered updates). Each hook receives a typed JSON payload as its first argument. Supports `.ts` (run with bun), `.sh` (run with bash), and extensionless (direct execution) formats. Pre-hooks can abort operations, post-hooks are advisory. See [Repo hooks](#repo-hooks) for details.
 
 Wire `check` into a git hook:
 
@@ -319,6 +321,41 @@ Trade-off: adding a previously-skipped package via `pkglab add` gives the last-p
 - `prune_keep`: number of old versions to retain per package (default: 3)
 
 Logs are written to `/tmp/pkglab/verdaccio.log`.
+
+## Repo hooks
+
+Consumer repos can run custom scripts at lifecycle moments by placing files in `.pkglab/hooks/`. This is useful for setting environment variables, restarting dev servers, or running any repo-specific setup when local packages are installed or removed.
+
+```bash
+# Scaffold the hooks directory with type definitions and example stubs
+pkglab hooks init
+```
+
+This creates `.pkglab/hooks/` with a `payload.d.ts` type definition and commented-out stubs for all 7 events:
+
+- `pre-add` / `post-add` - before/after `pkglab add`
+- `pre-restore` / `post-restore` - before/after `pkglab restore`
+- `pre-update` / `post-update` - before/after `pkglab pub` auto-updates this repo
+- `on-error` - when any operation fails (for cleanup)
+
+Hooks can be `.ts` (run with bun), `.sh` (run with bash), or extensionless (direct execution). Each hook receives a typed JSON payload as its first argument with package details, registry URL, tag, and event info.
+
+Pre-hooks can abort operations by exiting non-zero. For `add`/`restore`, this stops the command. For `pub` auto-updates, it skips that repo and continues with others. Post-hooks are advisory (failures are logged but don't affect the exit code). The `on-error` hook is best-effort and non-recursive.
+
+Example: point Clerk SDKs to a local API when local packages are installed.
+
+```typescript
+// .pkglab/hooks/post-add.ts
+import type { PkglabHookPayload } from './payload';
+const payload: PkglabHookPayload = JSON.parse(process.argv[2]);
+
+const envFile = Bun.file('.env.local');
+const existing = await envFile.exists() ? await envFile.text() : '';
+const cleaned = existing.split('\n').filter(l => !l.startsWith('CLERK_API_URL=')).join('\n');
+await Bun.write(envFile, cleaned.trimEnd() + '\nCLERK_API_URL=http://localhost:3100\n');
+```
+
+Hooks persist across add/restore cycles and can be committed to version control. The default timeout is 30 seconds per hook, overridable via `PKGLAB_HOOK_TIMEOUT_MS`.
 
 ## Safety
 

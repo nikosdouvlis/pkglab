@@ -23,6 +23,8 @@ Top-level:
 - `pkglab reset --hard` — wipe all pkglab data and Verdaccio storage
 - `pkglab reset --fingerprints` — clear fingerprint cache, forces full republish on next pub
 
+- `pkglab hooks init` — scaffold `.pkglab/hooks/` in the current repo with `payload.d.ts` (typed `PkglabHookPayload` interface) and commented-out stubs for all 7 hook events. Hooks are executable files that run at lifecycle moments: `pre-add`, `post-add`, `pre-restore`, `post-restore`, `pre-update`, `post-update`, `on-error`. Supports `.ts` (bun), `.sh` (bash), and extensionless (direct) formats. Each hook receives a JSON payload as argv[1]. Pre-hooks can abort operations (non-zero exit), post-hooks are advisory, on-error is best-effort. Hook runner module lives at `src/lib/hooks.ts`.
+
 Subcommands:
 
 - `pkglab repo ls` — list consumer repos
@@ -113,10 +115,10 @@ extractTimestamp reads after the last dot, extractTag reads between `pkglab-` an
 
 IMPORTANT: After making changes to commands or core lib code, always run `bun run test:e2e` and verify all tests pass before committing.
 
-IMPORTANT: After changing commands, flags, or CLI behavior, always check README.md and CLAUDE.md are up to date.
+IMPORTANT: After changing commands, flags, or CLI behavior, always update README.md and CLAUDE.md. This is not optional. README.md is the public-facing documentation and must reflect the current CLI surface.
 
 ## /cmt Skill Config
 
-Scopes: pub, pkgs, repos, daemon, consumer, registry, version, config
+Scopes: pub, pkgs, repos, daemon, consumer, registry, version, config, hooks
 
 IMPORTANT: Changesets are MANDATORY for every commit made with /cmt. Always create a changeset file in `.changeset/` with the appropriate bump level (patch for fixes, minor for features) and stage it together with the code changes. Never commit without a changeset.
