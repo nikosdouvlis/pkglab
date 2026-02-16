@@ -27,14 +27,6 @@ export async function run(cmd: string[], options: RunOptions = {}): Promise<RunR
   return { stdout, stderr, exitCode };
 }
 
-export function npmEnvWithAuth(registryUrl: string): Record<string, string | undefined> {
-  const host = registryUrl.replace(/^https?:\/\//, '');
-  return {
-    ...process.env,
-    [`npm_config_//${host}/:_authToken`]: 'pkglab-local',
-  };
-}
-
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);

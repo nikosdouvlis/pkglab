@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { PublishPlan, PublishEntry, WorkspacePackage, pkglabConfig } from '../types';
 
 import { log } from './log';
-import { npmEnvWithAuth, run } from './proc';
+import { run } from './proc';
 import { registryUrl } from './registry';
 import { extractTag } from './version';
 
@@ -143,8 +143,12 @@ async function publishSinglePackage(
     const distTag = tag ? `pkglab-${tag}` : 'pkglab';
 
     const cmd = ['bun', 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
-    const env = npmEnvWithAuth(registryUrl);
     const maxAttempts = 3;
+
+    // Pass auth via NPM_CONFIG_TOKEN env var instead of writing .npmrc files.
+    // Bun ignores package-level .npmrc in workspaces on Linux, and writing to
+    // the workspace root risks accidentally committing the file.
+    const env = { ...process.env, NPM_CONFIG_TOKEN: 'pkglab-local' };
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const result = await run(cmd, { cwd: entry.dir, env });
