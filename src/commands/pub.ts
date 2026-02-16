@@ -663,23 +663,19 @@ async function publishPackages(
   let publishMs = 0;
   let consumerMs = 0;
 
-  // Lazy integrity hash fetcher for pnpm lockfile patching.
-  // Starts fetching on the first call (triggered when the first package is published),
-  // and subsequent calls reuse the same promise. By the time a consumer repo's
-  // required packages are all published, the fetch has likely completed.
+  // Integrity hash fetcher for pnpm lockfile patching.
+  // Each call fetches fresh from the registry so that packages published after
+  // an earlier consumer repo triggered its install are included. Without this,
+  // the first repo to call getIntegrityMap() would cache a promise that misses
+  // packages still being published, causing stale integrity in later repos.
   // Disabled by --no-pm-optimizations.
-  let integrityPromise: Promise<Map<string, string>> | null = null;
   const getIntegrityMap: (() => Promise<Map<string, string>>) | undefined = noPmOptimizations
     ? undefined
-    : () => {
-        if (!integrityPromise) {
-          integrityPromise = fetchIntegrityHashes(
-            config.port,
-            plan.packages.map(e => ({ name: e.name, version: e.version })),
-          );
-        }
-        return integrityPromise;
-      };
+    : () =>
+        fetchIntegrityHashes(
+          config.port,
+          plan.packages.map(e => ({ name: e.name, version: e.version })),
+        );
 
   try {
     const publishStart = performance.now();
