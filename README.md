@@ -84,7 +84,7 @@ If your packages have a watch/dev mode (tsup, tsc, rspack, etc.), you can wire p
 
 The manual workflow: run your dev server in one package, run `pkglab pub` from the root workspace (or `pkglab pub --root` from any sub workspace) in another when you want to push changes. Since pkglab fingerprints each package, only the ones with actual changes get republished.
 
-When multiple packages rebuild at once, the registry server batches them into a single publish cycle instead of separate ones. Each tag gets its own queue lane, so worktree publishes don't interfere. The coalescing logic runs inside the registry process, so no separate listener is needed.
+When multiple packages rebuild at once, the registry server batches them into a single publish cycle instead of separate ones. Pings are debounced with a 150ms window: if several `pub --ping` requests arrive in quick succession (common when a build tool triggers rebuilds across packages), they're collected into one batch before publishing starts. Each tag gets its own queue lane, so worktree publishes don't interfere. The coalescing logic runs inside the registry process, so no separate listener is needed.
 
 For a fully automated loop, wire `pub --ping` into your dev server's success hook:
 
