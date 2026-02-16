@@ -13,7 +13,14 @@ import { loadAllRepos } from '../lib/repo-state';
 
 export default defineCommand({
   meta: { name: 'doctor', description: 'Health check for pkglab environment' },
-  async run() {
+  args: {
+    lockfile: {
+      type: 'boolean',
+      description: 'Sanitize bun.lock files in consumer repos by removing localhost URLs',
+      default: false,
+    },
+  },
+  async run({ args }) {
     let issues = 0;
 
     // Check Bun
@@ -96,6 +103,43 @@ export default defineCommand({
       } catch {
         log.line(`  ${c.red('✗')} ${displayName}: could not check skip-worktree`);
         issues++;
+      }
+    }
+
+    // Dirty state: daemon not running but repos have active pkglab packages
+    if (!status?.running) {
+      const dirtyRepos = repos.filter(r => Object.keys(r.state.packages).length > 0);
+      if (dirtyRepos.length > 0) {
+        log.line(
+          `  ${c.yellow('!')} Dirty state: daemon not running but ${dirtyRepos.length} repo${dirtyRepos.length !== 1 ? 's' : ''} ha${dirtyRepos.length !== 1 ? 've' : 's'} active pkglab packages`,
+        );
+        log.line(`    Run: ${c.cyan('pkglab restore --all')} (in each consumer repo)`);
+        log.line(`    Or:  ${c.cyan('pkglab down --force')} (to clear state without restoring)`);
+        issues++;
+      }
+    }
+
+    // --lockfile: sanitize bun.lock files in consumer repos
+    if (args.lockfile) {
+      const localhostUrlRe = /"http:\/\/(?:127\.0\.0\.1|localhost):[^"]*"/g;
+      for (const { displayName, state } of repos) {
+        if (Object.keys(state.packages).length === 0) {
+          continue;
+        }
+        const lockPath = join(state.path, 'bun.lock');
+        const lockFile = Bun.file(lockPath);
+        if (!(await lockFile.exists())) {
+          continue;
+        }
+        const content = await lockFile.text();
+        const matches = content.match(localhostUrlRe);
+        if (!matches || matches.length === 0) {
+          log.line(`  ${c.green('✓')} ${displayName}: bun.lock clean`);
+          continue;
+        }
+        const sanitized = content.replace(localhostUrlRe, '""');
+        await Bun.write(lockPath, sanitized);
+        log.line(`  ${c.green('✓')} ${displayName}: sanitized ${matches.length} localhost URL${matches.length !== 1 ? 's' : ''} in bun.lock`);
       }
     }
 
