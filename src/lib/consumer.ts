@@ -56,7 +56,7 @@ export async function removeRegistryFromNpmrc(repoPath: string): Promise<void> {
   await Bun.write(npmrcPath, content);
 }
 
-function removepkglabBlock(content: string): string {
+export function removepkglabBlock(content: string): string {
   const startIdx = content.indexOf(MARKER_START);
   const endIdx = content.indexOf(MARKER_END);
   if (startIdx === -1 || endIdx === -1) {
@@ -101,6 +101,118 @@ async function isTrackedByGit(repoPath: string, file: string): Promise<boolean> 
 export async function isSkipWorktreeSet(repoPath: string): Promise<boolean> {
   const result = await run(['git', 'ls-files', '-v', '.npmrc'], { cwd: repoPath });
   return result.stdout.startsWith('S ');
+}
+
+// --- Pre-commit hook injection ---
+
+const HOOK_BLOCK = `${MARKER_START}\nnpx pkglab check\n${MARKER_END}\n`;
+
+type HookTarget =
+  | { type: 'husky'; path: string }
+  | { type: 'lefthook' }
+  | { type: 'git'; path: string };
+
+async function detectHookTarget(repoPath: string): Promise<HookTarget> {
+  const { stat } = await import('node:fs/promises');
+
+  // 1. Husky: .husky/pre-commit
+  const huskyPath = join(repoPath, '.husky', 'pre-commit');
+  if (await Bun.file(huskyPath).exists()) {
+    return { type: 'husky', path: huskyPath };
+  }
+
+  // 2. Lefthook: lefthook.yml or .lefthook/pre-commit/ directory
+  const lefthookYml = join(repoPath, 'lefthook.yml');
+  if (await Bun.file(lefthookYml).exists()) {
+    return { type: 'lefthook' };
+  }
+  const lefthookDir = join(repoPath, '.lefthook', 'pre-commit');
+  try {
+    const s = await stat(lefthookDir);
+    if (s.isDirectory()) {
+      return { type: 'lefthook' };
+    }
+  } catch {
+    // Directory doesn't exist, fall through
+  }
+
+  // 3. Raw git: .git/hooks/pre-commit
+  const gitHookPath = join(repoPath, '.git', 'hooks', 'pre-commit');
+  return { type: 'git', path: gitHookPath };
+}
+
+export async function injectPreCommitHook(repoPath: string): Promise<void> {
+  const target = await detectHookTarget(repoPath);
+
+  if (target.type === 'lefthook') {
+    log.warn(
+      'Lefthook detected. Add pkglab check to your lefthook config manually:\n' +
+        '  pre-commit:\n' +
+        '    commands:\n' +
+        '      pkglab-check:\n' +
+        '        run: npx pkglab check',
+    );
+    return;
+  }
+
+  const hookPath = target.path;
+  const file = Bun.file(hookPath);
+  let content = '';
+
+  if (await file.exists()) {
+    content = await file.text();
+    if (content.includes(MARKER_START)) {
+      // Already injected
+      return;
+    }
+  } else {
+    // Create the hook file with a shebang
+    content = '#!/bin/sh\n';
+  }
+
+  // Append the marker block
+  content = content.trimEnd() + '\n' + HOOK_BLOCK;
+  await Bun.write(hookPath, content);
+
+  // Ensure the file is executable
+  const { chmod } = await import('node:fs/promises');
+  await chmod(hookPath, 0o755);
+
+  log.info(`Injected pkglab check into ${target.type} pre-commit hook`);
+}
+
+export async function removePreCommitHook(repoPath: string): Promise<void> {
+  const target = await detectHookTarget(repoPath);
+
+  if (target.type === 'lefthook') {
+    // Nothing to remove automatically for lefthook
+    return;
+  }
+
+  const hookPath = target.path;
+  const file = Bun.file(hookPath);
+
+  if (!(await file.exists())) {
+    return;
+  }
+
+  let content = await file.text();
+  if (!content.includes(MARKER_START)) {
+    return;
+  }
+
+  content = removepkglabBlock(content);
+
+  // If the hook is now empty (only shebang or whitespace), remove the file for raw git hooks
+  const stripped = content.replace(/^#!.*\n?/, '').trim();
+  if (target.type === 'git' && stripped.length === 0) {
+    const { unlink } = await import('node:fs/promises');
+    await unlink(hookPath).catch(() => {});
+  } else {
+    await Bun.write(hookPath, content);
+  }
+
+  log.info('Removed pkglab check from pre-commit hook');
 }
 
 export async function updatePackageJsonVersion(

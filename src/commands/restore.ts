@@ -2,7 +2,7 @@ import { defineCommand } from 'citty';
 
 import { getPositionalArgs, normalizeScope } from '../lib/args';
 import { loadConfig } from '../lib/config';
-import { removeRegistryFromNpmrc, removeSkipWorktree, restorePackage } from '../lib/consumer';
+import { removeRegistryFromNpmrc, removePreCommitHook, removeSkipWorktree, restorePackage } from '../lib/consumer';
 import { runPreHook, runPostHook, runErrorHook } from '../lib/hooks';
 import { log } from '../lib/log';
 import { detectPackageManager, runInstall } from '../lib/pm-detect';
@@ -142,10 +142,11 @@ export default defineCommand({
       }
       await saveRepoByPath(repo.state.path, repo.state);
 
-      // Clean up .npmrc if no packages remain
+      // Clean up .npmrc and pre-commit hook if no packages remain
       if (Object.keys(repo.state.packages).length === 0) {
         await removeRegistryFromNpmrc(repoPath);
         await removeSkipWorktree(repoPath);
+        await removePreCommitHook(repoPath);
         log.info('All pkglab packages removed, .npmrc restored');
       }
 

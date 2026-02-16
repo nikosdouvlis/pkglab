@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import type { RepoState } from '../../types';
 
-import { removeRegistryFromNpmrc, removeSkipWorktree, restorePackage } from '../../lib/consumer';
+import { removeRegistryFromNpmrc, removePreCommitHook, removeSkipWorktree, restorePackage } from '../../lib/consumer';
 import { log } from '../../lib/log';
 import { runInstall } from '../../lib/pm-detect';
 import {
@@ -76,6 +76,7 @@ export default defineCommand({
 
       await removeRegistryFromNpmrc(state.path);
       await removeSkipWorktree(state.path);
+      await removePreCommitHook(state.path);
 
       // Run pm install to sync node_modules after restoring versions
       await runInstall(state.path, { label: displayName });
