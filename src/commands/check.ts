@@ -63,6 +63,36 @@ export default defineCommand({
           issues++;
         }
       }
+
+      // Check staged lockfiles for localhost registry URLs
+      const lockfiles = ['bun.lock', 'bun.lockb', 'pnpm-lock.yaml'];
+      for (const lockfile of lockfiles) {
+        if (!staged.includes(lockfile)) {
+          continue;
+        }
+        try {
+          const showResult = await run(['git', 'show', `:${lockfile}`], { cwd });
+          const content = showResult.stdout;
+          let count = 0;
+          let idx = 0;
+          while (true) {
+            const a = content.indexOf('"http://127.0.0.1:', idx);
+            const b = content.indexOf('"http://localhost:', idx);
+            if (a === -1 && b === -1) break;
+            const next = a === -1 ? b : b === -1 ? a : Math.min(a, b);
+            count++;
+            idx = next + 1;
+          }
+          if (count > 0) {
+            const formatted = count.toLocaleString();
+            log.line(`  ${c.red('✗')} Staged ${lockfile} contains ${formatted} localhost registry URL${count !== 1 ? 's' : ''}`);
+            log.line(`    Run: pkglab doctor --lockfile`);
+            issues++;
+          }
+        } catch {
+          // Could not read staged lockfile (e.g. binary bun.lockb), skip
+        }
+      }
     } catch {
       // Not a git repo, skip git checks
     }
