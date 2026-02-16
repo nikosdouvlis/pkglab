@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { PublishPlan, PublishEntry, WorkspacePackage, pkglabConfig } from '../types';
 
 import { log } from './log';
-import { run } from './proc';
+import { npmEnvWithAuth, run } from './proc';
 import { registryUrl } from './registry';
 import { extractTag } from './version';
 
@@ -50,52 +50,43 @@ export async function executePublish(
   plan: PublishPlan,
   config: pkglabConfig,
   options: PublishOptions = {},
-  workspaceRoot?: string,
 ): Promise<void> {
   const url = registryUrl(config);
 
-  // Write .npmrc at the workspace root so bun/npm can find auth.
-  // Package-level .npmrc is ignored inside workspaces on some platforms.
-  const npmrcCleanup = workspaceRoot ? await writeWorkspaceNpmrc(workspaceRoot, url) : undefined;
+  const results = await Promise.allSettled(
+    plan.packages.map(async (entry, index) => {
+      if (options.verbose) {
+        log.info(`Publishing ${entry.name}@${entry.version}`);
+      }
+      try {
+        await publishSinglePackage(entry, url, plan.catalogs);
+        options.onPublished?.(index);
+        options.onPackagePublished?.(entry);
+        return `${entry.name}@${entry.version}`;
+      } catch (error) {
+        options.onFailed?.(index);
+        throw error;
+      }
+    }),
+  );
 
-  try {
-    const results = await Promise.allSettled(
-      plan.packages.map(async (entry, index) => {
-        if (options.verbose) {
-          log.info(`Publishing ${entry.name}@${entry.version}`);
-        }
-        try {
-          await publishSinglePackage(entry, url, plan.catalogs);
-          options.onPublished?.(index);
-          options.onPackagePublished?.(entry);
-          return `${entry.name}@${entry.version}`;
-        } catch (error) {
-          options.onFailed?.(index);
-          throw error;
-        }
-      }),
-    );
+  const failed: string[] = [];
+  let firstError: Error | undefined;
 
-    const failed: string[] = [];
-    let firstError: Error | undefined;
-
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i];
-      if (result.status === 'rejected') {
-        const spec = `${plan.packages[i].name}@${plan.packages[i].version}`;
-        failed.push(spec);
-        if (!firstError) {
-          firstError = result.reason;
-        }
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result.status === 'rejected') {
+      const spec = `${plan.packages[i].name}@${plan.packages[i].version}`;
+      failed.push(spec);
+      if (!firstError) {
+        firstError = result.reason;
       }
     }
+  }
 
-    if (failed.length > 0) {
-      log.error(`Failed to publish: ${failed.join(', ')}`);
-      throw firstError;
-    }
-  } finally {
-    await npmrcCleanup?.();
+  if (failed.length > 0) {
+    log.error(`Failed to publish: ${failed.join(', ')}`);
+    throw firstError;
   }
 }
 
@@ -152,10 +143,11 @@ async function publishSinglePackage(
     const distTag = tag ? `pkglab-${tag}` : 'pkglab';
 
     const cmd = ['bun', 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
+    const env = npmEnvWithAuth(registryUrl);
     const maxAttempts = 3;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const result = await run(cmd, { cwd: entry.dir });
+      const result = await run(cmd, { cwd: entry.dir, env });
       if (result.exitCode === 0) {
         break;
       }
@@ -173,32 +165,6 @@ async function publishSinglePackage(
     await rm(pkgJsonPath, { force: true }).catch(() => {});
     await rename(backupPath, pkgJsonPath).catch(() => {});
   }
-}
-
-// Write .npmrc at the workspace root with registry auth.
-// Must be at the root because Bun ignores package-level .npmrc when
-// XDG_CONFIG_HOME is set (common on Linux/CI). See https://github.com/oven-sh/bun/issues/23128
-// Returns a cleanup function that restores the original state.
-async function writeWorkspaceNpmrc(workspaceRoot: string, url: string): Promise<() => Promise<void>> {
-  const npmrcPath = join(workspaceRoot, '.npmrc');
-  const backupPath = join(workspaceRoot, `.npmrc${BACKUP_SUFFIX}`);
-  const registryHost = url.replace(/^https?:/, '');
-  const npmrc = `registry=${url}\n${registryHost}/:_authToken=pkglab-local\n`;
-
-  // Backup existing .npmrc if present
-  const hadNpmrc = await Bun.file(npmrcPath).exists();
-  if (hadNpmrc) {
-    await rename(npmrcPath, backupPath);
-  }
-
-  await Bun.write(npmrcPath, npmrc);
-
-  return async () => {
-    await rm(npmrcPath, { force: true }).catch(() => {});
-    if (hadNpmrc) {
-      await rename(backupPath, npmrcPath).catch(() => {});
-    }
-  };
 }
 
 async function recoverBackup(backupPath: string, targetPath: string): Promise<void> {

@@ -739,7 +739,6 @@ async function publishPackages(
             }
           },
         },
-        workspaceRoot,
       );
       publishMs = performance.now() - executeStart;
 
@@ -849,7 +848,6 @@ async function publishPackages(
               }
             },
           },
-          workspaceRoot,
         );
         publishMs = performance.now() - executeStart;
 
