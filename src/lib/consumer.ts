@@ -326,6 +326,22 @@ interface InstallWithVersionUpdatesOpts {
   onLockfilePatched?: (entryCount: number) => void;
 }
 
+const LOCALHOST_URL_RE = /"http:\/\/(?:127\.0\.0\.1|localhost):[^"]*"/g;
+
+async function sanitizeBunLockfile(dir: string): Promise<void> {
+  const lockPath = join(dir, 'bun.lock');
+  const lockFile = Bun.file(lockPath);
+  if (!(await lockFile.exists())) {
+    return;
+  }
+  const content = await lockFile.text();
+  if (!LOCALHOST_URL_RE.test(content)) {
+    return;
+  }
+  LOCALHOST_URL_RE.lastIndex = 0;
+  await Bun.write(lockPath, content.replace(LOCALHOST_URL_RE, '""'));
+}
+
 /**
  * Write version updates to package.json or catalog, run install, and
  * rollback on failure. Returns a map of package name to targets with previous versions.
@@ -431,7 +447,12 @@ export async function installWithVersionUpdates(
     await restoreBunfig?.();
   }
 
-  // Step 8: return previous versions
+  // Step 8: sanitize bun.lock to remove localhost registry URLs
+  if (pm === 'bun') {
+    await sanitizeBunLockfile(cwd);
+  }
+
+  // Step 9: return previous versions
   return previousVersions;
 }
 
