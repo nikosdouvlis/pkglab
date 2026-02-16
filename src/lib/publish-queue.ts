@@ -17,6 +17,7 @@ interface Lane {
 interface WorkspaceState {
   lanes: Map<string, Lane>;
   publishing: boolean;
+  debounceTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export interface PublishRequest {
@@ -66,7 +67,7 @@ const workspaces = new Map<string, WorkspaceState>();
 function getWorkspaceState(workspaceRoot: string): WorkspaceState {
   let ws = workspaces.get(workspaceRoot);
   if (!ws) {
-    ws = { lanes: new Map(), publishing: false };
+    ws = { lanes: new Map(), publishing: false, debounceTimer: null };
     workspaces.set(workspaceRoot, ws);
   }
   return ws;
@@ -113,12 +114,22 @@ export function enqueuePublish(req: PublishRequest): QueueResult {
   const tagLabel = tag ? ` [${tag}]` : '';
   if (coalesced) {
     console.log(`${formatTimestamp()} Ping: ${names}${tagLabel} (queued, publish in progress)`);
+  } else if (ws.debounceTimer) {
+    console.log(`${formatTimestamp()} Ping: ${names}${tagLabel} (debounced)`);
   } else {
     console.log(`${formatTimestamp()} Ping: ${names}${tagLabel}`);
   }
 
   if (!ws.publishing) {
-    void drainLanes(ws, req.workspaceRoot);
+    // Debounce: collect pings arriving within 150ms into a single batch.
+    // Each new ping resets the timer so rapid-fire pings coalesce.
+    if (ws.debounceTimer) {
+      clearTimeout(ws.debounceTimer);
+    }
+    ws.debounceTimer = setTimeout(() => {
+      ws.debounceTimer = null;
+      void drainLanes(ws, req.workspaceRoot);
+    }, 150);
   }
 
   return { jobId, status: coalesced ? 'coalesced' : 'queued' };
