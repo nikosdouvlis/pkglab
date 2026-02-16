@@ -1,5 +1,12 @@
 # pkglab
 
+## 0.11.1
+
+### Patch Changes
+
+- dec4094: Fix publish auth by passing NPM_CONFIG_TOKEN env var to bun publish instead of writing .npmrc files. The previous approach used unsupported npm_config env vars, causing "missing authentication" errors in CI.
+- 34b0e2a: Stop writing .npmrc to publisher workspace root during pub. Auth token is now passed via env var to bun publish instead of creating/restoring a temporary .npmrc file.
+
 ## 0.11.0
 
 ### Minor Changes
