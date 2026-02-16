@@ -2,7 +2,9 @@
   <img src="docs/img/banner.png" alt="pkglab banner, style inspired by askfeather.ai" />
 </p>
 
-Local package development CLI for monorepos. Publish workspace packages to a lightweight embedded npm registry (built on Bun.serve()), iterate, and auto-update consumer repos without the headaches of `npm link`, yalc, or manual overrides.
+Test your library changes in consumer repos the way your users actually install them. pkglab runs a fast Bun-based local npm registry, auto-publishes packages (and their deps/dependent chain) on every edit, and updates all your consumer repos automatically. No `npm link` symlink issues, no stale yalc copies, no manual version juggling.
+
+Built for teams publishing npm packages from monorepos who need to test changes in consumer repos before shipping.
 
 Also available as `pkgl` for short (so efficient ✨).
 
@@ -28,19 +30,32 @@ Also available as `pkgl` for short (so efficient ✨).
 
 ## Features
 
+Core workflow
+
 - Real `npm publish` to a local npm registry, so you test the same install your users get
 - Automatic consumer repo updates after every publish
-- Dependency cascade awareness (change a shared util, all dependent packages get republished)
 - Content-aware publishing: unchanged packages are skipped automatically, only packages with real changes (or whose deps changed) get a new version
-- AI-Agent enabled: multi-worktree tags are supported. Publish from multiple git worktrees in parallel without version conflicts, each worktree gets its own version channel
-- Fast, lightweight registry built on `Bun.serve()` with in-memory metadata: starts in ~60ms, uses ~44MB RAM, publishes 22 packages in ~1s
+- Dependency cascade awareness (change a shared util, all dependent packages get republished)
+- Build with run consistency in mind - on each `pub` invocation, `pkglab` always chooses the publish strategy that will ensure your consumer repos get all changes without missmatched package version.
+
+Performance
+
+- Fast, lightweight registry built on `Bun.serve()` with in-memory metadata: starts in ~60ms, uses ~44MB RAM, publishes 22 packages in <1s
 - Fast consumer installs: lockfile patching for pnpm (skips resolution), `--ignore-scripts` + `--prefer-offline` for bun/pnpm, automatic fallback on failure
-- Git skip-worktree protection on `.npmrc` so localhost registry URLs don't leak into commits
+- Automatic version pruning per tag so the local registry doesn't grow forever
+- Sync and async APIs (`pub` and `pub --ping`), automatic debounce on rapid dev build -> publish loops (common in big monorepos).
+
+Multi-worktree and parallel development
+
+- Publish from multiple git worktrees in parallel without version conflicts, each worktree gets its own version channel
+- Works with most consumer package manager: npm, pnpm, or bun. Yarn works but not tested.
+
+Safety and git hygiene
+
 - Pre-commit safety checks (`pkglab check`) to catch local artifacts before they reach your repo, including lockfile scanning for localhost URLs
 - Automatic pre-commit hook injection on first `pkglab add`, removed on restore
+- Git skip-worktree protection on `.npmrc` so localhost registry URLs don't leak into commits
 - Lockfile sanitization: auto-strips localhost registry URLs from `bun.lock` after installs, preventing CI breakage if the lockfile gets committed
-- Automatic version pruning per tag so the local registry doesn't grow forever
-- Works with any consumer package manager: npm, pnpm, yarn, or bun
 
 ## Quick start
 
