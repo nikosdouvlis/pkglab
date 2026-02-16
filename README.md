@@ -2,7 +2,9 @@
   <img src="docs/img/banner.png" alt="pkglab banner, style inspired by askfeather.ai" />
 </p>
 
-Local package development CLI for monorepos. Publish workspace packages to a lightweight embedded npm registry (built on Bun.serve()), iterate, and auto-update consumer repos without the headaches of `npm link`, yalc, or manual overrides.
+Test your library changes in consumer repos the way your users actually install them. pkglab runs a fast Bun-based local npm registry, auto-publishes packages (and their deps/dependent chain) on every edit, and updates all your consumer repos automatically. No `npm link` symlink issues, no stale yalc copies, no manual version juggling.
+
+Built for teams publishing npm packages from monorepos who need to test changes in consumer repos before shipping. Used in production by the [Clerk JavaScript SDK](https://github.com/clerk/javascript) monorepo (22+ packages).
 
 Also available as `pkgl` for short (so efficient ✨).
 
@@ -10,7 +12,7 @@ Also available as `pkgl` for short (so efficient ✨).
 
 - [Features](#features)
 - [Quick start](#quick-start)
-- [Quick start - monorepo dev scripts](#quick-start---monorepo-dev-scripts)
+- [Quick start - monorepo edition](#quick-start---monorepo-edition)
 - [Install](#install)
 - [The problem](#the-problem)
 - [How it works](#how-it-works)
@@ -18,7 +20,6 @@ Also available as `pkgl` for short (so efficient ✨).
 - [Multi-worktree support](#multi-worktree-support)
 - [Catalog support](#catalog-support)
 - [How versioning works](#how-versioning-works)
-- [Why not ...](#why-not-)
 - [Design decisions](#design-decisions)
 - [Configuration](#configuration)
 - [Repo hooks](#repo-hooks)
@@ -28,19 +29,32 @@ Also available as `pkgl` for short (so efficient ✨).
 
 ## Features
 
+Core workflow
+
 - Real `npm publish` to a local npm registry, so you test the same install your users get
 - Automatic consumer repo updates after every publish
-- Dependency cascade awareness (change a shared util, all dependent packages get republished)
 - Content-aware publishing: unchanged packages are skipped automatically, only packages with real changes (or whose deps changed) get a new version
-- AI-Agent enabled: multi-worktree tags are supported. Publish from multiple git worktrees in parallel without version conflicts, each worktree gets its own version channel
-- Fast, lightweight registry built on `Bun.serve()` with in-memory metadata: starts in ~60ms, uses ~44MB RAM, publishes 22 packages in ~1s
+- Dependency cascade awareness (change a shared util, all dependent packages get republished)
+- Consistent across runs: on each `pub` invocation, `pkglab` picks the publish strategy that gives your consumer repos all changes without mismatched package versions
+
+Performance
+
+- Fast, lightweight registry built on `Bun.serve()` with in-memory metadata: starts in ~60ms, uses ~44MB RAM, publishes 22 packages in <1s
 - Fast consumer installs: lockfile patching for pnpm (skips resolution), `--ignore-scripts` + `--prefer-offline` for bun/pnpm, automatic fallback on failure
-- Git skip-worktree protection on `.npmrc` so localhost registry URLs don't leak into commits
+- Automatic version pruning per tag so the local registry doesn't grow forever
+- Sync and async APIs (`pub` and `pub --ping`), automatic debounce on rapid build-to-publish loops (common in big monorepos).
+
+Multi-worktree and parallel development
+
+- Publish from multiple git worktrees in parallel without version conflicts, each worktree gets its own version channel
+- Works with most consumer package managers: npm, pnpm, or bun. Yarn works but not tested.
+
+Safety and git hygiene
+
 - Pre-commit safety checks (`pkglab check`) to catch local artifacts before they reach your repo, including lockfile scanning for localhost URLs
 - Automatic pre-commit hook injection on first `pkglab add`, removed on restore
+- Git skip-worktree protection on `.npmrc` so localhost registry URLs don't leak into commits
 - Lockfile sanitization: auto-strips localhost registry URLs from `bun.lock` after installs, preventing CI breakage if the lockfile gets committed
-- Automatic version pruning per tag so the local registry doesn't grow forever
-- Works with any consumer package manager: npm, pnpm, yarn, or bun
 
 ## Quick start
 
@@ -78,7 +92,7 @@ pkglab restore --all                         # everything in this repo
 pkglab down
 ```
 
-## Quick start - monorepo dev scripts
+## Quick start - monorepo edition
 
 If your packages have a watch/dev mode (tsup, tsc, rspack, etc.), you can wire pkglab into the workflow so rebuilds automatically publish to the local registry.
 
@@ -115,7 +129,7 @@ This installs a native binary for your platform. No Bun or Node.js runtime requi
 
 Under the hood, the `pkglab` npm package contains a tiny Node.js wrapper. It declares platform-specific packages (`pkglab-darwin-arm64`, `pkglab-linux-x64`, etc.) as optional dependencies with `os` and `cpu` constraints, so npm only downloads the one matching your machine. When you run `pkglab`, the wrapper resolves the platform binary and execs it. The compiled binary has the Bun runtime embedded, so nothing else needs to be installed.
 
-Your consumer repos can use any package manager: npm, pnpm, yarn, or bun. pkglab shells out to `npm` for publishing, so Node.js needs to be available on your machine.
+Your consumer repos can use any package manager: npm, pnpm, yarn, or bun.
 
 Supported on macOS (ARM64, x64) and Linux (x64, ARM64).
 
@@ -123,7 +137,7 @@ Supported on macOS (ARM64, x64) and Linux (x64, ARM64).
 
 Testing local package changes across repos is painful. The existing tools all have real problems.
 
-`npm link` creates symlinks into your source directory. React and other libraries that rely on module identity get duplicated: your app loads one copy from `node_modules` and the linked package resolves a second copy from its own `node_modules`. This causes the classic "hooks can only be called inside the body of a function component" crash, broken contexts, and similar issues. A single `npm install` can also silently blow away your links.
+`npm link` creates symlinks into your source directory. React, styled-components, and other libraries that rely on module identity get duplicated: your app loads one copy from `node_modules` and the linked package resolves a second copy from its own `node_modules`. This causes the classic "hooks can only be called inside the body of a function component" crash, broken contexts, and `instanceof` checks failing across the boundary. A single `npm install` can also silently blow away your links. There are no lock file entries, so your CI and teammates can't reproduce the setup.
 
 `yalc` improves on this by copying files, but it injects `.yalc` directories and modifies `package.json` with `file:` references that behave differently from real registry installs. Lock files end up with local paths instead of registry URLs. The install you test against is structurally different from what your users will get.
 
@@ -131,38 +145,76 @@ Testing local package changes across repos is painful. The existing tools all ha
 
 `pnpm overrides` and `yarn resolutions` require editing the consumer's `package.json`, remembering to undo before committing, and don't auto-update when you change the library. When pointed at local or workspace targets, they bypass registry validation, so you can miss broken exports maps, missing files in the `"files"` array, and unresolved `workspace:` / `catalog:` protocols until you actually publish to npm.
 
-**`pkglab`** solves all of this by publishing to a real npm registry running on your machine.
+Standalone Verdaccio gives you the registry, but you still have to manage the daemon lifecycle, generate versions, manually install in every consumer, track which repos are linked, prune old versions, and protect against committing localhost URLs.
+
+`pkglab` solves all of this by publishing to a real npm registry running on your machine, and ships its own lightweight registry server that starts faster and uses less memory.
 
 ## How it works
 
-**`pkglab`** runs a lightweight npm registry as a background daemon, built on `Bun.serve()` with in-memory package metadata and write-through persistence to disk. Unknown packages are proxied to the upstream npmjs.org registry, so consumer installs work transparently for both local and public packages.
+`pkglab` runs a lightweight npm registry as a background daemon, built on `Bun.serve()` with in-memory package metadata and write-through persistence to disk. Unknown packages are proxied to the upstream npmjs.org registry, so consumer installs work transparently for both local and public packages.
 
 When you publish, packages go through a real `npm publish` to this local registry. Exports maps, bundled dependencies, the `"files"` array, all validated the same way npm would. Consumer repos install from this registry with a standard `npm install` / `pnpm add`, producing the same `node_modules` tree your users will get. One copy of React. Correct peer dependency resolution. Real lock file entries.
 
-On top of that, **`pkglab`** handles automatic consumer updates, dependency cascading, parallel publishes with rollback, `.npmrc` protection, pre-commit checks, version pruning, and multi-worktree tag isolation. See [Features](#features) for the full list.
+On top of that, `pkglab` handles automatic consumer updates, dependency cascading, parallel publishes with rollback, `.npmrc` protection, pre-commit checks, version pruning, and multi-worktree tag isolation. See [Features](#features) for the full list.
 
 The registry server starts in ~60ms, uses ~44MB of memory, and publishes 22 packages in about 1 second. See [Performance](#performance) for full benchmark results.
 
 ## Commands
 
-- `pkglab up` -start the local registry. Deactivates repos from the previous session, then offers a picker to reactivate the ones you need.
-- `pkglab down` -stop the registry. By default, restores all consumer repos first (versions, `.npmrc`, pre-commit hooks) and only stops the daemon if all restores succeed. If a restore fails, the daemon stays up so you can fix the issue. `--force`/`-f` skips restoration and stops immediately.
-- `pkglab pub [name...]` -publish packages to the local registry. Accepts multiple names. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade, including sibling workspace deps of dependents. Fingerprints each package and skips unchanged ones: only packages with content changes or whose deps changed get a new version. Uses mtime+size metadata to skip content hashing on repeat runs when files haven't changed. Auto-updates active consumer repos matching the same tag and prunes old versions in the background. Flags: `--dry-run`, `--single` (skip cascade and fingerprinting), `--shallow` (targets + deps only, no dependent expansion), `--force`/`-f` (ignore fingerprints, republish all), `--verbose`/`-v` (includes per-phase timing), `--tag <name>`/`-t`, `--worktree`/`-w` (auto-detect tag from branch), `--root` (publish all packages regardless of cwd), `--ping` (send publish request to the registry server instead of publishing directly), `--no-pm-optimizations` (skip lockfile patching and install optimizations, uses plain `pm install`).
-- `pkglab listen` -(deprecated) shows queue status from the registry. Publish coalescing is now built into the registry server.
-- `pkglab add [name[@tag]...]` -install pkglab packages in the current repo. Accepts multiple names, batch installs in one command. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. Append `@tag` to pin to a tag (e.g. `pkglab add @clerk/pkg@feat1`), or use `--tag`/`-t` to apply a tag to all packages at once (`pkglab add pkg --tag feat1`). Cannot combine `--tag` with inline `@tag` syntax. `--scope`/`-s` replaces all packages of a given scope in the workspace (e.g. `--scope clerk` or `--scope @clerk`), scanning workspace root + sub-packages for matching deps and verifying all are published before modifying files. Cannot combine `--scope` with positional package names. No args for an interactive picker. Auto-detects catalog entries and updates the catalog source directly (see [Catalog support](#catalog-support)). `--catalog`/`-c` enables strict mode, erroring if a package is not in any catalog. In a workspace, auto-scans all sub-packages for the dependency and updates all of them (sub-packages using `catalog:` protocol are skipped, handled by catalog auto-detection). `--packagejson`/`-p` opts out of workspace scanning and targets a single sub-package directory (e.g. `pkglab add @clerk/nextjs -p apps/dashboard` from the monorepo root). `--dry-run` previews what would be installed without making changes. `--verbose`/`-v` shows detailed output about workspace scanning and decisions. All targets are remembered for restore.
-- `pkglab restore <name...>` -restore pkglab packages to their original versions across all targets that were updated by `pkglab add` (catalog, sub-packages, or both). Accepts multiple names. Runs the package manager install to sync node_modules, cleans `.npmrc` if no packages remain, and removes skip-worktree. `--all` restores every pkglab package in the repo. `--scope <scope>` restores all packages matching a scope (mirrors add `--scope`). `--tag`/`-t` restores only packages installed with a specific tag.
-- `pkglab status` -show whether the registry is running and on which port.
-- `pkglab logs` -tail registry logs. `-f` for follow mode.
-- `pkglab check` -pre-commit safety check. Scans for pkglab artifacts in `package.json` and `.npmrc` (local versions, registry markers, staged files) across workspace root and sub-packages. Also scans staged lockfiles (`bun.lock`, `bun.lockb`, `pnpm-lock.yaml`) for localhost registry URLs. Returns exit code 1 if anything is found.
-- `pkglab doctor` -diagnose your setup. Checks directory structure, daemon health, registry connectivity, and skip-worktree flags across all linked repos. Auto-repairs missing flags. Detects dirty state (daemon not running but repos have active pkglab packages) and suggests recovery steps. `--lockfile` sanitizes `bun.lock` files in consumer repos by replacing localhost registry URLs with `""` (which tells bun to use the default registry).
-- `pkglab pkg rm <name...>` -remove packages from the local registry entirely (API + storage). Accepts multiple names. `--all` removes every pkglab package and clears fingerprint state.
-- `pkglab repo ls` -list consumer repos with their active/inactive status and linked packages.
-- `pkglab repo on/off [name...]` -activate or deactivate consumer repos. Accepts multiple paths. `--all` to activate or deactivate every repo. Interactive picker if no name given.
-- `pkglab repo reset [name]` -clear all state for a repo, restoring original package versions and running package manager install. `--all` to reset every repo. `--stale` to remove repos whose directories no longer exist.
-- `pkglab pkg ls` -list published packages in the local registry, grouped by tag with the latest version per tag. Checks if the registry is running first.
-- `pkglab reset --hard` -wipe all pkglab data and registry storage. Stops the daemon if running.
-- `pkglab reset --fingerprints` -clear the fingerprint cache. Next `pub` will republish all packages regardless of content changes.
-- `pkglab hooks init` -scaffold a `.pkglab/hooks/` directory in the current repo with type definitions (`payload.d.ts`) and commented-out stubs for all 7 hook events. Hooks let consumer repos run custom scripts at lifecycle moments (before/after add, restore, and publish-triggered updates). Each hook receives a typed JSON payload as its first argument. Supports `.ts` (run with bun), `.sh` (run with bash), and extensionless (direct execution) formats. Pre-hooks can abort operations, post-hooks are advisory. See [Repo hooks](#repo-hooks) for details.
+Registry
+
+- `pkglab up` - start the local registry. Deactivates repos from the previous session, then offers a picker to reactivate the ones you need.
+- `pkglab down` - stop the registry. Restores all consumer repos first (versions, `.npmrc`, pre-commit hooks) and only stops the daemon if all restores succeed. If a restore fails, the daemon stays up so you can fix the issue.
+  - `--force`/`-f` - skip restoration and stop immediately
+- `pkglab status` - show whether the registry is running and on which port.
+- `pkglab logs` - tail registry logs. `-f` for follow mode.
+
+Publishing
+
+- `pkglab pub [name...]` - publish packages to the local registry. Accepts multiple names. Publishes the current package (if inside one) or all public packages from the workspace root. Computes transitive dependents and republishes the cascade, including sibling workspace deps of dependents. Fingerprints each package and skips unchanged ones: only packages with content changes or whose deps changed get a new version. Uses mtime+size metadata to skip content hashing on repeat runs. Auto-updates active consumer repos matching the same tag and prunes old versions in the background.
+  - `--tag <name>`/`-t` - publish with a tag
+  - `--worktree`/`-w` - auto-detect tag from branch name
+  - `--root` - publish all packages regardless of cwd
+  - `--ping` - send publish request to the registry server instead of publishing directly
+  - `--single` - skip cascade and fingerprinting
+  - `--shallow` - targets + deps only, no dependent expansion
+  - `--force`/`-f` - ignore fingerprints, republish all
+  - `--no-pm-optimizations` - skip lockfile patching and install optimizations, uses plain `pm install`
+  - `--dry-run` - preview what would be published
+  - `--verbose`/`-v` - includes per-phase timing
+- `pkglab listen` - (deprecated) shows queue status from the registry. Publish coalescing is now built into the registry server.
+
+Consumer packages
+
+- `pkglab add [name[@tag]...]` - install pkglab packages in the current repo. Accepts multiple names, batch installs in one command. Configures `.npmrc`, applies git skip-worktree, and installs using your repo's package manager. No args for an interactive picker. Auto-detects catalog entries and updates the catalog source directly (see [Catalog support](#catalog-support)). In a workspace, auto-scans all sub-packages for the dependency and updates all of them (sub-packages using `catalog:` protocol are skipped, handled by catalog auto-detection). All targets are remembered for restore.
+  - `name@tag` - pin to a specific tag (e.g. `pkglab add @clerk/pkg@feat1`)
+  - `--tag`/`-t` - apply a tag to all packages at once (e.g. `pkglab add pkg --tag feat1`). Cannot combine with inline `@tag` syntax
+  - `--scope`/`-s` - replace all packages of a given scope in the workspace (e.g. `--scope clerk` or `--scope @clerk`), scanning workspace root + sub-packages for matching deps and verifying all are published before modifying files. Cannot combine with positional package names
+  - `--catalog`/`-c` - strict catalog mode, errors if a package is not in any catalog
+  - `--packagejson`/`-p` - target a single sub-package directory instead of workspace scanning (e.g. `-p apps/dashboard`)
+  - `--dry-run` - preview what would be installed
+  - `--verbose`/`-v` - show detailed workspace scanning output
+- `pkglab restore <name...>` - restore pkglab packages to their original versions across all targets updated by `pkglab add` (catalog, sub-packages, or both). Accepts multiple names. Runs pm install to sync node_modules, cleans `.npmrc` if no packages remain, removes skip-worktree.
+  - `--all` - restore every pkglab package in the repo
+  - `--scope <scope>` - restore all packages matching a scope (mirrors add `--scope`)
+  - `--tag`/`-t` - restore only packages installed with a specific tag
+- `pkglab check` - pre-commit safety check. Scans for pkglab artifacts in `package.json` and `.npmrc` (local versions, registry markers, staged files) across workspace root and sub-packages. Also scans staged lockfiles (`bun.lock`, `bun.lockb`, `pnpm-lock.yaml`) for localhost registry URLs. Returns exit code 1 if anything is found.
+
+Repo management
+
+- `pkglab repo ls` - list consumer repos with their active/inactive status and linked packages.
+- `pkglab repo on/off [name...]` - activate or deactivate consumer repos. Accepts multiple paths. `--all` to activate or deactivate every repo. Interactive picker if no name given.
+- `pkglab repo reset [name]` - clear all state for a repo, restoring original package versions and running pm install. `--all` to reset every repo. `--stale` to remove repos whose directories no longer exist.
+- `pkglab pkg ls` - list published packages in the local registry, grouped by tag with the latest version per tag. Checks if the registry is running first.
+- `pkglab pkg rm <name...>` - remove packages from the local registry entirely (API + storage). Accepts multiple names. `--all` removes every package and clears fingerprint state.
+
+Maintenance
+
+- `pkglab doctor` - diagnose your setup. Checks directory structure, daemon health, registry connectivity, and skip-worktree flags across all linked repos. Auto-repairs missing flags. Detects dirty state (daemon not running but repos have active pkglab packages) and suggests recovery steps.
+  - `--lockfile` - sanitize `bun.lock` files in consumer repos by replacing localhost registry URLs with `""` (tells bun to use the default registry)
+- `pkglab reset --hard` - wipe all pkglab data and registry storage. Stops the daemon if running.
+- `pkglab reset --fingerprints` - clear the fingerprint cache. Next `pub` will republish all packages regardless of content changes.
+- `pkglab hooks init` - scaffold `.pkglab/hooks/` in the current repo with type definitions (`payload.d.ts`) and commented-out stubs for all 7 hook events. Hooks let consumer repos run custom scripts at lifecycle moments (before/after add, restore, and publish-triggered updates). Each hook receives a typed JSON payload as its first argument. Supports `.ts` (run with bun), `.sh` (run with bash), and extensionless (direct execution) formats. Pre-hooks can abort operations, post-hooks are advisory. See [Repo hooks](#repo-hooks) for details.
 
 `pkglab add` automatically injects `pkglab check` into your pre-commit hook (Husky, or raw `.git/hooks/pre-commit`). For Lefthook, add it manually:
 
@@ -247,21 +299,9 @@ Bun caveat: bun caches registry metadata for up to 5 minutes, so freshly publish
 
 ## How versioning works
 
-**`pkglab`** generates versions in the format `0.0.0-pkglab.{timestamp}` (untagged) or `0.0.0-pkglab-{tag}.{timestamp}` (tagged). The monotonic timestamp ensures versions always increment, even across rapid publishes. The `0.0.0-pkglab` prefix makes these versions instantly recognizable and ensures they sort below any real release.
+`pkglab` generates versions in the format `0.0.0-pkglab.{timestamp}` (untagged) or `0.0.0-pkglab-{tag}.{timestamp}` (tagged). The monotonic timestamp ensures versions always increment, even across rapid publishes. The `0.0.0-pkglab` prefix makes these versions instantly recognizable and ensures they sort below any real release.
 
 When using tags, each tag gets its own version channel. Publishing with `--tag feat1` only updates consumers pinned to `feat1`, leaving other consumers untouched. This lets you work on multiple branches simultaneously from different git worktrees without version conflicts.
-
-## Why not ...
-
-`npm link` - symlinks cause duplicate module instances. React, styled-components, and anything using `instanceof` or React context can break with two copies in the tree. A single `npm install` can silently remove links. No lock file entries, so your CI and teammates can't reproduce the setup.
-
-`yalc` - injects `.yalc` directories and `file:.yalc/...` references into `package.json`. Lock files end up with local paths instead of registry URLs. The install shape you test against doesn't match what your users get from a real `npm install`.
-
-`pnpm overrides` / `yarn resolutions` - manual `package.json` edits that are easy to forget and commit. No auto-update on republish. When pointed at local or workspace targets, they can bypass registry validation entirely, so you miss broken exports maps, missing `"files"`, and unresolved `workspace:` / `catalog:` protocols until you actually publish to npm.
-
-`workspace:^` - only works within a single monorepo. Doesn't help when the consumer is a separate repository. Within the workspace, packages resolve to local copies during install, so version resolution bugs only appear once you actually publish. On top of that, during snapshot or canary releases, `workspace:^` resolves to caret ranges that can match the wrong pre-release versions: `^3.0.0-canary.v20251211` satisfies `3.0.0-snapshot.v20251204` because semver sorts `snapshot` after `canary`.
-
-Standalone Verdaccio - gives you the registry, but you still have to manage the daemon lifecycle, generate versions, manually install in every consumer, track which repos are linked, prune old versions, and protect against committing localhost URLs. **`pkglab`** automates all of that and ships its own lightweight registry server that starts faster and uses less memory.
 
 ## Design decisions
 
@@ -321,7 +361,7 @@ Trade-off: adding a previously-skipped package via `pkglab add` gives the last-p
 
 ## Configuration
 
-**`pkglab`** stores its state in `~/.pkglab/`. The config file at `~/.pkglab/config.yaml` supports:
+`pkglab` stores its state in `~/.pkglab/`. The config file at `~/.pkglab/config.yaml` supports:
 
 - `port`: registry port (default: 16180)
 - `prune_keep`: number of old versions to retain per package (default: 3)
@@ -398,7 +438,7 @@ The legacy Verdaccio backend is still available via `PKGLAB_VERDACCIO=1` if need
 
 ## Safety
 
-**`pkglab`** is designed to prevent local development artifacts from leaking into your codebase:
+`pkglab` is designed to prevent local development artifacts from leaking into your codebase:
 
 - `git update-index --skip-worktree .npmrc` is applied automatically when you `pkglab add`, so your localhost registry URL won't show up in `git status` (requires `.npmrc` to be tracked by git)
 - Automatic pre-commit hook injection: on first `pkglab add`, a `pkglab check` call is injected into the consumer's pre-commit hook (Husky, Lefthook, or raw git hooks). Removed automatically on restore when no packages remain
@@ -410,6 +450,7 @@ The legacy Verdaccio backend is still available via `PKGLAB_VERDACCIO=1` if need
 
 ## Acknowledgments
 
+- [Verdaccio](https://github.com/verdaccio/verdaccio) is the project that made local npm registries practical. pkglab started as a wrapper around Verdaccio and still supports it as a backend. The Verdaccio team's work on registry compatibility and plugin architecture made it possible to prototype pkglab quickly before building a custom registry server.
 - [yalc](https://github.com/wclr/yalc) pioneered the copy-based approach to local package development and showed that symlinks aren't the only way. pkglab takes the idea further by using a real registry, but yalc remains a great lighter-weight option if you don't need registry-level validation. Thank you to the yalc maintainers for paving the way.
 - Banner style inspired by our friends at [askfeather.ai](https://askfeather.ai).
 
