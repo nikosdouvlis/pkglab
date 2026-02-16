@@ -262,8 +262,87 @@ try {
     assert(r.code !== 0, 'pkglab check exits non-zero (found artifacts)');
   }
 
-  // 10b. repo reset --all skips missing dirs, reset deletes repo state
-  heading('10b. repo reset (missing dirs + cleanup)');
+  // 10a. pkglab check detects localhost URLs in staged lockfiles
+  heading('10a. pkglab check (lockfile with localhost URLs)');
+  {
+    // Set up a temporary git repo with a staged bun.lock containing localhost URLs
+    const lockfileTestDir = join(testDir, 'lockfile-check');
+    await mkdir(lockfileTestDir, { recursive: true });
+    await writeJson(join(lockfileTestDir, 'package.json'), {
+      name: 'lockfile-check-test',
+      version: '1.0.0',
+    });
+
+    // Initialize git repo
+    const git = (args: string[]) =>
+      Bun.spawn(['git', ...args], { cwd: lockfileTestDir, stdout: 'pipe', stderr: 'pipe' });
+    await git(['init']).exited;
+    await git(['config', 'user.email', 'test@test.com']).exited;
+    await git(['config', 'user.name', 'Test']).exited;
+    await git(['add', '.']).exited;
+    await git(['commit', '-m', 'init']).exited;
+
+    // Write a fake bun.lock with localhost URLs and stage it
+    const fakeLock = `{
+  "lockfileVersion": 0,
+  "packages": {
+    "react": ["react@18.2.0", "http://127.0.0.1:16180/react/-/react-18.2.0.tgz", {}, "sha512-abc"],
+    "@clerk/shared": ["@clerk/shared@0.0.0-pkglab.123", "http://127.0.0.1:16180/@clerk/shared/-/shared-0.0.0.tgz", {}, "sha512-def"],
+    "lodash": ["lodash@4.17.21", "http://localhost:16180/lodash/-/lodash-4.17.21.tgz", {}, "sha512-ghi"]
+  }
+}`;
+    await Bun.write(join(lockfileTestDir, 'bun.lock'), fakeLock);
+    await git(['add', 'bun.lock']).exited;
+
+    // check should detect the localhost URLs
+    const r = await pkglab(['check'], { cwd: lockfileTestDir });
+    assert(r.code !== 0, 'pkglab check exits non-zero for localhost lockfile URLs');
+    assert(
+      r.stdout.includes('localhost registry URL'),
+      'output mentions localhost registry URLs',
+      r,
+    );
+    assert(
+      r.stdout.includes('pkglab doctor --lockfile'),
+      'output suggests pkglab doctor --lockfile',
+      r,
+    );
+  }
+
+  // 10b. pkglab check passes on clean staged lockfile
+  heading('10b. pkglab check (clean lockfile, no localhost URLs)');
+  {
+    const cleanLockDir = join(testDir, 'lockfile-clean');
+    await mkdir(cleanLockDir, { recursive: true });
+    await writeJson(join(cleanLockDir, 'package.json'), {
+      name: 'lockfile-clean-test',
+      version: '1.0.0',
+    });
+
+    const git = (args: string[]) =>
+      Bun.spawn(['git', ...args], { cwd: cleanLockDir, stdout: 'pipe', stderr: 'pipe' });
+    await git(['init']).exited;
+    await git(['config', 'user.email', 'test@test.com']).exited;
+    await git(['config', 'user.name', 'Test']).exited;
+    await git(['add', '.']).exited;
+    await git(['commit', '-m', 'init']).exited;
+
+    // Write a clean bun.lock (no localhost URLs) and stage it
+    const cleanLock = `{
+  "lockfileVersion": 0,
+  "packages": {
+    "react": ["react@18.2.0", "", {}, "sha512-abc"]
+  }
+}`;
+    await Bun.write(join(cleanLockDir, 'bun.lock'), cleanLock);
+    await git(['add', 'bun.lock']).exited;
+
+    const r = await pkglab(['check'], { cwd: cleanLockDir });
+    assert(r.code === 0, 'pkglab check passes for clean lockfile', r);
+  }
+
+  // 10c. repo reset --all skips missing dirs, reset deletes repo state
+  heading('10c. repo reset (missing dirs + cleanup)');
   {
     // consumer-1 was already removed via `pkglab restore`, re-add so we have a repo to reset
     const addR = await pkglab(['add', '@test/pkg-a'], { cwd: consumer1Dir });
