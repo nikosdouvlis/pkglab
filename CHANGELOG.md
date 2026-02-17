@@ -1,5 +1,11 @@
 # pkglab
 
+## 0.12.2
+
+### Patch Changes
+
+- b790438: Fix subprocess spawning in compiled binary: use resolveRuntime() for bun/npm commands instead of process.execPath
+
 ## 0.12.1
 
 ### Patch Changes
