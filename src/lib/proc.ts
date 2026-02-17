@@ -1,29 +1,11 @@
 /**
- * Whether we're running from source (bun src/index.ts) vs a compiled binary.
- * In source mode, process.execPath IS the bun runtime.
- * In compiled mode, process.execPath is the pkglab binary itself.
+ * Environment vars that make the compiled binary act as the plain bun CLI.
+ * Setting BUN_BE_BUN=1 tells a compiled Bun executable to ignore its bundled
+ * entrypoint and expose all bun CLI commands (publish, install, run, etc.).
+ * In source mode this is harmless since process.execPath is already bun.
  */
-const isSourceMode = !!process.argv[1]?.match(/\.(ts|js)$/);
-
-/**
- * Resolve the path to the bun runtime binary.
- *
- * In source mode, process.execPath is already bun.
- * In compiled mode, we search PATH via Bun.which().
- *
- * Used for commands that need the bun runtime (publish, run), NOT for
- * spawning pkglab's own subcommands (use process.execPath for those).
- */
-export function resolveRuntime(): string {
-  if (isSourceMode) return process.execPath;
-
-  const bun = Bun.which('bun');
-  if (bun) return bun;
-
-  throw new Error(
-    'Could not find bun in PATH. The compiled pkglab binary needs bun installed ' +
-    'for publishing. Install bun (https://bun.sh) or add setup-bun to your CI.',
-  );
+export function bunEnv(extra?: Record<string, string | undefined>): Record<string, string | undefined> {
+  return { ...process.env, BUN_BE_BUN: '1', ...extra };
 }
 
 export interface RunResult {

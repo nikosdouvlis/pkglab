@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 
 import { log } from './log';
-import { resolveRuntime } from './proc';
+import { bunEnv } from './proc';
 
 export interface PkglabHookPayload {
   schemaVersion: 1;
@@ -79,7 +79,7 @@ async function executeHook(
   let cmd: string[];
   switch (runner) {
     case 'bun':
-      cmd = [resolveRuntime(), 'run', hookPath, json];
+      cmd = [process.execPath, 'run', hookPath, json];
       break;
     case 'bash':
       cmd = ['bash', hookPath, json];
@@ -91,8 +91,10 @@ async function executeHook(
 
   const start = performance.now();
 
+  // BUN_BE_BUN=1 for .ts hooks so the compiled binary acts as bun runtime
   const proc = Bun.spawn(cmd, {
     cwd: payload.repoPath,
+    env: runner === 'bun' ? bunEnv() : undefined,
     stdout: 'pipe',
     stderr: 'pipe',
   });

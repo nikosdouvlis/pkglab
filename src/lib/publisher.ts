@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { PublishPlan, PublishEntry, WorkspacePackage, pkglabConfig } from '../types';
 
 import { log } from './log';
-import { resolveRuntime, run } from './proc';
+import { bunEnv, run } from './proc';
 import { registryUrl } from './registry';
 import { extractTag } from './version';
 
@@ -142,13 +142,13 @@ async function publishSinglePackage(
     const tag = extractTag(entry.version);
     const distTag = tag ? `pkglab-${tag}` : 'pkglab';
 
-    const runtime = resolveRuntime();
-    const cmd = [runtime, 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
+    const cmd = [process.execPath, 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
     const maxAttempts = 3;
 
-    // Auth via NPM_CONFIG_TOKEN env var. Bun respects this directly.
-    // In compiled mode, resolveRuntime() finds bun in PATH (required).
-    const env = { ...process.env, NPM_CONFIG_TOKEN: 'pkglab-local' };
+    // BUN_BE_BUN=1 makes the compiled binary act as the plain bun CLI,
+    // so process.execPath runs `bun publish` instead of `pkglab publish`.
+    // NPM_CONFIG_TOKEN provides auth for the local registry.
+    const env = bunEnv({ NPM_CONFIG_TOKEN: 'pkglab-local' });
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const result = await run(cmd, { cwd: entry.dir, env });
