@@ -1,6 +1,6 @@
 {
   "name": "pkglab-linux-arm64",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "description": "pkglab Linux ARM64 binary",
   "homepage": "https://github.com/nikosdouvlis/pkglab",
   "bugs": "https://github.com/nikosdouvlis/pkglab/issues",
