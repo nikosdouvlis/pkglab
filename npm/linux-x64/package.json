@@ -1,6 +1,6 @@
 {
   "name": "pkglab-linux-x64",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "pkglab Linux x64 binary",
   "homepage": "https://github.com/nikosdouvlis/pkglab",
   "bugs": "https://github.com/nikosdouvlis/pkglab/issues",
