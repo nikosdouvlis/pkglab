@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { PublishPlan, PublishEntry, WorkspacePackage, pkglabConfig } from '../types';
 
 import { log } from './log';
-import { run } from './proc';
+import { resolveRuntime, run } from './proc';
 import { registryUrl } from './registry';
 import { extractTag } from './version';
 
@@ -142,7 +142,8 @@ async function publishSinglePackage(
     const tag = extractTag(entry.version);
     const distTag = tag ? `pkglab-${tag}` : 'pkglab';
 
-    const cmd = [process.execPath, 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
+    const runtime = resolveRuntime({ fallbackToNpm: true });
+    const cmd = [runtime, 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
     const maxAttempts = 3;
 
     // Pass auth via NPM_CONFIG_TOKEN env var instead of writing .npmrc files.

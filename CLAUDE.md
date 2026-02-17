@@ -6,7 +6,12 @@ Runtime: Bun
 CLI framework: citty
 Colors: `Bun.color()` via `src/lib/color.ts` (no picocolors)
 
-IMPORTANT: pkglab is distributed as a standalone binary via BanBinary. Never assume Bun is installed on the user's system. When spawning subprocesses that need the Bun runtime (publish, hooks, etc.), always use `process.execPath` instead of hardcoding `'bun'`. This ensures the compiled binary invokes itself rather than looking for a system-wide Bun installation.
+IMPORTANT: pkglab is distributed as a standalone binary via BanBinary. In compiled mode, `process.execPath` points to the pkglab binary itself, NOT to bun. There are two categories of subprocess spawning:
+
+1. Spawning pkglab's own commands (`pub`, `--__worker`, `--__prune`, `--__listener`): use `process.execPath`. This correctly invokes the pkglab binary with its own subcommands.
+2. Spawning bun/npm runtime commands (`publish`, `run`, `install`): use `resolveRuntime()` from `src/lib/proc.ts`. This finds the actual bun or npm binary on the system. NEVER use `process.execPath` for these, it would run `pkglab publish` which doesn't exist.
+
+NEVER use `process.execPath` for non-pkglab commands. If the subprocess command is not a pkglab subcommand (check `src/index.ts`), you must use `resolveRuntime()` instead.
 
 ## CLI commands
 
