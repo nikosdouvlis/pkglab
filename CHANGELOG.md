@@ -1,5 +1,11 @@
 # pkglab
 
+## 0.12.1
+
+### Patch Changes
+
+- 4d4eb76: Use process.execPath instead of hardcoded 'bun' for subprocess spawning, so the compiled binary works on systems without Bun installed.
+
 ## 0.12.0
 
 ### Minor Changes
