@@ -167,6 +167,7 @@ Registry
 - `pkglab down` - stop the registry. Restores all consumer repos first (versions, `.npmrc`, pre-commit hooks) and only stops the daemon if all restores succeed. If a restore fails, the daemon stays up so you can fix the issue.
   - `--force`/`-f` - skip restoration and stop immediately
 - `pkglab status` - show whether the registry is running and on which port.
+  - `--health` - exit 0 if registry is healthy, exit 1 if not (silent, for scripting)
 - `pkglab logs` - tail registry logs. `-f` for follow mode.
 
 Publishing

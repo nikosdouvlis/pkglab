@@ -8,9 +8,31 @@ import { discoverWorkspace } from '../lib/workspace';
 
 export default defineCommand({
   meta: { name: 'status', description: 'Show pkglab status' },
-  async run() {
+  args: {
+    health: {
+      type: 'boolean',
+      description: 'Exit 0 if registry is healthy, exit 1 if not (silent, for scripting)',
+      default: false,
+    },
+  },
+  async run({ args }) {
     const config = await loadConfig();
     const status = await getDaemonStatus();
+
+    if (args.health) {
+      if (!status?.running) {
+        process.exit(1);
+      }
+      try {
+        const resp = await fetch(`http://127.0.0.1:${config.port}/-/ping`);
+        if (!resp.ok) {
+          process.exit(1);
+        }
+      } catch {
+        process.exit(1);
+      }
+      process.exit(0);
+    }
 
     if (status?.running) {
       log.success(`Verdaccio running on http://127.0.0.1:${config.port} (PID ${status.pid})`);

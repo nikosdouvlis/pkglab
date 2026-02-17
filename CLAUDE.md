@@ -12,7 +12,7 @@ Top-level:
 
 - `pkglab up` — start the local Verdaccio registry (pub and add auto-start if down)
 - `pkglab down` — stop the registry. By default, restores all consumer repos first (versions, `.npmrc`, pre-commit hooks), then stops the daemon. If any restore fails, daemon stays up. `--force`/`-f` skips restoration and stops immediately.
-- `pkglab status` — show registry status
+- `pkglab status` — show registry status. `--health` exits 0 if healthy, 1 if not (silent, for scripting)
 - `pkglab logs` — show registry logs
 - `pkglab pub [name...]` - publish workspace packages to local registry, auto-updates active consumer repos. Accepts multiple names. Fingerprints packages and skips unchanged ones. Uses mtime+size gating to skip content hashing for unchanged files (disable with `PKGLAB_NO_MTIME_CACHE=1`). Flags: `--single` skip cascade/fingerprinting, `--shallow` targets + deps only (no dependent expansion), `--force`/`-f` ignore fingerprints (republish all), `--tag`/`-t` publish with tag, `--worktree`/`-w` auto-detect tag from branch, `--root` publish all packages regardless of cwd (same as running from workspace root, errors if combined with positional names), `--ping` send publish request to the registry server via HTTP instead of publishing directly, `--no-pm-optimizations` skip lockfile patching and install optimizations (plain `pm install`), `--dry-run`, `--verbose`/`-v` (includes per-phase timing: fingerprint, cascade, publish, consumer)
 - `pkglab listen` - (deprecated) shows a deprecation notice and displays publish queue status from the registry. Publish coalescing is now built into the registry server. The old Unix socket listener is no longer used.
