@@ -1,6 +1,6 @@
 # pkglab
 
-Local package development CLI with an embedded Verdaccio registry. Publish workspace packages locally and auto-update consumer repos.
+Local package development CLI with a built-in registry. Publish workspace packages locally and auto-update consumer repos.
 
 Runtime: Bun
 CLI framework: citty
@@ -17,7 +17,7 @@ ALWAYS use `process.execPath` for subprocesses, NEVER hardcode `'bun'`. The comp
 
 Top-level:
 
-- `pkglab up` — start the local Verdaccio registry (pub and add auto-start if down)
+- `pkglab up` — start the local registry (pub and add auto-start if down)
 - `pkglab down` — stop the registry. By default, restores all consumer repos first (versions, `.npmrc`, pre-commit hooks), then stops the daemon. If any restore fails, daemon stays up. `--force`/`-f` skips restoration and stops immediately.
 - `pkglab status` — show registry status. `--health` exits 0 if healthy, 1 if not (silent, for scripting)
 - `pkglab logs` — show registry logs
@@ -27,7 +27,7 @@ Top-level:
 - `pkglab restore <name...>` — restore pkglab packages to their original versions across all targets that were updated by `pkglab add`, runs pm install to sync node_modules. Accepts multiple names. `--all` restores all packages in the repo. `--scope <scope>` restores all packages matching a scope (mirrors add `--scope`). `--tag`/`-t` restores only packages installed with a specific tag. Removes pre-commit hook injection when no packages remain.
 - `pkglab doctor` — diagnose issues. Detects dirty state (daemon not running but repos have active packages). `--lockfile` sanitizes `bun.lock` files by replacing localhost URLs with `""`.
 - `pkglab check` — check for pkglab artifacts in workspace root and sub-packages. Scans staged lockfiles (`bun.lock`, `bun.lockb`, `pnpm-lock.yaml`) for localhost registry URLs.
-- `pkglab reset --hard` — wipe all pkglab data and Verdaccio storage
+- `pkglab reset --hard` — wipe all pkglab data and registry storage
 - `pkglab reset --fingerprints` — clear fingerprint cache, forces full republish on next pub
 
 - `pkglab hooks init` — scaffold `.pkglab/hooks/` in the current repo with `payload.d.ts` (typed `PkglabHookPayload` interface) and commented-out stubs for all 7 hook events. Hooks are executable files that run at lifecycle moments: `pre-add`, `post-add`, `pre-restore`, `post-restore`, `pre-update`, `post-update`, `on-error`. Supports `.ts` (bun), `.sh` (bash), and extensionless (direct) formats. Each hook receives a JSON payload as argv[1]. Pre-hooks can abort operations (non-zero exit), post-hooks are advisory, on-error is best-effort. Hook runner module lives at `src/lib/hooks.ts`.
@@ -64,7 +64,7 @@ For multi-worktree workflows, use tags to isolate version channels:
 - `src/lib/` - shared utilities (config, daemon, publisher, registry, fingerprint, publish-queue, publish-ping, etc.)
 - `src/types.ts` — all shared interfaces
 
-Config and state live in `~/.pkglab/`. Verdaccio storage at `~/.pkglab/verdaccio/storage/`. Fingerprint state at `~/.pkglab/fingerprints.json`.
+Config and state live in `~/.pkglab/`. Registry storage at `~/.pkglab/registry/storage/`. Fingerprint state at `~/.pkglab/fingerprints.json`.
 
 ## Conventions
 

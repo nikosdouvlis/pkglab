@@ -37,17 +37,17 @@ export default defineCommand({
       }
     }
 
-    // Stop Verdaccio
+    // Stop Registry
     const status = await getDaemonStatus();
     if (!status?.running) {
-      log.warn('Verdaccio is not running');
+      log.warn('Registry is not running');
       return;
     }
 
     // With --force, stop immediately (old behavior)
     if (args.force) {
       await stopDaemon();
-      log.success('Verdaccio stopped');
+      log.success('Registry stopped');
       return;
     }
 
@@ -59,7 +59,7 @@ export default defineCommand({
 
     if (reposWithPackages.length === 0) {
       await stopDaemon();
-      log.success('Verdaccio stopped');
+      log.success('Registry stopped');
       return;
     }
 
@@ -106,6 +106,6 @@ export default defineCommand({
     }
 
     await stopDaemon();
-    log.success('Verdaccio stopped');
+    log.success('Registry stopped');
   },
 });

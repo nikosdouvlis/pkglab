@@ -11,7 +11,7 @@ export default defineCommand({
   args: {
     hard: {
       type: 'boolean',
-      description: 'Wipe all pkglab data and Verdaccio storage',
+      description: 'Wipe all pkglab data and registry storage',
       default: false,
     },
     fingerprints: {

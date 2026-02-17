@@ -1,13 +1,12 @@
 {
   "name": "pkglab",
   "version": "0.12.2",
-  "description": "Local package development CLI with an embedded Verdaccio registry",
+  "description": "Local package development CLI with a built-in registry",
   "keywords": [
     "local",
     "monorepo",
     "publish",
     "registry",
-    "verdaccio",
     "workspace"
   ],
   "homepage": "https://github.com/nikosdouvlis/pkglab",

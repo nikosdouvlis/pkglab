@@ -44,7 +44,7 @@ export async function getListenerDaemonStatus(workspaceRoot: string): Promise<Li
 }
 
 export async function startListenerDaemon(workspaceRoot: string): Promise<ListenerInfo> {
-  // Ensure Verdaccio is running first
+  // Ensure registry is running first
   await ensureDaemonRunning();
 
   const socketPath = getListenerSocketPath(workspaceRoot);

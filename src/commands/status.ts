@@ -35,9 +35,9 @@ export default defineCommand({
     }
 
     if (status?.running) {
-      log.success(`Verdaccio running on http://127.0.0.1:${config.port} (PID ${status.pid})`);
+      log.success(`Registry running on http://127.0.0.1:${config.port} (PID ${status.pid})`);
     } else {
-      log.info('Verdaccio is not running');
+      log.info('Registry is not running');
     }
 
     // Show listener status if in a workspace

@@ -149,7 +149,7 @@ try {
     assert(r.code === 0, 'pkglab up succeeds');
   }
 
-  // Give Verdaccio a moment to be ready
+  // Give the registry a moment to be ready
   await Bun.sleep(1000);
 
   // 2. Publish untagged from producer

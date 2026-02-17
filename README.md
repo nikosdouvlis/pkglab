@@ -145,7 +145,7 @@ Testing local package changes across repos is painful. The existing tools all ha
 
 `pnpm overrides` and `yarn resolutions` require editing the consumer's `package.json`, remembering to undo before committing, and don't auto-update when you change the library. When pointed at local or workspace targets, they bypass registry validation, so you can miss broken exports maps, missing files in the `"files"` array, and unresolved `workspace:` / `catalog:` protocols until you actually publish to npm.
 
-Standalone Verdaccio gives you the registry, but you still have to manage the daemon lifecycle, generate versions, manually install in every consumer, track which repos are linked, prune old versions, and protect against committing localhost URLs.
+A standalone registry gives you half the picture, but you still have to manage the daemon lifecycle, generate versions, manually install in every consumer, track which repos are linked, prune old versions, and protect against committing localhost URLs.
 
 `pkglab` solves all of this by publishing to a real npm registry running on your machine, and ships its own lightweight registry server that starts faster and uses less memory.
 
@@ -367,9 +367,7 @@ Trade-off: adding a previously-skipped package via `pkglab add` gives the last-p
 - `port`: registry port (default: 16180)
 - `prune_keep`: number of old versions to retain per package (default: 3)
 
-Logs are written to `/tmp/pkglab/verdaccio.log`.
-
-To use the legacy Verdaccio backend instead of the built-in Bun registry, set `PKGLAB_VERDACCIO=1` before starting the daemon.
+Logs are written to `/tmp/pkglab/registry.log`.
 
 Set `PKGLAB_NO_MTIME_CACHE=1` to disable the mtime-based fingerprint fast path and always do full content hashing.
 
@@ -410,32 +408,23 @@ Hooks persist across add/restore cycles and can be committed to version control.
 
 ## Performance
 
-pkglab ships its own registry server built on `Bun.serve()` instead of relying on Verdaccio. Package metadata is held in memory with write-through persistence to disk, so reads are served directly from memory without touching the filesystem or making HTTP round-trips.
+pkglab ships its own registry server built on `Bun.serve()`. Package metadata is held in memory with write-through persistence to disk, so reads are served directly from memory without touching the filesystem or making HTTP round-trips.
 
-Preliminary results from the [Clerk JavaScript SDK](https://github.com/clerk/javascript) monorepo (22 packages, Apple M4 Pro, Bun 1.3.9):
+Benchmarks from the [Clerk JavaScript SDK](https://github.com/clerk/javascript) monorepo (22 packages, Apple M4 Pro, Bun 1.3.9):
 
-```
-Metric                  Verdaccio        pkglab (Bun)     Delta
-Cold start              335ms            59ms             -83%
-Publish (22 packages)   3.5s             1.06s            -70%
-Packument GET           47ms             0.09ms           -99%
-Memory idle (RSS)       128MB            44MB             -66%
-Memory after publish    149MB            45MB             -70%
-```
+- Cold start: 59ms (daemon process to first request)
+- Publish (22 packages): 1.06s (cascade, fingerprinting, parallel publish)
+- Packument GET: 0.09ms (in-memory index lookup)
+- Memory idle (RSS): 44MB
+- Memory after publish: 45MB
 
-Cold start measures the time from spawning the daemon process to serving the first request. The publish benchmark exercises the full `pkglab pub` path: cascade computation, fingerprinting, and parallel publish of all 22 packages via `Promise.allSettled`. The Bun registry handles concurrent writes faster because packument updates happen in memory with write-through to disk, while Verdaccio reads and writes package.json files on every operation. Packument GET is where the in-memory index pays off the most: metadata lookups that previously round-tripped through Verdaccio's storage layer now resolve in microseconds.
-
-Memory stays flat because the Bun server only loads package metadata (packument JSON docs) into memory, not tarballs. Tarballs are served directly from disk via `Bun.file()`. For a typical local development workflow with tens of packages, the memory footprint stays well under 50MB.
-
-Verdaccio has known issues with memory growth under sustained use. After running for hours or days (common during active development), users have reported the process consuming gigabytes of RAM and becoming unresponsive ([verdaccio#494](https://github.com/verdaccio/verdaccio/issues/494), [verdaccio#625](https://github.com/verdaccio/verdaccio/issues/625), [verdaccio#855](https://github.com/verdaccio/verdaccio/issues/855)). The Bun registry avoids this by design: it holds only the parsed packument objects in memory and doesn't accumulate intermediate buffers or caches over time.
+Memory stays flat because the server only loads package metadata (packument JSON docs) into memory, not tarballs. Tarballs are served directly from disk via `Bun.file()`. For a typical local development workflow with tens of packages, the memory footprint stays well under 50MB.
 
 You can run the benchmark yourself:
 
 ```bash
 bun run benchmarks/registry-benchmark.ts
 ```
-
-The legacy Verdaccio backend is still available via `PKGLAB_VERDACCIO=1` if needed.
 
 ## Safety
 
@@ -451,7 +440,7 @@ The legacy Verdaccio backend is still available via `PKGLAB_VERDACCIO=1` if need
 
 ## Acknowledgments
 
-- [Verdaccio](https://github.com/verdaccio/verdaccio) is the project that made local npm registries practical. pkglab started as a wrapper around Verdaccio and still supports it as a backend. The Verdaccio team's work on registry compatibility and plugin architecture made it possible to prototype pkglab quickly before building a custom registry server.
+- [Verdaccio](https://github.com/verdaccio/verdaccio) is the project that made local npm registries practical. pkglab started as a wrapper around Verdaccio, and the team's work on registry compatibility and plugin architecture made it possible to prototype quickly before building a custom server.
 - [yalc](https://github.com/wclr/yalc) pioneered the copy-based approach to local package development and showed that symlinks aren't the only way. pkglab takes the idea further by using a real registry, but yalc remains a great lighter-weight option if you don't need registry-level validation. Thank you to the yalc maintainers for paving the way.
 - Banner style inspired by our friends at [askfeather.ai](https://askfeather.ai).
 

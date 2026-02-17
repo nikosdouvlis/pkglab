@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { pkglabConfig } from '../types';
@@ -17,9 +17,22 @@ const DEFAULT_CONFIG: pkglabConfig = {
 export async function ensurepkglabDirs(): Promise<void> {
   await mkdir(paths.home, { recursive: true });
   await mkdir(paths.reposDir, { recursive: true });
-  await mkdir(paths.verdaccioDir, { recursive: true });
   await mkdir(paths.listenersDir, { recursive: true });
   await mkdir(paths.logDir, { recursive: true });
+
+  // Migrate legacy ~/.pkglab/verdaccio/ to ~/.pkglab/registry/
+  const legacyDir = join(paths.home, 'verdaccio');
+  try {
+    const legacyStat = await stat(legacyDir);
+    if (legacyStat.isDirectory()) {
+      await rm(paths.registryDir, { recursive: true, force: true });
+      await rename(legacyDir, paths.registryDir);
+    }
+  } catch {
+    // Legacy dir doesn't exist, nothing to migrate
+  }
+
+  await mkdir(paths.registryDir, { recursive: true });
 }
 
 export async function loadConfig(): Promise<pkglabConfig> {

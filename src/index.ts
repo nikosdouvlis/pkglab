@@ -1,14 +1,9 @@
 #!/usr/bin/env bun
 
-// Hidden flag: when the daemon spawns itself as a worker, run the registry backend
+// Hidden flag: when the daemon spawns itself as a worker, run the registry server
 if (process.argv.includes('--__worker')) {
-  if (process.env.PKGLAB_VERDACCIO === '1') {
-    const { main } = await import('./lib/verdaccio-worker');
-    await main();
-  } else {
-    const { main } = await import('./lib/verbunccio-worker');
-    await main();
-  }
+  const { main } = await import('./lib/verbunccio-worker');
+  await main();
   // Keep process alive (server is listening)
   await new Promise(() => {});
 }

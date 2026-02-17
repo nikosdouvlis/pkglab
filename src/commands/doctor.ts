@@ -28,7 +28,7 @@ export default defineCommand({
     log.line(`  ${c.green('✓')} Bun ${bunVersion}`);
 
     // Check pkglab dirs
-    for (const dir of [paths.home, paths.reposDir, paths.verdaccioDir]) {
+    for (const dir of [paths.home, paths.reposDir, paths.registryDir]) {
       try {
         await stat(dir);
         log.line(`  ${c.green('✓')} ${dir}`);
@@ -42,7 +42,7 @@ export default defineCommand({
     const config = await loadConfig();
     const status = await getDaemonStatus();
     if (status?.running) {
-      log.line(`  ${c.green('✓')} Verdaccio running (PID ${status.pid})`);
+      log.line(`  ${c.green('✓')} Registry running (PID ${status.pid})`);
 
       // Ping registry
       try {
@@ -58,7 +58,7 @@ export default defineCommand({
         issues++;
       }
     } else {
-      log.line(`  ${c.yellow('!')} Verdaccio not running`);
+      log.line(`  ${c.yellow('!')} Registry not running`);
     }
 
     // Check .npmrc and skip-worktree on linked repos

@@ -201,7 +201,7 @@ function resolveWorkspaceProtocol(spec: string): string {
   const value = spec.slice('workspace:'.length);
   // Shorthand forms (workspace:^, workspace:~, workspace:*) are only valid between
   // workspace siblings. Those siblings should be in rewrittenDeps and never reach here.
-  // If they do (edge case), strip to a permissive range that Verdaccio can proxy-resolve.
+  // If they do (edge case), strip to a permissive range that the registry can proxy-resolve.
   if (value === '*') {
     return '*';
   }

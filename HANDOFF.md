@@ -1,4 +1,4 @@
-Implement Verbunccio, a minimal Bun.serve() npm registry to replace Verdaccio in pkglab.
+Verbunccio, the built-in Bun.serve() registry, has replaced Verdaccio. This handoff is historical.
 
 Read these files for full context:
 - docs/plans/2026-02-15-verbunccio-design.md (full design, Codex-reviewed, all decisions finalized)

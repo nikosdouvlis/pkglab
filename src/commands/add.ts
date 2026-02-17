@@ -17,7 +17,7 @@ import {
   findCatalogEntry,
   loadCatalogData,
 } from '../lib/consumer';
-import { backendLabel, ensureDaemonRunning } from '../lib/daemon';
+import { ensureDaemonRunning } from '../lib/daemon';
 import { runPreHook, runPostHook, runErrorHook } from '../lib/hooks';
 import { log } from '../lib/log';
 import { detectPackageManager } from '../lib/pm-detect';
@@ -629,8 +629,8 @@ export default defineCommand({
       process.exit(1);
     }
 
-    const [daemonInfo, repoPath] = await Promise.all([ensureDaemonRunning(), canonicalRepoPath(process.cwd())]);
-    log.dim(`Using ${backendLabel(daemonInfo)} registry server`);
+    const [, repoPath] = await Promise.all([ensureDaemonRunning(), canonicalRepoPath(process.cwd())]);
+    log.dim('Using pkglab registry server');
 
     let resolved: ResolvedPackage[];
     let cachedWorkspace: WorkspaceDiscovery | undefined;

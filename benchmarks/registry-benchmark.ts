@@ -1,5 +1,5 @@
 /**
- * Registry benchmark: compares Verdaccio vs Verbunccio under identical conditions.
+ * Registry benchmark for the pkglab registry server.
  *
  * Creates a realistic multi-package workspace (15 packages with interdependencies)
  * and measures the full `pkglab pub` cycle, which includes cascade computation,
@@ -7,8 +7,6 @@
  *
  * Usage:
  *   bun run benchmarks/registry-benchmark.ts
- *   bun run benchmarks/registry-benchmark.ts --backend verdaccio
- *   bun run benchmarks/registry-benchmark.ts --backend verbunccio
  */
 
 import { join } from 'node:path';
@@ -34,24 +32,14 @@ const PACKUMENT_RUNS = 30;
 // Number of fixture packages to create. Simulates a real monorepo like Clerk (~15 packages).
 const FIXTURE_PACKAGE_COUNT = 15;
 
-type Backend = 'verdaccio' | 'verbunccio';
+type Backend = 'verbunccio';
 
 // ---------------------------------------------------------------------------
 // CLI args
 // ---------------------------------------------------------------------------
 
 function parseArgs(): { backends: Backend[] } {
-  const args = process.argv.slice(2);
-  const idx = args.indexOf('--backend');
-  if (idx !== -1 && args[idx + 1]) {
-    const val = args[idx + 1] as Backend;
-    if (val !== 'verdaccio' && val !== 'verbunccio') {
-      console.error(`Unknown backend: ${val}. Expected "verdaccio" or "verbunccio".`);
-      process.exit(1);
-    }
-    return { backends: [val] };
-  }
-  return { backends: ['verdaccio', 'verbunccio'] };
+  return { backends: ['verbunccio'] };
 }
 
 // ---------------------------------------------------------------------------
@@ -102,13 +90,6 @@ function fmtSec(ms: number): string {
 
 function fmtMb(kb: number): string {
   return `${(kb / 1024).toFixed(1)}MB`;
-}
-
-function fmtDelta(a: number, b: number): string {
-  if (a === 0) return 'N/A';
-  const pct = ((b - a) / a) * 100;
-  const sign = pct >= 0 ? '+' : '';
-  return `${sign}${pct.toFixed(0)}%`;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,10 +259,8 @@ async function cleanFixtures(): Promise<void> {
 // Registry lifecycle helpers
 // ---------------------------------------------------------------------------
 
-function backendEnv(backend: Backend): Record<string, string | undefined> {
-  return backend === 'verdaccio'
-    ? { PKGLAB_VERDACCIO: '1' }
-    : { PKGLAB_VERDACCIO: undefined };
+function backendEnv(_backend: Backend): Record<string, string | undefined> {
+  return {};
 }
 
 async function pkglabDown(backend: Backend): Promise<void> {
@@ -554,95 +533,50 @@ async function runBackend(backend: Backend, wsRoot: string, packages: FixturePac
 // Results table
 // ---------------------------------------------------------------------------
 
-interface MetricRow {
-  metric: string;
-  unit: string;
-  getValue: (r: BackendResults) => number;
-  format: (v: number) => string;
-}
-
-function getMetricRows(packageCount: number): MetricRow[] {
-  return [
-    { metric: 'Cold start', unit: 'ms', getValue: (r) => r.coldStart.p50, format: fmtMs },
-    { metric: `Publish (${packageCount} pkgs)`, unit: 'ms', getValue: (r) => r.publish.p50, format: fmtMs },
-    { metric: 'Packument GET', unit: 'ms', getValue: (r) => r.packumentGet.p50, format: fmtMs },
-    { metric: 'Memory idle (RSS)', unit: 'KB', getValue: (r) => r.memoryIdleKb, format: fmtMb },
-    { metric: 'Memory after pub (RSS)', unit: 'KB', getValue: (r) => r.memoryAfterPublishKb, format: fmtMb },
-  ];
-}
-
 function printTable(results: Partial<Record<Backend, BackendResults | null>>): void {
-  const backends = Object.keys(results) as Backend[];
-  const hasTwo = backends.length === 2 && results.verdaccio && results.verbunccio;
-
   // Get package count from any available result
-  const anyResult = results.verdaccio ?? results.verbunccio;
+  const anyResult = results.verbunccio;
   const packageCount = anyResult?.packageCount ?? FIXTURE_PACKAGE_COUNT;
-  const metricRows = getMetricRows(packageCount);
 
   console.log('\n');
   console.log('Registry Benchmark Results');
   console.log('-'.repeat(80));
   console.log('');
 
-  if (hasTwo) {
-    const header = '| Metric                  | Verdaccio (p50)  | Verbunccio (p50) | Delta    |';
-    const sep = '|' + '-'.repeat(25) + '|' + '-'.repeat(18) + '|' + '-'.repeat(18) + '|' + '-'.repeat(10) + '|';
-    console.log(header);
-    console.log(sep);
-
-    for (const row of metricRows) {
-      const vd = results.verdaccio!;
-      const vb = results.verbunccio!;
-      const vdVal = row.getValue(vd);
-      const vbVal = row.getValue(vb);
-      const line =
-        `| ${row.metric.padEnd(23)} | ${row.format(vdVal).padEnd(16)} | ${row.format(vbVal).padEnd(16)} | ${fmtDelta(vdVal, vbVal).padEnd(8)} |`;
-      console.log(line);
-    }
-  } else {
-    // Single backend
-    const backend = backends[0];
-    const r = results[backend];
-    if (!r) {
-      console.log(`No results for ${backend}.`);
-      return;
-    }
-
-    const header = `| Metric                  | ${backend} (p50)  | p95              | min/max                |`;
-    const sep = '|' + '-'.repeat(25) + '|' + '-'.repeat(18) + '|' + '-'.repeat(18) + '|' + '-'.repeat(24) + '|';
-    console.log(header);
-    console.log(sep);
-
-    const detailRows: { metric: string; stats: Stats; format: (v: number) => string }[] = [
-      { metric: 'Cold start', stats: r.coldStart, format: fmtMs },
-      { metric: `Publish (${packageCount} pkgs)`, stats: r.publish, format: fmtMs },
-      { metric: 'Packument GET', stats: r.packumentGet, format: fmtMs },
-    ];
-
-    for (const dr of detailRows) {
-      const line =
-        `| ${dr.metric.padEnd(23)} | ${dr.format(dr.stats.p50).padEnd(16)} | ${dr.format(dr.stats.p95).padEnd(16)} | ${dr.format(dr.stats.min)} / ${dr.format(dr.stats.max)} |`;
-      console.log(line);
-    }
-
-    console.log(`| ${'Memory idle (RSS)'.padEnd(23)} | ${fmtMb(r.memoryIdleKb).padEnd(16)} | ${''.padEnd(16)} | ${''.padEnd(22)} |`);
-    console.log(`| ${'Memory after pub (RSS)'.padEnd(23)} | ${fmtMb(r.memoryAfterPublishKb).padEnd(16)} | ${''.padEnd(16)} | ${''.padEnd(22)} |`);
+  const r = results.verbunccio;
+  if (!r) {
+    console.log('No results.');
+    return;
   }
+
+  const header = `| Metric                  | p50              | p95              | min/max                |`;
+  const sep = '|' + '-'.repeat(25) + '|' + '-'.repeat(18) + '|' + '-'.repeat(18) + '|' + '-'.repeat(24) + '|';
+  console.log(header);
+  console.log(sep);
+
+  const detailRows: { metric: string; stats: Stats; format: (v: number) => string }[] = [
+    { metric: 'Cold start', stats: r.coldStart, format: fmtMs },
+    { metric: `Publish (${packageCount} pkgs)`, stats: r.publish, format: fmtMs },
+    { metric: 'Packument GET', stats: r.packumentGet, format: fmtMs },
+  ];
+
+  for (const dr of detailRows) {
+    const line =
+      `| ${dr.metric.padEnd(23)} | ${dr.format(dr.stats.p50).padEnd(16)} | ${dr.format(dr.stats.p95).padEnd(16)} | ${dr.format(dr.stats.min)} / ${dr.format(dr.stats.max)} |`;
+    console.log(line);
+  }
+
+  console.log(`| ${'Memory idle (RSS)'.padEnd(23)} | ${fmtMb(r.memoryIdleKb).padEnd(16)} | ${''.padEnd(16)} | ${''.padEnd(22)} |`);
+  console.log(`| ${'Memory after pub (RSS)'.padEnd(23)} | ${fmtMb(r.memoryAfterPublishKb).padEnd(16)} | ${''.padEnd(16)} | ${''.padEnd(22)} |`);
 
   // Print detailed stats
   console.log('');
   console.log('Detailed statistics:');
-  for (const backend of backends) {
-    const r = results[backend];
-    if (!r) continue;
-    console.log(`\n  ${backend}:`);
-    console.log(`    Cold start:    p50=${fmtMs(r.coldStart.p50)}, p95=${fmtMs(r.coldStart.p95)}, min=${fmtMs(r.coldStart.min)}, max=${fmtMs(r.coldStart.max)}, n=${r.coldStart.samples}`);
-    console.log(`    Publish:       p50=${fmtMs(r.publish.p50)}, p95=${fmtMs(r.publish.p95)}, min=${fmtMs(r.publish.min)}, max=${fmtMs(r.publish.max)}, n=${r.publish.samples}`);
-    console.log(`    Packument GET: p50=${fmtMs(r.packumentGet.p50)}, p95=${fmtMs(r.packumentGet.p95)}, min=${fmtMs(r.packumentGet.min)}, max=${fmtMs(r.packumentGet.max)}, n=${r.packumentGet.samples}`);
-    console.log(`    Memory idle:   ${fmtMb(r.memoryIdleKb)}`);
-    console.log(`    Memory post:   ${fmtMb(r.memoryAfterPublishKb)}`);
-  }
+  console.log(`    Cold start:    p50=${fmtMs(r.coldStart.p50)}, p95=${fmtMs(r.coldStart.p95)}, min=${fmtMs(r.coldStart.min)}, max=${fmtMs(r.coldStart.max)}, n=${r.coldStart.samples}`);
+  console.log(`    Publish:       p50=${fmtMs(r.publish.p50)}, p95=${fmtMs(r.publish.p95)}, min=${fmtMs(r.publish.min)}, max=${fmtMs(r.publish.max)}, n=${r.publish.samples}`);
+  console.log(`    Packument GET: p50=${fmtMs(r.packumentGet.p50)}, p95=${fmtMs(r.packumentGet.p95)}, min=${fmtMs(r.packumentGet.min)}, max=${fmtMs(r.packumentGet.max)}, n=${r.packumentGet.samples}`);
+  console.log(`    Memory idle:   ${fmtMb(r.memoryIdleKb)}`);
+  console.log(`    Memory post:   ${fmtMb(r.memoryAfterPublishKb)}`);
 }
 
 // ---------------------------------------------------------------------------

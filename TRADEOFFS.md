@@ -51,7 +51,7 @@ You can still control the scope explicitly:
 
 When active consumer repos exist (repos where you've run `pkglab add`), the cascade filters dependents: only dependents that some consumer has installed are kept in scope. This avoids publishing packages nobody is using locally, which matters in large monorepos with dozens of publishable packages.
 
-The tradeoff: if you later run `pkglab add @clerk/express` and express was previously filtered out of the cascade, you get a stale version until the next `pkglab pub`. The `add` command installs whatever version is currently in the local Verdaccio, and if express hasn't been published recently, that version could be outdated.
+The tradeoff: if you later run `pkglab add @clerk/express` and express was previously filtered out of the cascade, you get a stale version until the next `pkglab pub`. The `add` command installs whatever version is currently in the local registry, and if express hasn't been published recently, that version could be outdated.
 
 When no consumer repos are active at all, the consumed set is empty, so the filter removes all dependents. The result is the same as `--shallow` (targets + deps only), but for a different reason: nobody is consuming anything yet. Once you run `pkglab add` in a consumer repo, the cascade starts expanding dependents (filtered to consumed packages).
 

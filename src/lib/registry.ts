@@ -1,46 +1,12 @@
-import { readdir, rm } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
-
 import type { pkglabConfig } from '../types';
-
-import { paths } from './paths';
-import { ispkglabVersion } from './version';
 
 export function registryUrl(config: pkglabConfig): string {
   return `http://127.0.0.1:${config.port}`;
 }
 
 // ---------------------------------------------------------------------------
-// Verbunccio HTTP index helpers
+// HTTP index helpers
 // ---------------------------------------------------------------------------
-
-let resolvedBackend: 'verbunccio' | 'verdaccio' | null = null;
-
-async function resolveBackend(): Promise<'verbunccio' | 'verdaccio'> {
-  if (resolvedBackend) return resolvedBackend;
-  let result: 'verbunccio' | 'verdaccio' = process.env.PKGLAB_VERDACCIO === '1' ? 'verdaccio' : 'verbunccio';
-  try {
-    const pidFile = Bun.file(paths.pid);
-    if (await pidFile.exists()) {
-      const data = JSON.parse(await pidFile.text());
-      if (data.backend === 'verbunccio' || data.backend === 'verdaccio') {
-        result = data.backend;
-      }
-    }
-  } catch {
-    // Fall through to env var default
-  }
-  resolvedBackend = result;
-  return result;
-}
-
-async function isVerbunccio(): Promise<boolean> {
-  return (await resolveBackend()) === 'verbunccio';
-}
-
-export function resetBackendCache(): void {
-  resolvedBackend = null;
-}
 
 let cachedIndex: { packages: Record<string, { rev: string; 'dist-tags': Record<string, string>; versions: string[] }> } | null = null;
 
@@ -56,131 +22,28 @@ export function invalidateIndexCache(): void {
   cachedIndex = null;
 }
 
-// ---------------------------------------------------------------------------
-// Storage-based reads (no HTTP, no upstream proxy contamination)
-// ---------------------------------------------------------------------------
-
-async function scanStoragePackages(): Promise<string[]> {
-  const storageDir = paths.registryStorage;
-  const names: string[] = [];
-
-  let entries: string[];
-  try {
-    entries = await readdir(storageDir);
-  } catch {
-    return [];
-  }
-
-  for (const entry of entries) {
-    if (entry.startsWith('.')) {
-      continue;
-    }
-
-    if (entry.startsWith('@')) {
-      // Scoped packages: @scope/name
-      try {
-        const scopeEntries = await readdir(join(storageDir, entry));
-        for (const pkg of scopeEntries) {
-          if (!pkg.startsWith('.')) {
-            names.push(`${entry}/${pkg}`);
-          }
-        }
-      } catch {
-        continue;
-      }
-    } else {
-      names.push(entry);
-    }
-  }
-
-  return names;
+export async function listPackageNames(config: pkglabConfig): Promise<string[]> {
+  const index = await fetchIndex(config);
+  return Object.keys(index!.packages);
 }
 
-async function readStoragePackageJson(name: string): Promise<Record<string, any> | null> {
-  const pkgJsonPath = join(paths.registryStorage, name, 'package.json');
-  try {
-    return await Bun.file(pkgJsonPath).json();
-  } catch {
-    return null;
-  }
+export async function listAllPackages(config: pkglabConfig): Promise<Array<{ name: string; versions: string[] }>> {
+  const index = await fetchIndex(config);
+  return Object.entries(index!.packages).map(([name, data]) => ({
+    name,
+    versions: data.versions,
+  }));
 }
 
-export async function listPackageNames(config?: pkglabConfig): Promise<string[]> {
-  if (await isVerbunccio() && config) {
-    const index = await fetchIndex(config);
-    return Object.keys(index!.packages);
-  }
-
-  const allNames = await scanStoragePackages();
-  const result: string[] = [];
-
-  for (const name of allNames) {
-    // Check for pkglab tarballs without parsing JSON
-    const dir = join(paths.registryStorage, name);
-    try {
-      const files = await readdir(dir);
-      if (files.some(f => f.includes('pkglab') && f.endsWith('.tgz'))) {
-        result.push(name);
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return result;
-}
-
-export async function listAllPackages(config?: pkglabConfig): Promise<Array<{ name: string; versions: string[] }>> {
-  if (await isVerbunccio() && config) {
-    const index = await fetchIndex(config);
-    return Object.entries(index!.packages).map(([name, data]) => ({
-      name,
-      versions: data.versions,
-    }));
-  }
-
-  const allNames = await scanStoragePackages();
-  const results: Array<{ name: string; versions: string[] }> = [];
-
-  for (const name of allNames) {
-    const doc = await readStoragePackageJson(name);
-    if (!doc?.versions) {
-      continue;
-    }
-
-    const versions = Object.keys(doc.versions).filter(ispkglabVersion);
-    if (versions.length > 0) {
-      results.push({ name, versions });
-    }
-  }
-
-  return results;
-}
-
-export async function getDistTags(name: string, config?: pkglabConfig): Promise<Record<string, string>> {
-  if (await isVerbunccio() && config) {
-    const index = await fetchIndex(config);
-    const pkg = index!.packages[name];
-    if (!pkg?.['dist-tags']) return {};
-    return { ...pkg['dist-tags'] };
-  }
-
-  const doc = await readStoragePackageJson(name);
-  if (!doc?.['dist-tags']) {
-    return {};
-  }
-
-  const tags: Record<string, string> = {};
-  for (const [tag, version] of Object.entries(doc['dist-tags'])) {
-    if (ispkglabVersion(version as string)) {
-      tags[tag] = version as string;
-    }
-  }
-  return tags;
+export async function getDistTags(name: string, config: pkglabConfig): Promise<Record<string, string>> {
+  const index = await fetchIndex(config);
+  const pkg = index!.packages[name];
+  if (!pkg?.['dist-tags']) return {};
+  return { ...pkg['dist-tags'] };
 }
 
 // ---------------------------------------------------------------------------
-// HTTP-based mutations (go through Verdaccio API)
+// HTTP mutations
 // ---------------------------------------------------------------------------
 
 export async function setDistTag(config: pkglabConfig, name: string, version: string, tag: string): Promise<void> {
@@ -252,7 +115,7 @@ export async function unpublishVersions(
     body: JSON.stringify(doc),
   });
 
-  // Retry on 409 conflict (revision mismatch, common with Verbunccio)
+  // Retry on 409 conflict (revision mismatch)
   const MAX_RETRIES = 3;
   for (let retry = 0; !putResp.ok && putResp.status === 409 && retry < MAX_RETRIES; retry++) {
     invalidateIndexCache();
@@ -313,23 +176,6 @@ export async function removePackage(config: pkglabConfig, name: string): Promise
     headers,
   });
   invalidateIndexCache();
-
-  if (!(await isVerbunccio())) {
-    // Clean up storage directory (Verdaccio may not fully clean up)
-    const pkgDir = join(paths.registryStorage, name);
-    await rm(pkgDir, { recursive: true, force: true }).catch(() => {});
-
-    // Clean up empty scope directory
-    if (name.startsWith('@')) {
-      const scopeDir = dirname(pkgDir);
-      try {
-        const remaining = await readdir(scopeDir);
-        if (remaining.length === 0) {
-          await rm(scopeDir, { recursive: true, force: true });
-        }
-      } catch {}
-    }
-  }
 
   return delResp.ok;
 }

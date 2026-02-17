@@ -18,11 +18,9 @@ export default defineCommand({
     // Start fetch before interactive prompt so it runs in parallel
     const showUpdate = await prefetchUpdateCheck();
 
-    const backendLabel = process.env.PKGLAB_VERDACCIO === '1' ? 'Verdaccio' : 'Bun';
-    log.info(`Starting registry (${backendLabel})...`);
+    log.info('Starting registry...');
     const info = await startDaemon();
     log.success(`pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
-    log.dim(`Using ${backendLabel} registry server`);
 
     const { deactivateAllRepos, loadAllRepos, getActiveRepos } = await import('../lib/repo-state');
 

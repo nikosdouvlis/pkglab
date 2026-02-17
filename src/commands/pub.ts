@@ -9,7 +9,7 @@ import { c } from '../lib/color';
 import { loadConfig } from '../lib/config';
 import { buildConsumerWorkItems, buildVersionEntries, installWithVersionUpdates } from '../lib/consumer';
 import { fetchIntegrityHashes } from '../lib/lockfile-patch';
-import { backendLabel, ensureDaemonRunning } from '../lib/daemon';
+import { ensureDaemonRunning } from '../lib/daemon';
 import { pkglabError } from '../lib/errors';
 import { fingerprintPackages, type PackageFingerprint } from '../lib/fingerprint';
 import { loadFingerprintState, saveFingerprintState, toPackageFingerprints } from '../lib/fingerprint-state';
@@ -499,8 +499,8 @@ export default defineCommand({
       log.info(`Publishing with tag: ${tag}`);
     }
 
-    const daemonInfo = await ensureDaemonRunning();
-    log.dim(`Using ${backendLabel(daemonInfo)} registry server`);
+    await ensureDaemonRunning();
+    log.dim('Using pkglab registry server');
 
     const config = await loadConfig();
     if (verbose) {
