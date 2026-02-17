@@ -1,5 +1,16 @@
 # pkglab
 
+## 0.13.0
+
+### Minor Changes
+
+- 82f3cc9: Remove Verdaccio dependency and use the built-in registry server exclusively. Storage directory migrates automatically from `~/.pkglab/verdaccio/` to `~/.pkglab/registry/`. Drops `verdaccio` and `libnpmpublish` from dependencies.
+
+### Patch Changes
+
+- 4c7ea51: Use BUN_BE_BUN=1 for publishing instead of requiring external bun in PATH
+- 0ea62cf: Require bun in PATH for publishing in compiled mode (no npm fallback)
+
 ## 0.12.2
 
 ### Patch Changes
