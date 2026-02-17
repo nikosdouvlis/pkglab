@@ -1,6 +1,6 @@
 {
   "name": "pkglab",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "private": true,
   "description": "Local package development CLI with an embedded Verdaccio registry",
   "keywords": [

@@ -1,5 +1,17 @@
 # pkglab
 
+## 0.12.0
+
+### Minor Changes
+
+- 30c9609: Add `--health` flag to `pkglab status` for scripting (exits 0/1 silently)
+
+### Patch Changes
+
+- 07cc139: Add 150ms debounce to publish pings so rapid-fire requests coalesce into a single publish batch
+- 584db22: Document publish ping debounce behavior in README
+- 72a408e: Fix race condition where lockfile integrity fetch was cached across consumer repos, causing stale results when an earlier repo triggered the fetch before all packages were published
+
 ## 0.11.1
 
 ### Patch Changes
