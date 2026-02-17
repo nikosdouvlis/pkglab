@@ -1,5 +1,12 @@
 # pkglab
 
+## 0.12.2
+
+### Patch Changes
+
+- a20e7f7: Auto-release on push to main without version packages PR
+- b790438: Fix subprocess spawning in compiled binary: use resolveRuntime() for bun/npm commands instead of process.execPath
+
 ## 0.12.1
 
 ### Patch Changes
