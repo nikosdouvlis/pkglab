@@ -105,7 +105,7 @@ export async function getDaemonStatus(): Promise<DaemonInfo | null> {
     return null;
   }
 
-  if (!(await validatePid(pid, startedAt))) {
+  if (!(await validatePid(pid, port, startedAt))) {
     await unlink(paths.pid).catch(() => {});
     return null;
   }
@@ -114,21 +114,35 @@ export async function getDaemonStatus(): Promise<DaemonInfo | null> {
   return { pid, port: port ?? config.port, running: true };
 }
 
-async function validatePid(pid: number, startedAt?: number): Promise<boolean> {
+async function validatePid(pid: number, port: number | undefined, startedAt?: number): Promise<boolean> {
+  // Fast path: validate process start time via ps
   if (startedAt) {
-    return validatePidStartTime(pid, startedAt);
+    const valid = await validatePidStartTime(pid, startedAt);
+    if (valid) return true;
+  } else {
+    // Legacy: check command string (pidfiles without startedAt)
+    try {
+      const result = await run(['ps', '-p', String(pid), '-o', 'command='], {});
+      if (result.exitCode === 0) {
+        const match =
+          result.stdout.includes('verbunccio-worker') ||
+          (result.stdout.includes('bun') && result.stdout.includes('verbunccio'));
+        if (match) return true;
+      }
+    } catch {}
   }
-  // Fallback: check command string (legacy pidfiles without startedAt)
-  try {
-    const result = await run(['ps', '-p', String(pid), '-o', 'command='], {});
-    if (result.exitCode !== 0) {
+
+  // Fallback: HTTP ping handles platforms where ps date parsing fails (Linux/JSC)
+  if (port) {
+    try {
+      const resp = await fetch(`http://127.0.0.1:${port}/-/ping`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      return resp.ok;
+    } catch {
       return false;
     }
-    return (
-      result.stdout.includes('verbunccio-worker') ||
-      (result.stdout.includes('bun') && result.stdout.includes('verbunccio'))
-    );
-  } catch {
-    return false;
   }
+
+  return false;
 }
