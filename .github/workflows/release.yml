@@ -8,7 +8,6 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
   contents: write
-  pull-requests: write
   id-token: write
 
 jobs:
@@ -29,52 +28,60 @@ jobs:
       - name: Run e2e tests
         run: bun run test:e2e
 
+      - name: Check for changesets
+        id: has-changesets
+        run: |
+          if ls .changeset/*.md 1>/dev/null 2>&1; then
+            # Exclude the README.md that changesets always keeps
+            COUNT=$(ls .changeset/*.md | grep -v README.md | wc -l | tr -d ' ')
+            if [ "$COUNT" -gt "0" ]; then
+              echo "found=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "found=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Version packages
+        if: steps.has-changesets.outputs.found == 'true'
+        run: bun run version
+
+      - name: Commit version bump
+        if: steps.has-changesets.outputs.found == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(release): version packages"
+          git push
+
       - uses: actions/setup-node@v4
+        if: steps.has-changesets.outputs.found == 'true'
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Upgrade npm for trusted publishing
+        if: steps.has-changesets.outputs.found == 'true'
         run: npm install -g npm@latest
 
-      - name: Create Release Pull Request or Publish
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          version: bun run version
-          publish: bun run release
-          commit: 'chore(release): version packages'
-          title: 'chore(release): version packages'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check if new tag was created
-        id: tag-check
-        run: |
-          VERSION=$(jq -r .version package.json)
-          TAG="v${VERSION}"
-          # Only proceed if tag exists locally but not on the remote
-          if git tag --list "$TAG" | grep -q . && ! git ls-remote --tags origin "$TAG" | grep -q .; then
-            echo "tagged=true" >> "$GITHUB_OUTPUT"
-            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Publish to npm
+        if: steps.has-changesets.outputs.found == 'true'
+        run: bun run release
 
       - name: Push tag
-        if: steps.tag-check.outputs.tagged == 'true'
-        run: git push origin "v${{ steps.tag-check.outputs.version }}"
-
-      - name: Extract changelog for version
-        if: steps.tag-check.outputs.tagged == 'true'
-        id: changelog
+        if: steps.has-changesets.outputs.found == 'true'
         run: |
-          VERSION="${{ steps.tag-check.outputs.version }}"
-          # Extract the section between this version's heading and the next version heading
-          NOTES=$(awk "/^## ${VERSION}$/{found=1; next} /^## /{if(found) exit} found{print}" CHANGELOG.md)
-          # Write to file to avoid quoting issues
-          echo "$NOTES" > /tmp/release-notes.md
+          VERSION=$(jq -r .version package.json)
+          git push origin "v${VERSION}"
 
       - name: Create GitHub Release
-        if: steps.tag-check.outputs.tagged == 'true'
-        run: gh release create "v${{ steps.tag-check.outputs.version }}" --notes-file /tmp/release-notes.md --latest
+        if: steps.has-changesets.outputs.found == 'true'
+        run: |
+          VERSION=$(jq -r .version package.json)
+          NOTES=$(awk "/^## ${VERSION}$/{found=1; next} /^## /{if(found) exit} found{print}" CHANGELOG.md)
+          echo "$NOTES" > /tmp/release-notes.md
+          gh release create "v${VERSION}" --notes-file /tmp/release-notes.md --latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
