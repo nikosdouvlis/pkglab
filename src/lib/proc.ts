@@ -5,36 +5,24 @@
  */
 const isSourceMode = !!process.argv[1]?.match(/\.(ts|js)$/);
 
-export interface ResolvedRuntime {
-  path: string;
-  type: 'bun' | 'npm';
-}
-
 /**
- * Resolve the path to a package manager runtime binary.
+ * Resolve the path to the bun runtime binary.
  *
  * In source mode, process.execPath is already bun.
  * In compiled mode, we search PATH via Bun.which().
- * Falls back to npm for publish-like commands (pass fallbackToNpm: true).
  *
- * Returns both the path and the type so callers can adjust behavior
- * (e.g., npm needs .npmrc for auth while bun uses NPM_CONFIG_TOKEN env var).
+ * Used for commands that need the bun runtime (publish, run), NOT for
+ * spawning pkglab's own subcommands (use process.execPath for those).
  */
-export function resolveRuntime(opts?: { fallbackToNpm?: boolean }): ResolvedRuntime {
-  if (isSourceMode) return { path: process.execPath, type: 'bun' };
+export function resolveRuntime(): string {
+  if (isSourceMode) return process.execPath;
 
   const bun = Bun.which('bun');
-  if (bun) return { path: bun, type: 'bun' };
-
-  if (opts?.fallbackToNpm) {
-    const npm = Bun.which('npm');
-    if (npm) return { path: npm, type: 'npm' };
-  }
+  if (bun) return bun;
 
   throw new Error(
-    'Could not find bun (or npm) in PATH. ' +
-    'pkglab needs a package manager runtime for publishing. ' +
-    'Install bun (https://bun.sh) or ensure npm is available.',
+    'Could not find bun in PATH. The compiled pkglab binary needs bun installed ' +
+    'for publishing. Install bun (https://bun.sh) or add setup-bun to your CI.',
   );
 }
 

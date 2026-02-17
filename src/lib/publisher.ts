@@ -135,9 +135,6 @@ async function publishSinglePackage(
   // Rename original to .pkglab backup
   await rename(pkgJsonPath, backupPath);
 
-  const runtime = resolveRuntime({ fallbackToNpm: true });
-  let npmrcPath: string | undefined;
-
   try {
     // Write modified package.json
     await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n');
@@ -145,20 +142,13 @@ async function publishSinglePackage(
     const tag = extractTag(entry.version);
     const distTag = tag ? `pkglab-${tag}` : 'pkglab';
 
-    const cmd = [runtime.path, 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
+    const runtime = resolveRuntime();
+    const cmd = [runtime, 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
     const maxAttempts = 3;
 
-    // bun: auth via NPM_CONFIG_TOKEN env var (bun ignores package-level .npmrc
-    //   in workspaces on Linux, so env var is the only reliable method).
-    // npm: needs a .npmrc with registry-scoped _authToken. We write a temporary
-    //   one in the package dir and clean it up in the finally block.
+    // Auth via NPM_CONFIG_TOKEN env var. Bun respects this directly.
+    // In compiled mode, resolveRuntime() finds bun in PATH (required).
     const env = { ...process.env, NPM_CONFIG_TOKEN: 'pkglab-local' };
-
-    if (runtime.type === 'npm') {
-      npmrcPath = join(entry.dir, '.npmrc');
-      const host = registryUrl.replace(/^https?:\/\//, '');
-      await Bun.write(npmrcPath, `//${host}/:_authToken=pkglab-local\n`);
-    }
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const result = await run(cmd, { cwd: entry.dir, env });
@@ -178,10 +168,6 @@ async function publishSinglePackage(
     // Restore original package.json
     await rm(pkgJsonPath, { force: true }).catch(() => {});
     await rename(backupPath, pkgJsonPath).catch(() => {});
-    // Clean up temporary .npmrc written for npm auth
-    if (npmrcPath) {
-      await rm(npmrcPath, { force: true }).catch(() => {});
-    }
   }
 }
 
