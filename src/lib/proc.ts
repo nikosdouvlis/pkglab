@@ -1,3 +1,43 @@
+/**
+ * Whether we're running from source (bun src/index.ts) vs a compiled binary.
+ * In source mode, process.execPath IS the bun runtime.
+ * In compiled mode, process.execPath is the pkglab binary itself.
+ */
+const isSourceMode = !!process.argv[1]?.match(/\.(ts|js)$/);
+
+export interface ResolvedRuntime {
+  path: string;
+  type: 'bun' | 'npm';
+}
+
+/**
+ * Resolve the path to a package manager runtime binary.
+ *
+ * In source mode, process.execPath is already bun.
+ * In compiled mode, we search PATH via Bun.which().
+ * Falls back to npm for publish-like commands (pass fallbackToNpm: true).
+ *
+ * Returns both the path and the type so callers can adjust behavior
+ * (e.g., npm needs .npmrc for auth while bun uses NPM_CONFIG_TOKEN env var).
+ */
+export function resolveRuntime(opts?: { fallbackToNpm?: boolean }): ResolvedRuntime {
+  if (isSourceMode) return { path: process.execPath, type: 'bun' };
+
+  const bun = Bun.which('bun');
+  if (bun) return { path: bun, type: 'bun' };
+
+  if (opts?.fallbackToNpm) {
+    const npm = Bun.which('npm');
+    if (npm) return { path: npm, type: 'npm' };
+  }
+
+  throw new Error(
+    'Could not find bun (or npm) in PATH. ' +
+    'pkglab needs a package manager runtime for publishing. ' +
+    'Install bun (https://bun.sh) or ensure npm is available.',
+  );
+}
+
 export interface RunResult {
   stdout: string;
   stderr: string;

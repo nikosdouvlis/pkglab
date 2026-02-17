@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 
 import { log } from './log';
+import { resolveRuntime } from './proc';
 
 export interface PkglabHookPayload {
   schemaVersion: 1;
@@ -78,7 +79,7 @@ async function executeHook(
   let cmd: string[];
   switch (runner) {
     case 'bun':
-      cmd = [process.execPath, 'run', hookPath, json];
+      cmd = [resolveRuntime().path, 'run', hookPath, json];
       break;
     case 'bash':
       cmd = ['bash', hookPath, json];

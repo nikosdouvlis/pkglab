@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { PublishPlan, PublishEntry, WorkspacePackage, pkglabConfig } from '../types';
 
 import { log } from './log';
-import { run } from './proc';
+import { resolveRuntime, run } from './proc';
 import { registryUrl } from './registry';
 import { extractTag } from './version';
 
@@ -135,6 +135,9 @@ async function publishSinglePackage(
   // Rename original to .pkglab backup
   await rename(pkgJsonPath, backupPath);
 
+  const runtime = resolveRuntime({ fallbackToNpm: true });
+  let npmrcPath: string | undefined;
+
   try {
     // Write modified package.json
     await Bun.write(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n');
@@ -142,13 +145,20 @@ async function publishSinglePackage(
     const tag = extractTag(entry.version);
     const distTag = tag ? `pkglab-${tag}` : 'pkglab';
 
-    const cmd = [process.execPath, 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
+    const cmd = [runtime.path, 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
     const maxAttempts = 3;
 
-    // Pass auth via NPM_CONFIG_TOKEN env var instead of writing .npmrc files.
-    // Bun ignores package-level .npmrc in workspaces on Linux, and writing to
-    // the workspace root risks accidentally committing the file.
+    // bun: auth via NPM_CONFIG_TOKEN env var (bun ignores package-level .npmrc
+    //   in workspaces on Linux, so env var is the only reliable method).
+    // npm: needs a .npmrc with registry-scoped _authToken. We write a temporary
+    //   one in the package dir and clean it up in the finally block.
     const env = { ...process.env, NPM_CONFIG_TOKEN: 'pkglab-local' };
+
+    if (runtime.type === 'npm') {
+      npmrcPath = join(entry.dir, '.npmrc');
+      const host = registryUrl.replace(/^https?:\/\//, '');
+      await Bun.write(npmrcPath, `//${host}/:_authToken=pkglab-local\n`);
+    }
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const result = await run(cmd, { cwd: entry.dir, env });
@@ -162,12 +172,16 @@ async function publishSinglePackage(
         continue;
       }
 
-      throw new Error(`bun publish failed for ${entry.name}: ${result.stderr}`);
+      throw new Error(`Publish failed for ${entry.name}: ${result.stderr}`);
     }
   } finally {
     // Restore original package.json
     await rm(pkgJsonPath, { force: true }).catch(() => {});
     await rename(backupPath, pkgJsonPath).catch(() => {});
+    // Clean up temporary .npmrc written for npm auth
+    if (npmrcPath) {
+      await rm(npmrcPath, { force: true }).catch(() => {});
+    }
   }
 }
 
