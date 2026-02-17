@@ -142,7 +142,7 @@ async function publishSinglePackage(
     const tag = extractTag(entry.version);
     const distTag = tag ? `pkglab-${tag}` : 'pkglab';
 
-    const cmd = ['bun', 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
+    const cmd = [process.execPath, 'publish', '--registry', registryUrl, '--tag', distTag, '--access', 'public'];
     const maxAttempts = 3;
 
     // Pass auth via NPM_CONFIG_TOKEN env var instead of writing .npmrc files.

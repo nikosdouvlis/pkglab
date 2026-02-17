@@ -6,6 +6,8 @@ Runtime: Bun
 CLI framework: citty
 Colors: `Bun.color()` via `src/lib/color.ts` (no picocolors)
 
+IMPORTANT: pkglab is distributed as a standalone binary via BanBinary. Never assume Bun is installed on the user's system. When spawning subprocesses that need the Bun runtime (publish, hooks, etc.), always use `process.execPath` instead of hardcoding `'bun'`. This ensures the compiled binary invokes itself rather than looking for a system-wide Bun installation.
+
 ## CLI commands
 
 Top-level:

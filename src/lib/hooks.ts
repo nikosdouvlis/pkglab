@@ -78,7 +78,7 @@ async function executeHook(
   let cmd: string[];
   switch (runner) {
     case 'bun':
-      cmd = ['bun', 'run', hookPath, json];
+      cmd = [process.execPath, 'run', hookPath, json];
       break;
     case 'bash':
       cmd = ['bash', hookPath, json];
