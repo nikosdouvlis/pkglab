@@ -23,15 +23,33 @@ if (!supportedPlatforms.includes(target)) {
 }
 
 const pkgName = `pkglab-${target}`;
+const path = require("path");
+const fs = require("fs");
 
 let binPath;
 try {
   binPath = require.resolve(`${pkgName}/bin/pkglab`);
 } catch {
-  console.error(
-    `Could not find ${pkgName}. Make sure it is installed as an optional dependency.`
-  );
-  process.exit(1);
+  // Platform binary not found. This is common with pnpm, which may skip
+  // optionalDependencies for workspace devDeps. Fall back to a global
+  // pkglab binary in PATH, skipping node_modules/.bin dirs to avoid recursion.
+  const dirs = (process.env.PATH || "").split(path.delimiter);
+  for (const dir of dirs) {
+    if (dir.includes("node_modules")) continue;
+    const candidate = path.join(dir, "pkglab");
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      binPath = candidate;
+      break;
+    } catch {}
+  }
+
+  if (!binPath) {
+    console.error(
+      `Could not find ${pkgName}. Install pkglab globally (npm i -g pkglab) or ensure the platform binary is available.`
+    );
+    process.exit(1);
+  }
 }
 
 try {
