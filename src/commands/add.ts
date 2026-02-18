@@ -338,6 +338,7 @@ async function batchInstallPackages(
     catalogRoot,
     entries,
     pm,
+    registryUrl: `http://127.0.0.1:${config.port}`,
     onCommand: cmd => log.dim(`  ${cmd.join(' ')}`),
   });
 

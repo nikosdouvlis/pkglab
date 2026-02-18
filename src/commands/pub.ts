@@ -978,6 +978,7 @@ async function runRepoInstall(
       catalogRoot,
       entries,
       pm: repo.pm,
+      registryUrl: hookOpts ? `http://127.0.0.1:${hookOpts.port}` : undefined,
       patchEntries,
       noPmOptimizations,
       onLockfilePatched,

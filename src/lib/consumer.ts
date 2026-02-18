@@ -320,6 +320,7 @@ interface InstallWithVersionUpdatesOpts {
   catalogRoot?: string;
   entries: VersionEntry[];
   pm: PackageManager;
+  registryUrl?: string;
   patchEntries?: import('./lockfile-patch').LockfilePatchEntry[];
   noPmOptimizations?: boolean;
   onCommand?: (cmd: string[], cwd: string) => void;
@@ -403,20 +404,33 @@ export async function installWithVersionUpdates(
   }
   const cwd: string = catalogRoot ?? repoPath;
 
-  // Step 3: disable bun manifest cache if needed
+  // Step 3: build a clean env for install.
+  // pnpm injects npm_config_* env vars into child processes. npm_config_registry
+  // overrides .npmrc (env vars > project .npmrc in npm's config precedence), so
+  // the registry URL pkglab writes to .npmrc gets ignored. Strip npm_config_registry
+  // and set it explicitly to our local registry when a registryUrl is provided.
+  let installEnv: Record<string, string | undefined> | undefined;
+  if (opts.registryUrl) {
+    const env: Record<string, string | undefined> = { ...process.env };
+    delete env.npm_config_registry;
+    env.npm_config_registry = opts.registryUrl;
+    installEnv = env;
+  }
+
+  // Step 4: disable bun manifest cache if needed
   const restoreBunfig = pm === 'bun' ? await disableBunManifestCache(cwd) : null;
 
   try {
-    // Step 4: notify caller
+    // Step 5: notify caller
     onCommand?.([pm, ...baseArgs], cwd);
 
-    // Step 5: run install (fast path with --ignore-scripts unless noPmOptimizations)
-    let result = await run([pm, ...baseArgs], { cwd });
+    // Step 6: run install (fast path with --ignore-scripts unless noPmOptimizations)
+    let result = await run([pm, ...baseArgs], { cwd, env: installEnv });
 
-    // Step 5b: fallback without --ignore-scripts if the fast path failed
+    // Step 6b: fallback without --ignore-scripts if the fast path failed
     if (!opts.noPmOptimizations && result.exitCode !== 0) {
       const fallbackArgs = baseArgs.filter(a => a !== '--ignore-scripts');
-      result = await run([pm, ...fallbackArgs], { cwd });
+      result = await run([pm, ...fallbackArgs], { cwd, env: installEnv });
     }
 
     // Step 6: rollback on failure
