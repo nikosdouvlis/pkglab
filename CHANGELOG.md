@@ -1,5 +1,11 @@
 # pkglab
 
+## 0.13.3
+
+### Patch Changes
+
+- 94ec904: Fix race condition when multiple processes call pub or add concurrently with the daemon not running
+
 ## 0.13.2
 
 ### Patch Changes
