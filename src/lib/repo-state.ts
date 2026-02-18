@@ -123,9 +123,8 @@ export async function getActiveRepos(): Promise<Array<{ displayName: string; sta
 }
 
 export async function activateRepo(state: RepoState, port: number): Promise<void> {
-  const { addRegistryToNpmrc, applySkipWorktree } = await import('./consumer');
+  const { addRegistryToNpmrc } = await import('./consumer');
   await addRegistryToNpmrc(state.path, port);
-  await applySkipWorktree(state.path);
   state.active = true;
   state.lastUsed = Date.now();
   await saveRepoByPath(state.path, state);

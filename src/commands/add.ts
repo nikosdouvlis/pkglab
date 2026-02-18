@@ -9,7 +9,6 @@ import { c } from '../lib/color';
 import { loadConfig } from '../lib/config';
 import {
   addRegistryToNpmrc,
-  applySkipWorktree,
   injectPreCommitHook,
   ensureNpmrcForActiveRepos,
   installWithVersionUpdates,
@@ -230,7 +229,6 @@ async function batchInstallPackages(
   } else {
     const { isFirstTime } = await addRegistryToNpmrc(effectivePath, config.port);
     if (isFirstTime) {
-      await applySkipWorktree(effectivePath);
       await injectPreCommitHook(effectivePath);
       log.info(NPMRC_NOTICE);
     }

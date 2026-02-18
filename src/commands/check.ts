@@ -33,25 +33,17 @@ export default defineCommand({
       // Not a workspace or discovery failed, root-only scan is fine
     }
 
-    // Check .npmrc for pkglab markers
-    const npmrcPath = join(cwd, '.npmrc');
-    const npmrcFile = Bun.file(npmrcPath);
-    if (await npmrcFile.exists()) {
-      const content = await npmrcFile.text();
-      if (content.includes('# pkglab-start')) {
-        log.line(`  ${c.red('✗')} .npmrc contains pkglab registry markers`);
-        issues++;
-      }
-    }
-
     // Check git staged files
     try {
       const result = await run(['git', 'diff', '--cached', '--name-only'], { cwd });
       const staged = result.stdout.trim().split('\n').filter(Boolean);
 
       if (staged.includes('.npmrc')) {
-        log.line(`  ${c.red('✗')} .npmrc is staged for commit`);
-        issues++;
+        const showResult = await run(['git', 'show', ':.npmrc'], { cwd });
+        if (showResult.stdout.includes('# pkglab-start')) {
+          log.line(`  ${c.red('✗')} Staged .npmrc contains pkglab registry markers`);
+          issues++;
+        }
       }
 
       // Check all staged package.json files (root and sub-packages)

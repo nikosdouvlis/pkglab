@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { c } from '../lib/color';
 import { loadConfig } from '../lib/config';
-import { MARKER_START, isSkipWorktreeSet, applySkipWorktree, addRegistryToNpmrc } from '../lib/consumer';
+import { MARKER_START, addRegistryToNpmrc } from '../lib/consumer';
 import { getDaemonStatus } from '../lib/daemon';
 import { log } from '../lib/log';
 import { paths } from '../lib/paths';
@@ -90,20 +90,6 @@ export default defineCommand({
         issues++;
       }
 
-      // Check skip-worktree
-      try {
-        const hasFlag = await isSkipWorktreeSet(state.path);
-        if (hasFlag) {
-          log.line(`  ${c.green('✓')} ${displayName}: skip-worktree OK`);
-        } else {
-          log.line(`  ${c.yellow('!')} ${displayName}: skip-worktree missing, repairing...`);
-          await applySkipWorktree(state.path);
-          log.line(`  ${c.green('✓')} ${displayName}: skip-worktree repaired`);
-        }
-      } catch {
-        log.line(`  ${c.red('✗')} ${displayName}: could not check skip-worktree`);
-        issues++;
-      }
     }
 
     // Dirty state: daemon not running but repos have active pkglab packages

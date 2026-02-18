@@ -68,18 +68,6 @@ export function removepkglabBlock(content: string): string {
   return (before + after).replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
-export async function applySkipWorktree(repoPath: string): Promise<void> {
-  // skip-worktree only works on tracked files
-  if (!(await isTrackedByGit(repoPath, '.npmrc'))) {
-    return;
-  }
-
-  const result = await run(['git', 'update-index', '--skip-worktree', '.npmrc'], { cwd: repoPath });
-  if (result.exitCode !== 0) {
-    log.warn(`Failed to set skip-worktree on .npmrc: ${result.stderr.trim()}`);
-  }
-}
-
 export async function removeSkipWorktree(repoPath: string): Promise<void> {
   if (!(await isTrackedByGit(repoPath, '.npmrc'))) {
     return;
@@ -96,11 +84,6 @@ export async function removeSkipWorktree(repoPath: string): Promise<void> {
 async function isTrackedByGit(repoPath: string, file: string): Promise<boolean> {
   const result = await run(['git', 'ls-files', file], { cwd: repoPath });
   return result.stdout.trim().length > 0;
-}
-
-export async function isSkipWorktreeSet(repoPath: string): Promise<boolean> {
-  const result = await run(['git', 'ls-files', '-v', '.npmrc'], { cwd: repoPath });
-  return result.stdout.startsWith('S ');
 }
 
 // --- Pre-commit hook injection ---
@@ -625,7 +608,6 @@ export async function ensureNpmrcForActiveRepos(port: number): Promise<void> {
     if (!hasBlock) {
       try {
         await addRegistryToNpmrc(state.path, port);
-        await applySkipWorktree(state.path);
         log.dim(`  Repaired .npmrc for ${displayName}`);
       } catch {
         log.warn(`Could not repair .npmrc for ${displayName}`);
