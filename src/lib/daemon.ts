@@ -4,6 +4,7 @@ import type { DaemonInfo } from '../types';
 
 import { loadConfig } from './config';
 import { DaemonAlreadyRunningError } from './errors';
+import { openExclusive, writeAndClose } from './lock';
 import { log } from './log';
 import { paths } from './paths';
 import { isProcessAlive, run, waitForReady, waitForExit, timeout, gracefulStop, validatePidStartTime } from './proc';
@@ -59,10 +60,55 @@ export async function ensureDaemonRunning(): Promise<DaemonInfo> {
     return existing;
   }
 
-  log.info('Starting registry...');
-  const info = await startDaemon();
-  log.success(`pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
-  return info;
+  const fd = await openExclusive(paths.daemonLock);
+
+  if (fd) {
+    try {
+      await writeAndClose(fd, String(process.pid));
+
+      const rechecked = await getDaemonStatus();
+      if (rechecked?.running) {
+        return rechecked;
+      }
+
+      log.info('Starting registry...');
+      const info = await startDaemon();
+      log.success(`pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
+      return info;
+    } finally {
+      await unlink(paths.daemonLock).catch(() => {});
+    }
+  }
+
+  return waitForDaemon();
+}
+
+async function waitForDaemon(): Promise<DaemonInfo> {
+  const lockFile = Bun.file(paths.daemonLock);
+  if (await lockFile.exists()) {
+    const content = await lockFile.text();
+    const holderPid = parseInt(content.trim(), 10);
+    if (!isNaN(holderPid) && !isProcessAlive(holderPid)) {
+      await unlink(paths.daemonLock).catch(() => {});
+      return ensureDaemonRunning();
+    }
+  }
+
+  log.info('Waiting for registry to start...');
+  const maxWait = 15000;
+  const start = Date.now();
+  let delay = 100;
+
+  while (Date.now() - start < maxWait) {
+    await Bun.sleep(delay);
+    const status = await getDaemonStatus();
+    if (status?.running) {
+      return status;
+    }
+    delay = Math.min(delay * 2, 1000);
+  }
+
+  throw new Error('Registry did not become ready (another process may have failed to start it)');
 }
 
 export async function stopDaemon(): Promise<void> {

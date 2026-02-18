@@ -35,7 +35,7 @@ export async function acquirePublishLock(): Promise<() => Promise<void>> {
   };
 }
 
-async function openExclusive(path: string): Promise<import('node:fs/promises').FileHandle | null> {
+export async function openExclusive(path: string): Promise<import('node:fs/promises').FileHandle | null> {
   try {
     const { constants } = await import('node:fs');
     return await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL);
@@ -47,7 +47,7 @@ async function openExclusive(path: string): Promise<import('node:fs/promises').F
   }
 }
 
-async function writeAndClose(fd: import('node:fs/promises').FileHandle, content: string): Promise<void> {
+export async function writeAndClose(fd: import('node:fs/promises').FileHandle, content: string): Promise<void> {
   await fd.write(content);
   await fd.close();
 }
