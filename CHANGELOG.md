@@ -1,5 +1,11 @@
 # pkglab
 
+## 0.14.0
+
+### Minor Changes
+
+- aed833c: Stop hiding .npmrc with skip-worktree so it appears in git status. Pre-commit check now only errors if .npmrc with pkglab markers is actually staged, not just present on disk.
+
 ## 0.13.3
 
 ### Patch Changes
