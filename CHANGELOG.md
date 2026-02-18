@@ -1,5 +1,11 @@
 # pkglab
 
+## 0.13.2
+
+### Patch Changes
+
+- c650f2e: Fix wrapper shim failing when pnpm skips optionalDependencies. The bin wrapper now falls back to a global `pkglab` binary in PATH when the platform-specific package is missing, instead of erroring immediately.
+
 ## 0.13.1
 
 ### Patch Changes
