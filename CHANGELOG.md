@@ -1,5 +1,12 @@
 # pkglab
 
+## 0.13.1
+
+### Patch Changes
+
+- 9263e60: Fix install failing when pkglab runs inside a pnpm script chain. pnpm injects `npm_config_registry` into child processes, which overrides the `.npmrc` that pkglab writes. The install subprocess now explicitly sets `npm_config_registry` to the local registry URL.
+- 290978c: Fix daemon health check failing on Linux by adding HTTP ping fallback when `ps` date parsing fails. Bun uses JavaScriptCore which may not parse `ps -o lstart=` output on all platforms.
+
 ## 0.13.0
 
 ### Minor Changes
