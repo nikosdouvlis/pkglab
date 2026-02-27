@@ -22,12 +22,12 @@ export default defineCommand({
     const info = await startDaemon();
     log.success(`pkglab running on http://127.0.0.1:${info.port} (PID ${info.pid})`);
 
-    const { deactivateAllRepos, loadAllRepos, getActiveRepos } = await import('../lib/repo-state');
+    const { deactivateAllRepos, loadOperationalRepos, getActiveRepos } = await import('../lib/repo-state');
 
     const previouslyActive = new Set((await getActiveRepos()).map(r => r.state.path));
     await deactivateAllRepos();
 
-    const repos = await loadAllRepos();
+    const repos = await loadOperationalRepos();
     if (repos.length > 0) {
       // Propagate port to .npmrc in linked repos
       const { addRegistryToNpmrc } = await import('../lib/consumer');

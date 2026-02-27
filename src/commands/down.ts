@@ -6,7 +6,7 @@ import { stopDaemon, getDaemonStatus } from '../lib/daemon';
 import { stopListener, getListenerDaemonStatus } from '../lib/listener-daemon';
 import { log } from '../lib/log';
 import { runInstall } from '../lib/pm-detect';
-import { loadAllRepos, saveRepoByPath } from '../lib/repo-state';
+import { loadOperationalRepos, saveRepoByPath } from '../lib/repo-state';
 import { discoverWorkspace } from '../lib/workspace';
 
 export default defineCommand({
@@ -52,7 +52,7 @@ export default defineCommand({
     }
 
     // Restore all consumer repos before stopping
-    const allRepos = await loadAllRepos();
+    const allRepos = await loadOperationalRepos();
     const reposWithPackages = allRepos.filter(
       r => Object.keys(r.state.packages).length > 0,
     );

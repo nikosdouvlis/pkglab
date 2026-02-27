@@ -4,7 +4,7 @@ import { getPositionalArgs } from '../../lib/args';
 import { loadConfig } from '../../lib/config';
 import { log } from '../../lib/log';
 import {
-  loadAllRepos,
+  loadOperationalRepos,
   loadRepoByPath,
   getRepoDisplayName,
   canonicalRepoPath,
@@ -37,7 +37,7 @@ export default defineCommand({
 
     // --all: activate every known repo
     if (args.all) {
-      const repos = await loadAllRepos();
+      const repos = await loadOperationalRepos();
       if (repos.length === 0) {
         log.info('No repos registered');
         return;

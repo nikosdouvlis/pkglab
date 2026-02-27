@@ -9,7 +9,7 @@ import { getDaemonStatus } from '../lib/daemon';
 import { log } from '../lib/log';
 import { paths } from '../lib/paths';
 import { BACKUP_SUFFIX } from '../lib/publisher';
-import { loadAllRepos } from '../lib/repo-state';
+import { loadOperationalRepos } from '../lib/repo-state';
 
 export default defineCommand({
   meta: { name: 'doctor', description: 'Health check for pkglab environment' },
@@ -62,7 +62,7 @@ export default defineCommand({
     }
 
     // Check .npmrc and skip-worktree on linked repos
-    const repos = await loadAllRepos();
+    const repos = await loadOperationalRepos();
     for (const { displayName, state } of repos) {
       if (Object.keys(state.packages).length === 0) {
         continue;

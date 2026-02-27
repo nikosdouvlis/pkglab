@@ -2,12 +2,12 @@ import { defineCommand } from 'citty';
 
 import { c } from '../../lib/color';
 import { log } from '../../lib/log';
-import { loadAllRepos } from '../../lib/repo-state';
+import { loadOperationalRepos } from '../../lib/repo-state';
 
 export default defineCommand({
   meta: { name: 'ls', description: 'List linked consumer repos' },
   async run() {
-    const repos = await loadAllRepos();
+    const repos = await loadOperationalRepos();
 
     if (repos.length === 0) {
       log.info('No linked repos. Use pkglab add in a consumer repo.');

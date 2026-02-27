@@ -356,25 +356,23 @@ try {
     // Delete consumer-1 dir to simulate a missing directory
     await rm(consumer1Dir, { recursive: true, force: true });
 
-    // reset --all should skip consumer-1 (missing) and reset consumer-2 (exists)
+    // reset --all should auto-prune consumer-1 (missing) and reset consumer-2 (exists)
     const resetR = await pkglab(['repo', 'reset', '--all']);
     assert(resetR.code === 0, 'reset --all succeeds');
-    assert(resetR.stdout.includes('Skipping'), 'skips repo with missing dir');
+    assert(resetR.stdout.includes('automatically pruned'), 'auto-prunes repo with missing dir');
     assert(resetR.stdout.includes('Reset'), 'resets repo with existing dir');
 
-    // consumer-2 should be gone from repo ls (reset deletes state)
+    // Both repos should be gone: consumer-1 was auto-pruned, consumer-2 was reset
     const lsAfter = await pkglab(['repo', 'ls']);
     assert(!lsAfter.stdout.includes('consumer-2'), 'consumer-2 removed after reset');
+    assert(!lsAfter.stdout.includes('consumer-1'), 'consumer-1 removed by auto-prune');
 
-    // consumer-1 stale entry should still be there
-    assert(lsAfter.stdout.includes('consumer-1'), 'consumer-1 stale entry still in list');
-
-    // --stale should clean it up
+    // --stale should find nothing (already cleaned up by auto-prune)
     const staleR = await pkglab(['repo', 'reset', '--stale']);
     assert(staleR.code === 0, 'reset --stale succeeds');
-    assert(staleR.stdout.includes('Removed stale'), 'stale repo removed');
+    assert(staleR.stdout.includes('No stale repos'), 'no stale repos after auto-prune');
 
-    // repo ls should now be empty
+    // repo ls should be empty
     const lsFinal = await pkglab(['repo', 'ls']);
     assert(lsFinal.stdout.includes('No linked repos'), 'all repos cleaned up');
 
@@ -391,6 +389,43 @@ try {
       stderr: 'ignore',
     });
     await bunInit.exited;
+  }
+
+  // 10d. pub with deleted active repo auto-prunes instead of crashing
+  heading('10d. pub with deleted active repo (auto-prune)');
+  {
+    // Add @test/pkg-a to both consumers, making them active
+    const add1 = await pkglab(['add', '@test/pkg-a'], { cwd: consumer1Dir });
+    assert(add1.code === 0, 'add to consumer-1');
+    const add2 = await pkglab(['add', '@test/pkg-a'], { cwd: consumer2Dir });
+    assert(add2.code === 0, 'add to consumer-2');
+
+    // Delete consumer-2 to simulate a missing repo
+    await rm(consumer2Dir, { recursive: true, force: true });
+
+    // pub should succeed, auto-pruning the deleted repo instead of ENOENT
+    const pubR = await pkglab(['pub', '--single'], { cwd: producerDir });
+    assert(pubR.code === 0, 'pub succeeds despite deleted consumer repo');
+    assert(pubR.stdout.includes('automatically pruned'), 'auto-prune message shown during pub');
+
+    // consumer-1 should still get updated
+    assert(pubR.stdout.includes('consumer-1'), 'consumer-1 still updated');
+
+    // Restore and recreate consumer-2 for remaining tests
+    const restore1 = await pkglab(['restore', '--all'], { cwd: consumer1Dir });
+    assert(restore1.code === 0, 'restore consumer-1');
+    await mkdir(consumer2Dir, { recursive: true });
+    await writeJson(join(consumer2Dir, 'package.json'), {
+      name: 'consumer-2',
+      version: '1.0.0',
+      dependencies: {},
+    });
+    const bunInit2 = Bun.spawn(['bun', 'install'], {
+      cwd: consumer2Dir,
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
+    await bunInit2.exited;
   }
 
   // 11. Test --worktree flag (from a git repo)

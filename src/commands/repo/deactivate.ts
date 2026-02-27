@@ -5,7 +5,7 @@ import type { RepoState } from '../../types';
 import { getPositionalArgs } from '../../lib/args';
 import { log } from '../../lib/log';
 import {
-  loadAllRepos,
+  loadOperationalRepos,
   loadRepoByPath,
   saveRepoByPath,
   getRepoDisplayName,
@@ -30,7 +30,7 @@ export default defineCommand({
 
     // --all: deactivate every known repo
     if (args.all) {
-      const repos = await loadAllRepos();
+      const repos = await loadOperationalRepos();
       if (repos.length === 0) {
         log.info('No repos registered');
         return;

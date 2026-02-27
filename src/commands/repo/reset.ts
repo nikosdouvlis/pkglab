@@ -12,6 +12,7 @@ import {
   deleteRepoByPath,
   getRepoDisplayName,
   loadAllRepos,
+  loadOperationalRepos,
   canonicalRepoPath,
 } from '../../lib/repo-state';
 
@@ -46,7 +47,7 @@ export default defineCommand({
     let targets: Array<{ displayName: string; state: RepoState }>;
 
     if (args.all) {
-      targets = await loadAllRepos();
+      targets = await loadOperationalRepos();
     } else if (args.name) {
       const canonical = await canonicalRepoPath(args.name);
       const state = await loadRepoByPath(canonical);

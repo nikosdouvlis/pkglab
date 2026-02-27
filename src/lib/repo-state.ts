@@ -1,4 +1,4 @@
-import { realpath, readdir, unlink } from 'node:fs/promises';
+import { realpath, readdir, unlink, exists } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 
 import type { RepoState } from '../types';
@@ -79,6 +79,36 @@ export async function findRepoByPath(repoPath: string): Promise<{ displayName: s
   return { displayName, state };
 }
 
+/**
+ * Remove repos whose directories no longer exist on disk.
+ * Deletes the state file and logs a message for each pruned repo.
+ * Returns only the repos that still exist.
+ */
+async function pruneStaleRepos(
+  repos: Array<{ displayName: string; state: RepoState }>,
+): Promise<Array<{ displayName: string; state: RepoState }>> {
+  const valid: Array<{ displayName: string; state: RepoState }> = [];
+  for (const repo of repos) {
+    if (await exists(repo.state.path)) {
+      valid.push(repo);
+    } else {
+      await deleteRepoByPath(repo.state.path);
+      log.warn(`${repo.displayName}: directory no longer exists, automatically pruned from pkglab`);
+    }
+  }
+  return valid;
+}
+
+/**
+ * Load all repos and prune any whose directories no longer exist.
+ * Use this for any operational path that will read/write repo files.
+ * Use loadAllRepos() when you need raw state without side effects (e.g. debugging).
+ */
+export async function loadOperationalRepos(): Promise<Array<{ displayName: string; state: RepoState }>> {
+  const all = await loadAllRepos();
+  return pruneStaleRepos(all);
+}
+
 export async function loadAllRepos(): Promise<Array<{ displayName: string; state: RepoState }>> {
   try {
     const files = await readdir(paths.reposDir);
@@ -118,7 +148,7 @@ export async function loadAllRepos(): Promise<Array<{ displayName: string; state
 }
 
 export async function getActiveRepos(): Promise<Array<{ displayName: string; state: RepoState }>> {
-  const all = await loadAllRepos();
+  const all = await loadOperationalRepos();
   return all.filter(entry => entry.state.active);
 }
 
@@ -131,7 +161,7 @@ export async function activateRepo(state: RepoState, port: number): Promise<void
 }
 
 export async function deactivateAllRepos(): Promise<void> {
-  const all = await loadAllRepos();
+  const all = await loadOperationalRepos();
   for (const { state } of all) {
     if (state.active) {
       state.active = false;

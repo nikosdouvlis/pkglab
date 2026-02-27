@@ -21,7 +21,7 @@ import type { RepoState } from '../types';
 
 import { c } from './color';
 import { log } from './log';
-import { loadAllRepos } from './repo-state';
+import { loadOperationalRepos } from './repo-state';
 
 export interface RepoChoice {
   displayName: string;
@@ -168,7 +168,7 @@ export async function selectRepos(opts: {
   emptyMessage?: string;
   preSelect?: Set<string>;
 }): Promise<RepoChoice[]> {
-  const all = await loadAllRepos();
+  const all = await loadOperationalRepos();
 
   if (all.length === 0) {
     log.info(opts.emptyMessage ?? 'No repos linked. Use pkglab add in a consumer repo.');
