@@ -1,33 +1,18 @@
-<p align="center">
-  <a href="https://clerk.com?utm_source=github&utm_medium=clerk_pkglab" target="_blank" rel="noopener noreferrer">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://images.clerk.com/static/logo-dark-mode-400x400.png">
-      <img src="https://images.clerk.com/static/logo-light-mode-400x400.png" height="64">
-    </picture>
-  </a>
-  <br />
-</p>
-<div align="center">
-  <h1>
-    pkglab
-  </h1>
-  <a href="https://www.npmjs.com/package/pkglab">
-    <img alt="Downloads" src="https://img.shields.io/npm/dm/pkglab" />
-  </a>
-  <a href="https://clerk.com/discord">
-    <img alt="Discord" src="https://img.shields.io/discord/856971667393609759?color=7389D8&label&logo=discord&logoColor=ffffff" />
-  </a>
-  <a href="https://twitter.com/clerkdev">
-    <img alt="Twitter" src="https://img.shields.io/twitter/url.svg?label=%40clerkdev&style=social&url=https%3A%2F%2Ftwitter.com%2Fclerkdev" />
-  </a>
-  <br />
-  <br />
-  <p>
-    Local package development CLI with a built-in registry. Publish workspace packages locally and auto-update consumer repos.
-  </p>
-</div>
+> [!NOTE]
+> ## pkglab has a new home
+>
+> pkglab is now maintained by [Clerk](https://clerk.com). Clerk has adopted the project as part of their commitment to supporting open-source developer tools, which means dedicated resources, long-term maintenance, and a proper home for the project to grow.
+>
+> All future development, issues, and releases happen at [clerk/pkglab](https://github.com/clerk/pkglab).
+>
+> This repository is archived and will not receive updates. Head over to the new repo to stay current.
 
-Test your library changes in consumer repos the way your users actually install them. pkglab runs a fast Bun-based local npm registry, auto-publishes packages (and their deps/dependent chain) on every edit, and updates all your consumer repos automatically. No `npm link` symlink issues, no manual version juggling.
+---
+
+<details>
+<summary>Original README</summary>
+
+Test your library changes in consumer repos the way your users actually install them. pkglab runs a fast Bun-based local npm registry, auto-publishes packages (and their deps/dependent chain) on every edit, and updates all your consumer repos automatically. No `npm link` symlink issues, no stale yalc copies, no manual version juggling.
 
 Built for teams publishing npm packages from monorepos who need to test changes in consumer repos before shipping. Used in production by the [Clerk JavaScript SDK](https://github.com/clerk/javascript) monorepo (22+ packages).
 
@@ -467,7 +452,10 @@ bun run benchmarks/registry-benchmark.ts
 
 - [Verdaccio](https://github.com/verdaccio/verdaccio) is the project that made local npm registries practical. pkglab started as a wrapper around Verdaccio, and the team's work on registry compatibility and plugin architecture made it possible to prototype quickly before building a custom server.
 - [yalc](https://github.com/wclr/yalc) pioneered the copy-based approach to local package development and showed that symlinks aren't the only way. pkglab takes the idea further by using a real registry, but yalc remains a great lighter-weight option if you don't need registry-level validation. Thank you to the yalc maintainers for paving the way.
+- Banner style inspired by our friends at [askfeather.ai](https://askfeather.ai).
 
 ## License
 
 MIT
+
+</details>
